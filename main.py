@@ -18,8 +18,8 @@ from webdriver_manager.firefox import GeckoDriverManager
 
 
 dotenv.load_dotenv()
-USER_ID = os.getenv("USER_ID", "default_user_id")
-PASSWORD = os.getenv("PASSWORD", "default_password")
+USER_ID = os.getenv("USER_ID")
+PASSWORD = os.getenv("PASSWORD")
 
 # Telegram Bot Configuration
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -733,6 +733,7 @@ def send_markdown_file_to_telegram():
             return
 
         job_posts = content.split("---")
+        job_posts = job_posts.reverse()
 
         successful_sends = 0
         failed_sends = 0
@@ -820,16 +821,6 @@ def test_telegram_connection():
 
         if not TELEGRAM_CHAT_ID:
             print("TELEGRAM_CHAT_ID not set in .env file")
-            return False
-
-        test_message = "SuperSet Notification Bot Test\n\nBot is working correctly!"
-
-        if send_telegram_message(test_message):
-            print("Telegram connection test successful!")
-            return True
-
-        else:
-            print("Telegram connection test failed!")
             return False
 
     except Exception as e:

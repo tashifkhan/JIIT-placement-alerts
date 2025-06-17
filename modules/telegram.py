@@ -48,24 +48,38 @@ class TelegramBot:
         )
 
         if success:
-            welcome_text = f"Hello {user.first_name}! 👋\n\n"
-            welcome_text += "Welcome to SuperSet Placement Notifications Bot!\n"
-            welcome_text += "You'll receive job posting updates automatically.\n\n"
+            if "reactivated" in message.lower():
+                welcome_text = f"Welcome back {user.first_name}! 👋\n\n"
+                welcome_text += "Your subscription has been reactivated!\n"
+                welcome_text += (
+                    "You'll now receive job posting updates automatically.\n\n"
+                )
+            else:
+                welcome_text = f"Hello {user.first_name}! 👋\n\n"
+                welcome_text += "Welcome to SuperSet Placement Notifications Bot!\n"
+                welcome_text += "You'll receive job posting updates automatically.\n\n"
+
             welcome_text += "Commands:\n"
             welcome_text += "/start - Register for notifications\n"
             welcome_text += "/stop - Stop receiving notifications\n"
             welcome_text += "/status - Check your subscription status"
         else:
-            welcome_text = f"Welcome back {user.first_name}! 👋\n\n"
-            welcome_text += (
-                "You're already registered for SuperSet placement notifications.\n"
-            )
-            welcome_text += (
-                "You'll continue receiving job posting updates automatically."
-            )
+            if "already exists and is active" in message:
+                welcome_text = f"Hi {user.first_name}! 👋\n\n"
+                welcome_text += "You're already registered and active for SuperSet placement notifications.\n"
+                welcome_text += (
+                    "You'll continue receiving job posting updates automatically.\n\n"
+                )
+                welcome_text += "Use /status to check your subscription details."
+            else:
+                welcome_text = f"Hello {user.first_name}! 👋\n\n"
+                welcome_text += (
+                    "There was an issue with your registration. Please try again.\n"
+                )
+                welcome_text += f"Error: {message}"
 
         await update.message.reply_text(welcome_text)
-        print(f"User {user.id} (@{user.username}) started the bot")
+        print(f"User {user.id} (@{user.username}) started the bot - {message}")
 
     async def stop_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /stop command"""
@@ -88,14 +102,31 @@ class TelegramBot:
 
         user_data = self.db_manager.get_user_by_id(user.id)
 
+        # Debug logging
+        print(f"Status check for user {user.id} (@{user.username})")
+        print(f"User data found: {user_data is not None}")
+        if user_data:
+            print(f"User is_active: {user_data.get('is_active', 'not set')}")
+            print(f"User data: {user_data}")
+
         if user_data and user_data.get("is_active", False):
             text = "✅ You're subscribed to SuperSet placement notifications.\n"
-            text += f"Registered on: {user_data.get('created_at', 'Unknown').strftime('%B %d, %Y')}"
+            created_at = user_data.get("created_at")
+            if created_at:
+                text += f"Registered on: {created_at.strftime('%B %d, %Y')}\n"
+            text += f"User ID: {user_data.get('user_id')}\n"
+            text += f"Status: Active ✅"
         else:
             text = "❌ You're not subscribed to notifications.\n"
+            if user_data:
+                text += f"Found your account but it's marked as inactive.\n"
+                text += f"User ID: {user_data.get('user_id')}\n"
+            else:
+                text += "No account found in our database.\n"
             text += "Use /start to subscribe."
 
         await update.message.reply_text(text)
+        print(f"Status response sent to user {user.id}")
 
     def test_connection(self):
         """Test if Telegram bot is configured correctly"""

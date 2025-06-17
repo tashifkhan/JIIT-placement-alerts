@@ -364,14 +364,34 @@ class MongoDBManager:
 
     # User Management Methods
     def add_user(self, user_id, username=None, first_name=None, last_name=None):
-        """Add a new user to the database"""
+        """Add a new user to the database or reactivate existing user"""
         try:
             # Check if user already exists
             existing_user = self.users_collection.find_one({"user_id": user_id})
             if existing_user:
-                print(f"User {user_id} already exists")
-                return False, "User already exists"
+                # If user exists but is inactive, reactivate them
+                if not existing_user.get("is_active", False):
+                    result = self.users_collection.update_one(
+                        {"user_id": user_id},
+                        {
+                            "$set": {
+                                "is_active": True,
+                                "username": username,
+                                "first_name": first_name,
+                                "last_name": last_name,
+                                "updated_at": datetime.utcnow(),
+                            }
+                        },
+                    )
+                    if result.modified_count > 0:
+                        print(f"Reactivated user: {user_id} (@{username})")
+                        return True, "User reactivated"
 
+                # User already exists and is active
+                print(f"User {user_id} already exists and is active")
+                return False, "User already exists and is active"
+
+            # Create new user
             user_data = {
                 "user_id": user_id,
                 "username": username,
@@ -441,6 +461,58 @@ class MongoDBManager:
             print(f"Error getting user stats: {e}")
             return {}
 
-    def __del__(self):
-        """Destructor to ensure connection is closed"""
-        self.close_connection()
+    def reactivate_user(self, user_id):
+        """Reactivate a user (opposite of deactivate)"""
+        try:
+            result = self.users_collection.update_one(
+                {"user_id": user_id},
+                {
+                    "$set": {
+                        "is_active": True,
+                        "updated_at": datetime.utcnow(),
+                    }
+                },
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            print(f"Error reactivating user: {e}")
+            return False
+
+    def fix_user_activation_status(self):
+        """Fix any users that might have incorrect activation status"""
+        try:
+            # Find users that might be incorrectly inactive
+            inactive_users = list(
+                self.users_collection.find({"is_active": {"$ne": True}})
+            )
+
+            print(f"Found {len(inactive_users)} users with non-active status")
+
+            fixed_count = 0
+            for user in inactive_users:
+                user_id = user.get("user_id")
+                username = user.get("username", "Unknown")
+
+                # Reactivate the user
+                result = self.users_collection.update_one(
+                    {"user_id": user_id},
+                    {
+                        "$set": {
+                            "is_active": True,
+                            "updated_at": datetime.utcnow(),
+                        }
+                    },
+                )
+
+                if result.modified_count > 0:
+                    fixed_count += 1
+                    print(f"Fixed activation status for user {user_id} (@{username})")
+
+            print(f"Fixed activation status for {fixed_count} users")
+            return fixed_count
+
+        except Exception as e:
+            print(f"Error fixing user activation status: {e}")
+            return 0
+
+    # ...existing code...

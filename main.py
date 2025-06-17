@@ -30,11 +30,11 @@ def main():
 
     print("\nStep 1/3: Starting web scraping...")
     print("-" * 30)
-
     try:
         if scraper.scrape():
             print("Web scraping completed successfully!")
             success_count += 1
+
         else:
             print("Web scraping failed!")
 
@@ -43,13 +43,19 @@ def main():
 
     print("\nStep 2/3: Formatting extracted content...")
     print("-" * 30)
-
     try:
-        if formatter.format_content():
-            print("Content formatting completed successfully!")
+        format_result = formatter.format_content()
+        if isinstance(format_result, dict) and format_result.get("success"):
+            new_posts = format_result.get("new_posts", 0)
+            total_processed = format_result.get("total_processed", 0)
+            print(f"Content formatting completed successfully!")
+            print(f"   New posts: {new_posts}, Total processed: {total_processed}")
             success_count += 1
+
         else:
             print("Content formatting failed!")
+            if isinstance(format_result, dict):
+                print(f"   Error: {format_result.get('error', 'Unknown error')}")
 
     except Exception as e:
         print(f"Formatting error: {e}")

@@ -9,4 +9,5 @@ dependencies = [
     "selenium>=4.33.0",
     "webdriver-manager>=4.0.0",
     "requests>=2.32.0",
+    "pymongo>=4.10.1",
 ]

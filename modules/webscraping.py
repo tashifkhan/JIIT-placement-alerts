@@ -323,8 +323,10 @@ class WebScraper:
         else:
             print("No scrollable inner container found!")
 
-    def extract_content(self):
-        """Extract content from the page"""
+    def extract_content_incrementally(self):
+        """Extract content from the page and check database incrementally"""
+        print("\n📝 Extracting content with incremental database checking...")
+
         selectors_to_try = [
             "div.px-5.pt-6.pb-0",
             "div.px-5.pt-5.pb-0",
@@ -350,110 +352,66 @@ class WebScraper:
             )
             print(f"Found {len(content_elements)} elements with px-5 class")
 
-        all_content = []
+        new_posts = []
+        processed_count = 0
+
         for i, element in enumerate(content_elements):
             try:
                 element_text = element.text.strip()
                 if element_text and len(element_text) > 50:
-                    all_content.append(f"=== Content Block {i+1} ===\n{element_text}\n")
+                    processed_count += 1
                     print(
-                        f"Extracted content from element {i+1} ({len(element_text)} characters)"
+                        f"Processing post #{processed_count} ({len(element_text)} characters)..."
                     )
 
+                    result = self.process_single_post(element_text, processed_count)
+
+                    if result == "duplicate":
+                        print(
+                            f"🛑 Found duplicate post #{processed_count}. Stopping scraping."
+                        )
+                        break
+                    elif result == "saved":
+                        new_posts.append(element_text)
+
             except Exception as element_error:
-                print(f"Error extracting content from element {i+1}: {element_error}")
+                print(f"Error processing element {i+1}: {element_error}")
 
-        return all_content
+        print(f"📊 Scraping Summary:")
+        print(f"   Total posts processed: {processed_count}")
+        print(f"   New posts saved: {len(new_posts)}")
 
-    def save_content(self, content):
-        """Save extracted content to files and database"""
-        project_root = os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__)),
-        )
-        output_dir = os.path.join(project_root, "output")
+        return new_posts, processed_count
 
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-            print(f"Created output directory: {output_dir}")
-
-        file_name = os.path.join(output_dir, "page_content.txt")
-        with open(file_name, "w", encoding="utf-8") as f:
-            if content:
-                f.write("\n".join(content))
-                print(
-                    f"Successfully wrote {len(content)} content blocks to page_content.txt"
-                )
-            else:
-                f.write("No substantial content found in matching elements")
-                print("No substantial content found to write")
-
-        file_name = os.path.join(output_dir, "job_posts.txt")
-        with open(file_name, "w", encoding="utf-8") as f:
-            if content:
-                content_text = "\n\n".join(content)
-                f.write(content_text)
-            else:
-                f.write("No content extracted")
-
-        file_name = os.path.join(output_dir, "job_posts_page.txt")
-        with open(file_name, "w", encoding="utf-8") as f:
-            f.write(self.driver.page_source)
-
-        if content:
-            self.save_to_database(content)
-
-    def save_to_database(self, content):
-        """Save extracted content blocks to MongoDB database"""
-        print(f"\n💾 Saving {len(content)} content blocks to database...")
-
-        new_posts_count = 0
-        duplicate_posts_count = 0
+    def fallback_content_extraction(self):
+        """Fallback method for content extraction"""
+        print("Attempting fallback content extraction...")
 
         try:
-            for i, block in enumerate(content, 1):
-                lines = block.split("\n")
-                if len(lines) < 3:
+            # Try to find any divs with text content
+            all_divs = self.driver.find_elements(By.TAG_NAME, "div")
+            content_blocks = []
+
+            for div in all_divs[:50]:  # Limit to first 50 divs
+                try:
+                    text = div.text.strip()
+                    if (
+                        len(text) > 100 and len(text) < 5000
+                    ):  # Reasonable content length
+                        content_blocks.append(text)
+                        if len(content_blocks) >= 10:  # Limit fallback results
+                            break
+                except:
                     continue
 
-                content_lines = []
-                for line in lines:
-                    if line.strip().startswith("===") and "Content Block" in line:
-                        continue
-                    if line.strip():
-                        content_lines.append(line.strip())
-
-                if not content_lines:
-                    continue
-
-                title, author, posted_time = self.extract_post_metadata_from_raw(
-                    content_lines
-                )
-
-                formatted_content = self.create_basic_formatted_content(content_lines)
-
-                raw_content = "\n".join(content_lines)
-                success, result = self.db_manager.save_post(
-                    title=title,
-                    content=formatted_content,
-                    raw_content=raw_content,
-                    author=author,
-                    posted_time=posted_time,
-                )
-
-                if success:
-                    new_posts_count += 1
-                    print(f"✅ Block {i}: Saved new post - {title[:50]}...")
-                else:
-                    duplicate_posts_count += 1
-                    print(f"ℹ️  Block {i}: Duplicate post - {title[:50]}...")
+            print(f"Fallback extraction found {len(content_blocks)} content blocks")
+            return content_blocks
 
         except Exception as e:
-            print(f"❌ Error saving to database: {e}")
+            print(f"Fallback extraction failed: {e}")
+            return []
 
-        print(f"💾 Database save completed:")
-        print(f"   📊 New posts: {new_posts_count}")
-        print(f"   🔄 Duplicates: {duplicate_posts_count}")
-        print(f"   📝 Total processed: {len(content)}")
+    # Database saving is now handled individually in process_single_post method
 
     def extract_post_metadata_from_raw(self, content_lines):
         """Extract title, author, and posted time from raw content lines"""
@@ -571,7 +529,7 @@ class WebScraper:
         )
 
     def scrape(self):
-        """Main scraping method"""
+        """Main scraping method with incremental database checking"""
         try:
             self.initialize_driver()
 
@@ -579,18 +537,19 @@ class WebScraper:
                 raise Exception("Login failed")
 
             self.scroll_and_load_content()
-            content = self.extract_content()
-            self.save_content(content)
+            new_posts, processed_count = self.extract_content_incrementally()
 
-            print("Web scraping completed successfully!")
+            print(f"\n🎯 Web scraping completed!")
+            print(f"   Posts processed: {processed_count}")
+            print(f"   New posts saved: {len(new_posts)}")
 
             try:
                 stats = self.db_manager.get_posts_stats()
                 print(f"📊 Database Summary:")
                 print(f"   Total posts in database: {stats.get('total_posts', 0)}")
                 print(f"   Unsent posts: {stats.get('pending_to_send', 0)}")
-            except:
-                pass
+            except Exception as stats_error:
+                print(f"Could not get database stats: {stats_error}")
 
             return True
 
@@ -631,3 +590,57 @@ class WebScraper:
 
             except Exception as db_error:
                 print(f"Error closing database connection: {db_error}")
+
+    def process_single_post(self, content_text, post_number):
+        """Process a single post and check if it already exists in database using exact matching
+        Returns: 'saved' if new post saved, 'duplicate' if exact post exists, 'error' if error occurred
+        """
+        try:
+            lines = content_text.split("\n")
+            content_lines = []
+
+            for line in lines:
+                if line.strip().startswith("===") and "Content Block" in line:
+                    continue
+                if line.strip():
+                    content_lines.append(line.strip())
+
+            if not content_lines or len(content_lines) < 3:
+                return "skipped"
+
+            # Extract metadata from the post
+            title, author, posted_time = self.extract_post_metadata_from_raw(
+                content_lines
+            )
+            formatted_content = self.create_basic_formatted_content(content_lines)
+
+            # Create content hash for exact duplicate detection
+            content_hash = self.db_manager.create_post_hash(formatted_content)
+
+            # Check if exact duplicate exists (no fuzzy matching)
+            existing_post = self.db_manager.post_exists(content_hash)
+            if existing_post:
+                print(f"� EXACT DUPLICATE found for post #{post_number}: {title[:50]}...")
+                print(f"   Stopping scraping - found identical content")
+                return "duplicate"
+
+            # Save new post to database
+            raw_content = "\n".join(content_lines)
+            success, result = self.db_manager.save_post(
+                title=title,
+                content=formatted_content,
+                raw_content=raw_content,
+                author=author,
+                posted_time=posted_time,
+            )
+
+            if success:
+                print(f"✅ Post #{post_number} saved: {title[:50]}...")
+                return "saved"
+            else:
+                print(f"❌ Post #{post_number} failed to save: {result}")
+                return "error"
+
+        except Exception as e:
+            print(f"❌ Error processing post #{post_number}: {e}")
+            return "error"

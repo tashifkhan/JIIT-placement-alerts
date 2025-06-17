@@ -1,13 +1,19 @@
 """
 SuperSet Telegram Notification Bot
 
-This bot scrapes job postings from the SuperSet portal, formats them,
-and sends them to a Telegram channel.
+This bot scrapes job postings from the SuperSet portal, saves them to database,
+enhances their formatting, and sends them to a Telegram channel.
+
+Key Features:
+- Incremental scraping: Stops when encountering EXACT duplicate posts
+- Exact matching: Only posts with 100% identical content are rejected
+- Database-only storage: No file-based saving
+- Precise duplicate detection: Even small content changes are treated as new posts
 
 Modules:
-- webscraping: Handles web scraping using Selenium
-- formatting: Formats the scraped content into readable markdown
-- telegram: Sends formatted messages to Telegram
+- webscraping: Handles web scraping with exact duplicate detection using MongoDB
+- formatting: Enhances formatting of posts already saved in database
+- telegram: Sends formatted messages from database to Telegram
 """
 
 from modules.webscraping import WebScraper
@@ -28,7 +34,7 @@ def main():
     success_count = 0
     total_steps = 3
 
-    print("\nStep 1/3: Starting web scraping...")
+    print("\nStep 1/3: Starting incremental web scraping...")
     print("-" * 30)
     try:
         if scraper.scrape():
@@ -41,15 +47,17 @@ def main():
     except Exception as e:
         print(f"Web scraping error: {e}")
 
-    print("\nStep 2/3: Formatting extracted content...")
+    print("\nStep 2/3: Enhancing post formatting...")
     print("-" * 30)
     try:
         format_result = formatter.format_content()
         if isinstance(format_result, dict) and format_result.get("success"):
-            new_posts = format_result.get("new_posts", 0)
+            enhanced_posts = format_result.get("new_posts", 0)
             total_processed = format_result.get("total_processed", 0)
-            print(f"Content formatting completed successfully!")
-            print(f"   New posts: {new_posts}, Total processed: {total_processed}")
+            print(f"Content formatting enhancement completed!")
+            print(
+                f"   Posts enhanced: {enhanced_posts}, Total processed: {total_processed}"
+            )
             success_count += 1
 
         else:

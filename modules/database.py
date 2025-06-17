@@ -37,101 +37,44 @@ class MongoDBManager:
             raise
 
     def create_post_hash(self, content):
-        """Create a unique hash for post content to detect duplicates"""
+        """Create a unique hash for exact content matching (no fuzzy matching)"""
+        # Use the content exactly as-is for precise duplicate detection
+        # Only strip leading/trailing whitespace to avoid formatting issues
+        exact_content = content.strip()
 
-        cleaned_content = content.strip().lower()
-
-        cleaned_content = re.sub(r"\s+", " ", cleaned_content)
-        # Remove markdown formatting that doesn't affect content meaning
-        cleaned_content = re.sub(r"[*_`#>-]", "", cleaned_content)
-        # Remove URLs as they can have tracking parameters
-        cleaned_content = re.sub(
-            r"http[s]?://[^\s]+", "URL_PLACEHOLDER", cleaned_content
-        )
-
-        return hashlib.sha256(cleaned_content.encode()).hexdigest()
+        return hashlib.sha256(exact_content.encode("utf-8")).hexdigest()
 
     def post_exists(self, content_hash, content=None):
-        """Check if a post with this hash already exists"""
+        """Check if a post with this exact hash already exists (no fuzzy matching)"""
         try:
+            # Only check for exact hash matches - no similarity checking
             existing_post = self.collection.find_one({"content_hash": content_hash})
             if existing_post:
+                print(f"Found exact duplicate with hash: {content_hash[:16]}...")
                 return existing_post
 
-            if content:
-                content_lines = content.strip().split("\n")
-
-                if content_lines:
-                    first_line = content_lines[0].strip()
-
-                    if len(first_line) > 20:
-                        similar_posts = self.collection.find(
-                            {
-                                "$or": [
-                                    {
-                                        "title": {
-                                            "$regex": re.escape(first_line[:50]),
-                                            "$options": "i",
-                                        }
-                                    },
-                                    {
-                                        "content": {
-                                            "$regex": re.escape(first_line[:50]),
-                                            "$options": "i",
-                                        }
-                                    },
-                                ]
-                            }
-                        ).limit(5)
-
-                        for post in similar_posts:
-
-                            existing_first_line = (
-                                post.get("content", "").strip().split("\n")[0]
-                                if post.get("content")
-                                else ""
-                            )
-
-                            if self._are_posts_similar(first_line, existing_first_line):
-                                print(
-                                    f"Found similar existing post: {post.get('title', 'No Title')[:50]}..."
-                                )
-                                return post
-
             return None
+
         except Exception as e:
             print(f"Error checking if post exists: {e}")
             return None
 
-    def _are_posts_similar(self, text1, text2, threshold=0.8):
-        """Check if two text snippets are similar enough to be considered duplicates"""
-        if not text1 or not text2:
-            return False
-
-        words1 = set(text1.lower().split())
-        words2 = set(text2.lower().split())
-
-        if not words1 or not words2:
-            return False
-
-        intersection = words1.intersection(words2)
-        union = words1.union(words2)
-
-        similarity = len(intersection) / len(union) if union else 0
-        return similarity >= threshold
+    # Removed fuzzy matching method - now using exact content matching only
 
     def save_post(self, title, content, raw_content="", author="", posted_time=""):
-        """Save a new post to MongoDB"""
+        """Save a new post to MongoDB with exact duplicate prevention"""
         try:
+            # Create hash of exact content for precise duplicate detection
             content_hash = self.create_post_hash(content)
 
-            existing_post = self.post_exists(content_hash, content)
+            # Check for exact duplicates only
+            existing_post = self.post_exists(content_hash)
             if existing_post:
-                print(f"Post already exists with hash: {content_hash}")
+                print(f"Exact duplicate found with hash: {content_hash[:16]}...")
                 print(
-                    f"ℹ️  Post already exists: {existing_post.get('title', 'No Title')[:50]}..."
+                    f"🔄 Exact duplicate exists: {existing_post.get('title', 'No Title')[:50]}..."
                 )
-                return False, "Post already exists"
+                return False, "Exact duplicate post already exists"
 
             post_data = {
                 "title": title.strip() if title else "No Title",
@@ -219,15 +162,16 @@ class MongoDBManager:
         return metadata
 
     def get_unsent_posts(self):
-        """Get all posts that haven't been sent to Telegram yet"""
+        """Get all posts that haven't been sent to Telegram yet, sorted by oldest first"""
         try:
 
             query = {"sent_to_telegram": {"$ne": True}}
 
+            # Sort by created_at in ascending order (1) to send oldest messages first
             cursor = self.collection.find(
                 query,
                 sort=[
-                    ("created_at", -1),
+                    ("created_at", 1),
                 ],
             )
             posts = list(cursor)

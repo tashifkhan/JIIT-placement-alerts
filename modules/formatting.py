@@ -6,117 +6,69 @@ from .database import MongoDBManager
 
 class TextFormatter:
     def __init__(self):
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        output_dir = os.path.join(project_root, "output")
-
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-
-        self.input_file = os.path.join(output_dir, "job_posts.txt")
-        self.output_file = os.path.join(output_dir, "formatted_job_posts.md")
         self.db_manager = MongoDBManager()
 
     def format_content(self):
-        """Main method to format the extracted content and save to MongoDB"""
+        """Main method to enhance formatting of posts in the database"""
         try:
-            with open(self.input_file, "r", encoding="utf-8") as f:
-                content = f.read()
+            # Get all posts that need formatting enhancement
+            posts = self.db_manager.collection.find(
+                {"sent_to_telegram": {"$ne": True}}
+            ).sort("created_at", 1)
 
-            if not content.strip():
-                print("No content to format")
-                return False
+            posts_list = list(posts)
+            if not posts_list:
+                print("No posts found to format")
+                return {
+                    "success": True,
+                    "new_posts": 0,
+                    "total_processed": 0,
+                }
 
-            # Split content into blocks
-            blocks = content.split("=== Content Block")
-            formatted_blocks = []
-            new_posts_count = 0
+            enhanced_count = 0
+            total_processed = len(posts_list)
 
-            for i, block in enumerate(blocks):
-                if not block.strip():
-                    continue
+            for post in posts_list:
+                try:
+                    # Check if post needs enhanced formatting
+                    current_content = post.get("content", "")
+                    raw_content = post.get("raw_content", "")
 
-                # Skip the first empty block
-                if i == 0 and not block.strip():
-                    continue
+                    if raw_content:
+                        # Apply enhanced formatting
+                        content_lines = raw_content.split("\n")
+                        enhanced_content = self.format_placement_message(content_lines)
 
-                # Clean up the block
-                block = block.strip()
-
-                # Extract block number and content
-                lines = block.split("\n")
-                if len(lines) < 2:
-                    continue
-
-                # Remove the block number line and "==="
-                content_lines = []
-                start_content = False
-
-                for line in lines:
-                    if line.strip().startswith("===") or line.strip().endswith("==="):
-                        continue
-                    if line.strip().isdigit():
-                        continue
-                    start_content = True
-                    content_lines.append(line)
-
-                if not content_lines:
-                    continue
-
-                # Extract title, author, and time from content
-                title, author, posted_time = self.extract_post_metadata(content_lines)
-
-                # Format the content
-                formatted_block = self.format_placement_message(content_lines)
-                if formatted_block:
-                    # Check if this post exists in database and update its formatted content
-                    raw_content = "\n".join(content_lines)
-                    content_hash = self.db_manager.create_post_hash(raw_content)
-
-                    # Look for existing post with this hash
-                    existing_post = self.db_manager.post_exists(
-                        content_hash, raw_content
-                    )
-                    if existing_post:
-                        # Update the existing post with better formatted content
-                        post_id = existing_post["_id"]
-                        updated = self.db_manager.collection.update_one(
-                            {"_id": post_id},
-                            {
-                                "$set": {
-                                    "content": formatted_block,  # Update with formatted version
-                                    "updated_at": datetime.utcnow(),
-                                }
-                            },
-                        )
-                        if updated.modified_count > 0:
-                            print(
-                                f"✅ Updated formatting for existing post: {title[:50]}..."
+                        # Only update if enhanced content is significantly different or better
+                        if enhanced_content and enhanced_content != current_content:
+                            # Update the post with enhanced formatting
+                            result = self.db_manager.collection.update_one(
+                                {"_id": post["_id"]},
+                                {
+                                    "$set": {
+                                        "content": enhanced_content,
+                                        "updated_at": datetime.utcnow(),
+                                    }
+                                },
                             )
-                        formatted_blocks.append(formatted_block)
-                    else:
-                        # This shouldn't happen if webscraping ran first, but handle gracefully
-                        print(
-                            f"⚠️  Post not found in database, skipping: {title[:50]}..."
-                        )
-                        continue
 
-            # Join all formatted blocks with proper Markdown separators
-            final_content = "\n\n---\n\n".join(formatted_blocks)
+                            if result.modified_count > 0:
+                                enhanced_count += 1
+                                title = post.get("title", "No Title")
+                                print(f"✅ Enhanced formatting for: {title[:50]}...")
 
-            # Save formatted content to file (only processed posts)
-            with open(self.output_file, "w", encoding="utf-8") as f:
-                f.write(final_content)
+                except Exception as post_error:
+                    print(f"Error processing post {post.get('_id')}: {post_error}")
+                    continue
 
-            posts_updated = len(formatted_blocks)
-            print(
-                f"Content formatted and saved to {self.output_file} ({posts_updated} posts updated, {posts_updated} total processed)"
-            )
+            print(f"📝 Formatting enhancement completed:")
+            print(f"   Posts processed: {total_processed}")
+            print(f"   Posts enhanced: {enhanced_count}")
 
-            # Return information about processed posts
             return {
                 "success": True,
-                "new_posts": posts_updated,  # For compatibility with existing code
-                "total_processed": posts_updated,
+                "new_posts": enhanced_count,
+                "total_processed": total_processed,
             }
 
         except Exception as e:

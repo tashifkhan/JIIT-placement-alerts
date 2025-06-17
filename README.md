@@ -46,8 +46,8 @@ While the live bot above is fully functional and ready to use, you can also run 
 ### Step 1: Clone the repository
 
 ```bash
-git clone https://github.com/tashifkhan/SuperSet-telegram-notification-bot.git
-cd SuperSet-telegram-notification-bot
+git clone https://github.com/tashifkhan/placement-alerts-superset-telegram-notification-bot.git
+cd placement-alerts-superset-telegram-notification-bot
 ```
 
 ### Step 2: Install dependencies

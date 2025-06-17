@@ -170,6 +170,12 @@ try:
         username_field.send_keys(USER_ID)
         password_field.send_keys(PASSWORD)
 
+        login_button = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
+        login_button.click()
+        print("Login button clicked!")
+
+        time.sleep(30)
+
     except Exception as login_error:
         print(f"Could not find login elements: {login_error}")
         print("Page title:", driver.title)

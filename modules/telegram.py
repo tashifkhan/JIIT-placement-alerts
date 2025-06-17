@@ -3,6 +3,7 @@ import os
 import re
 import time
 import requests
+from .database import MongoDBManager
 
 dotenv.load_dotenv()
 
@@ -11,6 +12,7 @@ class TelegramBot:
     def __init__(self):
         self.TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
         self.TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+        self.db_manager = MongoDBManager()
 
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         output_dir = os.path.join(project_root, "output")
@@ -123,49 +125,57 @@ class TelegramBot:
             print(f"Error sending HTML Telegram message: {e}")
             return False
 
-    def send_markdown_file(self):
-        """Read the formatted markdown file and send each job posting as separate messages"""
+    def send_new_posts_from_db(self):
+        """Send only new posts from MongoDB that haven't been sent to Telegram yet"""
         try:
-            if not os.path.exists(self.markdown_file):
-                print(f"Error: {self.markdown_file} file not found")
-                return False
+            # Get unsent posts from database
+            unsent_posts = self.db_manager.get_unsent_posts()
 
-            with open(self.markdown_file, "r", encoding="utf-8") as f:
-                content = f.read()
+            if not unsent_posts:
+                print("No new posts to send to Telegram")
+                return True
 
-            if not content.strip():
-                print("No content to send")
-                return False
-
-            job_posts = content.split("---")
-            job_posts.reverse()
+            print(f"Found {len(unsent_posts)} new posts to send to Telegram")
 
             successful_sends = 0
             failed_sends = 0
 
-            for i, post in enumerate(job_posts, 1):
-                post = post.strip()
-                if not post:
+            for i, post in enumerate(unsent_posts, 1):
+                post_content = post.get("content", "")
+                post_title = post.get("title", "No Title")
+
+                if not post_content.strip():
                     continue
 
-                print(f"Sending job post {i}/{len(job_posts)}...")
+                print(f"Sending post {i}/{len(unsent_posts)}: {post_title[:50]}...")
 
-                if len(post) > 4000:
-                    chunks = self.split_long_message(post)
+                # Send the post
+                success = False
+                if len(post_content) > 4000:
+                    chunks = self.split_long_message(post_content)
+                    chunk_success = True
                     for j, chunk in enumerate(chunks, 1):
                         print(f"  Sending chunk {j}/{len(chunks)}...")
-                        if self.send_message_html(chunk):
-                            successful_sends += 1
-                        else:
+                        if not self.send_message_html(chunk):
+                            chunk_success = False
                             failed_sends += 1
                         time.sleep(1)
+                    success = chunk_success
                 else:
-                    if self.send_message_html(post):
-                        successful_sends += 1
-                    else:
-                        failed_sends += 1
+                    success = self.send_message_html(post_content)
 
-                time.sleep(2)
+                if success:
+                    successful_sends += 1
+                    # Mark as sent in database
+                    if self.db_manager.mark_as_sent(post["_id"]):
+                        print(f"✅ Post marked as sent in database")
+                    else:
+                        print(f"⚠️  Failed to mark post as sent in database")
+                else:
+                    failed_sends += 1
+                    print(f"❌ Failed to send post: {post_title[:50]}...")
+
+                time.sleep(2)  # Rate limiting
 
             print(
                 f"Telegram sending completed: {successful_sends} successful, {failed_sends} failed"
@@ -173,8 +183,13 @@ class TelegramBot:
             return successful_sends > 0
 
         except Exception as e:
-            print(f"Error reading or sending markdown file: {e}")
+            print(f"Error sending posts from database: {e}")
             return False
+
+    def send_markdown_file(self):
+        """Legacy method - now redirects to database-based sending"""
+        print("Using database-based post sending instead of markdown file...")
+        return self.send_new_posts_from_db()
 
     def split_long_message(self, message, max_length=4000):
         """Split a long message into smaller chunks while preserving markdown formatting"""
@@ -290,6 +305,26 @@ class TelegramBot:
 
         return text
 
+    def get_database_stats(self):
+        """Get and display database statistics"""
+        try:
+            stats = self.db_manager.get_posts_stats()
+            print("\n📊 Database Statistics:")
+            print(f"   Total posts: {stats.get('total_posts', 0)}")
+            print(f"   Sent to Telegram: {stats.get('sent_to_telegram', 0)}")
+            print(f"   Pending to send: {stats.get('pending_to_send', 0)}")
+
+            post_types = stats.get("post_types", [])
+            if post_types:
+                print("\n   Post types distribution:")
+                for pt in post_types:
+                    print(f"     - {pt['_id']}: {pt['count']}")
+
+            return stats
+        except Exception as e:
+            print(f"Error getting database stats: {e}")
+            return {}
+
     def run(self):
         """Main method to run Telegram functionality"""
         print("SuperSet Telegram Bot - Send Mode")
@@ -303,8 +338,11 @@ class TelegramBot:
             print("To get your chat ID: Message @userinfobot on Telegram")
             return False
 
-        print("2. Sending job posts to Telegram...")
-        result = self.send_markdown_file()
+        # Show database stats
+        self.get_database_stats()
+
+        print("2. Sending new job posts to Telegram...")
+        result = self.send_new_posts_from_db()
 
         if result:
             print("Telegram sending completed successfully!")

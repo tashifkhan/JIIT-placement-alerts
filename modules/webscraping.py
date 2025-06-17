@@ -14,6 +14,7 @@ from selenium.webdriver.firefox.service import Service as FirefoxService
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.firefox import GeckoDriverManager
+from .database import MongoDBManager
 
 dotenv.load_dotenv()
 
@@ -24,6 +25,7 @@ class WebScraper:
         self.PASSWORD = os.getenv("PASSWORD")
         self.PORTAL_URL = "https://app.joinsuperset.com/students/login"
         self.driver = None
+        self.db_manager = MongoDBManager()
         self._setup_chrome_options()
 
     def _setup_chrome_options(self):
@@ -364,7 +366,7 @@ class WebScraper:
         return all_content
 
     def save_content(self, content):
-        """Save extracted content to files"""
+        """Save extracted content to files and database"""
         # Get the project root directory (parent of modules directory)
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         output_dir = os.path.join(project_root, "output")
@@ -400,6 +402,172 @@ class WebScraper:
         with open(file_name, "w", encoding="utf-8") as f:
             f.write(self.driver.page_source)
 
+        # Save to MongoDB database
+        if content:
+            self.save_to_database(content)
+
+    def save_to_database(self, content):
+        """Save extracted content blocks to MongoDB database"""
+        print(f"\n💾 Saving {len(content)} content blocks to database...")
+
+        new_posts_count = 0
+        duplicate_posts_count = 0
+
+        try:
+            for i, block in enumerate(content, 1):
+                # Extract content from block
+                lines = block.split("\n")
+                if len(lines) < 3:  # Skip blocks that are too short
+                    continue
+
+                # Remove the "=== Content Block N ===" header
+                content_lines = []
+                for line in lines:
+                    if line.strip().startswith("===") and "Content Block" in line:
+                        continue
+                    if line.strip():
+                        content_lines.append(line.strip())
+
+                if not content_lines:
+                    continue
+
+                # Extract metadata from content
+                title, author, posted_time = self.extract_post_metadata_from_raw(
+                    content_lines
+                )
+
+                # Create basic formatted content (simple formatting for database)
+                formatted_content = self.create_basic_formatted_content(content_lines)
+
+                # Save to database
+                raw_content = "\n".join(content_lines)
+                success, result = self.db_manager.save_post(
+                    title=title,
+                    content=formatted_content,
+                    raw_content=raw_content,
+                    author=author,
+                    posted_time=posted_time,
+                )
+
+                if success:
+                    new_posts_count += 1
+                    print(f"✅ Block {i}: Saved new post - {title[:50]}...")
+                else:
+                    duplicate_posts_count += 1
+                    print(f"ℹ️  Block {i}: Duplicate post - {title[:50]}...")
+
+        except Exception as e:
+            print(f"❌ Error saving to database: {e}")
+
+        print(f"💾 Database save completed:")
+        print(f"   📊 New posts: {new_posts_count}")
+        print(f"   🔄 Duplicates: {duplicate_posts_count}")
+        print(f"   📝 Total processed: {len(content)}")
+
+    def extract_post_metadata_from_raw(self, content_lines):
+        """Extract title, author, and posted time from raw content lines"""
+        title = "Untitled Post"
+        author = ""
+        posted_time = ""
+
+        # Look for title patterns in first few lines
+        for line in content_lines[:5]:
+            # Check for job posting patterns
+            if (
+                any(
+                    pattern in line.lower()
+                    for pattern in [
+                        "open for applications",
+                        "hiring",
+                        "placement",
+                        "job",
+                        "internship",
+                        "hackathon",
+                        "campus connect",
+                        "webinar",
+                    ]
+                )
+                and len(line) > 20
+            ):
+                title = line[:100]  # Limit title length
+                break
+
+        # Look for author patterns
+        author_names = [
+            "anurag srivastava",
+            "anita marwaha",
+            "vinod kumar",
+            "archita kumar",
+            "deeksha jain",
+            "placement team",
+        ]
+        for line in content_lines:
+            if any(name in line.lower() for name in author_names):
+                author = line.strip()
+                break
+
+        # Look for time patterns
+        time_keywords = ["days ago", "hours ago", "minutes ago", "yesterday", "today"]
+        for line in content_lines:
+            if any(keyword in line.lower() for keyword in time_keywords):
+                posted_time = line.strip()
+                break
+
+        return title, author, posted_time
+
+    def create_basic_formatted_content(self, content_lines):
+        """Create basic formatted content for database storage"""
+        formatted_lines = []
+
+        for line in content_lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            # Skip "See Less" at the end
+            if line == "See Less":
+                continue
+
+            # Remove the · symbol
+            if line.strip() == "·":
+                continue
+
+            # Simple formatting rules
+            if self.is_title_line_simple(line):
+                formatted_lines.append(f"## {line}")
+            elif "deadline" in line.lower():
+                formatted_lines.append(f"⚠️ DEADLINE: {line}")
+            elif any(
+                term in line.lower() for term in ["eligibility", "process", "benefits"]
+            ):
+                formatted_lines.append(f"**{line}:**")
+            elif line.startswith("•") or line.startswith("-"):
+                formatted_lines.append(line)
+            elif "http" in line.lower() or "www." in line.lower():
+                formatted_lines.append(f"🔗 {line}")
+            else:
+                formatted_lines.append(line)
+
+        return "\n".join(formatted_lines)
+
+    def is_title_line_simple(self, line):
+        """Simple check for title lines"""
+        title_patterns = [
+            "open for applications",
+            "hiring",
+            "placement",
+            "job",
+            "internship",
+            "hackathon",
+            "campus connect",
+            "webinar",
+        ]
+        return (
+            any(pattern in line.lower() for pattern in title_patterns)
+            and len(line) > 20
+            and len(line) < 150
+        )
+
     def scrape(self):
         """Main scraping method"""
         try:
@@ -413,6 +581,16 @@ class WebScraper:
             self.save_content(content)
 
             print("Web scraping completed successfully!")
+
+            # Get database stats after scraping
+            try:
+                stats = self.db_manager.get_posts_stats()
+                print(f"📊 Database Summary:")
+                print(f"   Total posts in database: {stats.get('total_posts', 0)}")
+                print(f"   Unsent posts: {stats.get('pending_to_send', 0)}")
+            except:
+                pass
+
             return True
 
         except Exception as e:
@@ -444,3 +622,10 @@ class WebScraper:
                 print("Browser closed successfully.")
             except Exception as close_error:
                 print(f"Error closing browser: {close_error}")
+
+        # Close database connection
+        if hasattr(self, "db_manager") and self.db_manager:
+            try:
+                self.db_manager.close_connection()
+            except Exception as db_error:
+                print(f"Error closing database connection: {db_error}")

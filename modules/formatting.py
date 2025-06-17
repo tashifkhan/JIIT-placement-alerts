@@ -1,5 +1,6 @@
 import re
 import os
+from .database import MongoDBManager
 
 
 class TextFormatter:
@@ -12,9 +13,10 @@ class TextFormatter:
 
         self.input_file = os.path.join(output_dir, "job_posts.txt")
         self.output_file = os.path.join(output_dir, "formatted_job_posts.md")
+        self.db_manager = MongoDBManager()
 
     def format_content(self):
-        """Main method to format the extracted content"""
+        """Main method to format the extracted content and save to MongoDB"""
         try:
             with open(self.input_file, "r", encoding="utf-8") as f:
                 content = f.read()
@@ -26,6 +28,7 @@ class TextFormatter:
             # Split content into blocks
             blocks = content.split("=== Content Block")
             formatted_blocks = []
+            new_posts_count = 0
 
             for i, block in enumerate(blocks):
                 if not block.strip():
@@ -58,25 +61,73 @@ class TextFormatter:
                 if not content_lines:
                     continue
 
+                # Extract title, author, and time from content
+                title, author, posted_time = self.extract_post_metadata(content_lines)
+
                 # Format the content
                 formatted_block = self.format_placement_message(content_lines)
                 if formatted_block:
-                    formatted_blocks.append(formatted_block)
+                    # Save to MongoDB
+                    raw_content = "\n".join(content_lines)
+                    success, result = self.db_manager.save_post(
+                        title=title,
+                        content=formatted_block,
+                        raw_content=raw_content,
+                        author=author,
+                        posted_time=posted_time,
+                    )
+
+                    if success:
+                        new_posts_count += 1
+                        formatted_blocks.append(formatted_block)
+                        print(f"✅ New post saved to database: {title[:50]}...")
+                    else:
+                        print(f"ℹ️  Post already exists: {title[:50]}...")
 
             # Join all formatted blocks with proper Markdown separators
             final_content = "\n\n---\n\n".join(formatted_blocks)
 
+            # Save formatted content to file (only new posts)
             with open(self.output_file, "w", encoding="utf-8") as f:
                 f.write(final_content)
 
             print(
-                f"Content formatted and saved to {self.output_file} ({len(formatted_blocks)} messages processed)"
+                f"Content formatted and saved to {self.output_file} ({new_posts_count} new posts, {len(formatted_blocks)} total processed)"
             )
-            return True
+
+            # Return information about new posts
+            return {
+                "success": True,
+                "new_posts": new_posts_count,
+                "total_processed": len(formatted_blocks),
+            }
 
         except Exception as e:
             print(f"Error during text formatting: {e}")
-            return False
+            return {"success": False, "error": str(e)}
+
+    def extract_post_metadata(self, content_lines):
+        """Extract title, author, and posted time from content lines"""
+        title = "No Title"
+        author = ""
+        posted_time = ""
+
+        for line in content_lines[:10]:  # Check first 10 lines for metadata
+            line = line.strip()
+
+            # Extract title (look for job posting patterns)
+            if self.is_title_line(line) and title == "No Title":
+                title = line[:100]  # Limit title length
+
+            # Extract author
+            if self.is_author_line(line):
+                author = line
+
+            # Extract time
+            if self.is_time_line(line):
+                posted_time = line
+
+        return title, author, posted_time
 
     def format_placement_message(self, content_lines):
         """Format individual placement cell message for better readability"""

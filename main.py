@@ -1,6 +1,7 @@
 import dotenv
 import time
 import os
+import re
 import signal
 import requests
 from contextlib import contextmanager
@@ -687,7 +688,7 @@ def clean_extra_newlines(text):
     return text.strip()
 
 
-def send_telegram_message(message, parse_mode="Markdown"):
+def send_telegram_message(message, parse_mode="MarkdownV2"):
     try:
         if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
             print("Error: Telegram bot token or chat ID not configured")
@@ -695,9 +696,15 @@ def send_telegram_message(message, parse_mode="Markdown"):
 
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
+        # Convert and escape the message for Telegram
+        if parse_mode == "MarkdownV2":
+            formatted_message = convert_markdown_to_telegram(message)
+        else:
+            formatted_message = message
+
         payload = {
             "chat_id": TELEGRAM_CHAT_ID,
-            "text": message,
+            "text": formatted_message,
             "parse_mode": parse_mode,
             "disable_web_page_preview": True,
         }
@@ -705,15 +712,23 @@ def send_telegram_message(message, parse_mode="Markdown"):
         response = requests.post(url, json=payload)
 
         if response.status_code == 200:
-            print(f"Message sent successfully (length: {len(message)} chars)")
+            print(f"Message sent successfully (length: {len(formatted_message)} chars)")
             return True
         else:
             print(f"Failed to send message. Status code: {response.status_code}")
             print(f"Response: {response.text}")
+            # Try fallback with plain text if MarkdownV2 fails
+            if parse_mode == "MarkdownV2":
+                print("Retrying with plain text...")
+                return send_telegram_message(message, parse_mode=None)
             return False
 
     except Exception as e:
         print(f"Error sending Telegram message: {e}")
+        # Try fallback with plain text
+        if parse_mode == "MarkdownV2":
+            print("Retrying with plain text...")
+            return send_telegram_message(message, parse_mode=None)
         return False
 
 
@@ -733,7 +748,7 @@ def send_markdown_file_to_telegram():
             return
 
         job_posts = content.split("---")
-        job_posts = job_posts.reverse()
+        job_posts.reverse()
 
         successful_sends = 0
         failed_sends = 0
@@ -750,13 +765,13 @@ def send_markdown_file_to_telegram():
                 chunks = split_long_message(post)
                 for j, chunk in enumerate(chunks, 1):
                     print(f"  Sending chunk {j}/{len(chunks)}...")
-                    if send_telegram_message(chunk):
+                    if send_telegram_message_html(chunk):
                         successful_sends += 1
                     else:
                         failed_sends += 1
                     time.sleep(1)
             else:
-                if send_telegram_message(post):
+                if send_telegram_message_html(post):
                     successful_sends += 1
                 else:
                     failed_sends += 1
@@ -823,6 +838,8 @@ def test_telegram_connection():
             print("TELEGRAM_CHAT_ID not set in .env file")
             return False
 
+        return True
+
     except Exception as e:
         print(f"Error testing Telegram connection: {e}")
         return False
@@ -833,7 +850,7 @@ def main_telegram_only():
     print("SuperSet Telegram Bot - Send Mode")
     print("1. Testing Telegram connection...")
 
-    if not test_telegram_connection():
+    if test_telegram_connection():
         print("Please configure your Telegram bot token and chat ID in the .env file")
         print("To get a bot token: Message @BotFather on Telegram")
         print("To get your chat ID: Message @userinfobot on Telegram")
@@ -842,6 +859,128 @@ def main_telegram_only():
     print("2. Sending job posts to Telegram...")
     send_markdown_file_to_telegram()
     print("Telegram sending completed!")
+
+
+def escape_markdown_v2(text):
+    """Escape special characters for Telegram MarkdownV2"""
+    # Characters that need to be escaped in MarkdownV2
+    escape_chars = [
+        "_",
+        "*",
+        "[",
+        "]",
+        "(",
+        ")",
+        "~",
+        "`",
+        ">",
+        "#",
+        "+",
+        "-",
+        "=",
+        "|",
+        "{",
+        "}",
+        ".",
+        "!",
+    ]
+
+    for char in escape_chars:
+        text = text.replace(char, f"\\{char}")
+
+    return text
+
+
+def convert_markdown_to_telegram(text):
+    """Convert standard markdown to Telegram-compatible MarkdownV2"""
+    # First, handle bold text
+    text = text.replace("**", "*")
+
+    # Convert ## headers to bold
+    text = re.sub(r"^##\s+(.*?)$", r"*\1*", text, flags=re.MULTILINE)
+    # Convert ### headers to bold
+    text = re.sub(r"^###\s+(.*?)$", r"*\1*", text, flags=re.MULTILINE)
+
+    # Handle blockquotes (> text) - convert to italic
+    text = re.sub(r"^>\s+(.*?)$", r"_\1_", text, flags=re.MULTILINE)
+
+    # Split text into parts to avoid escaping content inside markdown
+    lines = text.split("\n")
+    processed_lines = []
+
+    for line in lines:
+        if line.strip():
+
+            if "*" in line or "_" in line or "`" in line:
+
+                processed_lines.append(line)
+            else:
+
+                processed_lines.append(escape_markdown_v2(line))
+        else:
+            processed_lines.append(line)
+
+    return "\n".join(processed_lines)
+
+
+def convert_markdown_to_html(text):
+    """Convert markdown to HTML for Telegram"""
+    import re
+
+    # Convert headers to bold
+    text = re.sub(r"^##\s+(.*?)$", r"<b>\1</b>", text, flags=re.MULTILINE)
+    text = re.sub(r"^###\s+(.*?)$", r"<b>\1</b>", text, flags=re.MULTILINE)
+
+    # Convert bold text
+    text = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", text)
+
+    # Convert italic text
+    text = re.sub(r"_(.*?)_", r"<i>\1</i>", text)
+
+    # Convert blockquotes
+    text = re.sub(r"^>\s+(.*?)$", r"<i>\1</i>", text, flags=re.MULTILINE)
+
+    # Convert code blocks (though Telegram has limited support)
+    text = re.sub(r"`(.*?)`", r"<code>\1</code>", text)
+
+    return text
+
+
+def send_telegram_message_html(message):
+    """Send message using HTML formatting (more reliable than Markdown)"""
+    try:
+        if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+            print("Error: Telegram bot token or chat ID not configured")
+            return False
+
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+
+        html_message = convert_markdown_to_html(message)
+
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": html_message,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }
+
+        response = requests.post(url, json=payload)
+
+        if response.status_code == 200:
+            print(f"HTML message sent successfully (length: {len(html_message)} chars)")
+            return True
+        else:
+            print(f"Failed to send HTML message. Status code: {response.status_code}")
+            print(f"Response: {response.text}")
+
+            payload["parse_mode"] = None
+            payload["text"] = message
+            response = requests.post(url, json=payload)
+            return response.status_code == 200
+
+    except Exception as e:
+        print(f"Error sending HTML Telegram message: {e}")
+        return False
 
 
 if __name__ == "__main__":

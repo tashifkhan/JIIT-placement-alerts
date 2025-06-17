@@ -163,6 +163,11 @@ class TextFormatter:
 
             # Clean up extra newlines and join
             result = "\n".join(formatted_lines)
+
+            # Extract and add links on the next line
+            result = self.extract_and_add_links(result)
+
+            # Clean up extra newlines
             result = self.clean_extra_newlines(result)
 
             return result
@@ -278,7 +283,104 @@ class TextFormatter:
 
     def is_link_line(self, line):
         """Check if line contains a URL"""
-        return "http" in line.lower() or "www." in line.lower()
+        # Check for standard URL patterns
+        if "http" in line.lower() or "www." in line.lower():
+            return True
+
+        # Check for subdomain patterns like apple.adobe or hiring.justpay
+        subdomain_pattern = re.compile(
+            r"([a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z0-9][-a-zA-Z0-9\.]*\.[a-zA-Z]{2,}|\b[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,})"
+        )
+        matches = subdomain_pattern.findall(line.lower())
+
+        # Filter out common false positives
+        for match in matches:
+            if (
+                not re.match(r"^\d+\.\d+$", match)  # Not version numbers
+                and not re.match(r"^\d+\.\d+\.\d+$", match)  # Not version numbers
+                and not re.match(r"^\d{1,2}\.\d{1,2}\.\d{2,4}$", match)  # Not dates
+                and not match.endswith(".png")  # Not image extensions
+                and not match.endswith(".jpg")
+                and not match.endswith(".jpeg")
+                and not match.endswith(".gif")
+            ):
+                return True
+
+        return False
+
+    def extract_and_add_links(self, text):
+        """Extract links from text and add them on the next line
+
+        This function extracts URLs from text that might be embedded in HTML tags,
+        or preceded by text like "Click here" or similar call to action text.
+        It also handles subdomain-only URLs like "apple.adobe" or "hiring.justpay".
+        The extracted links are then added on a new line after the original text.
+        """
+        # Regular expression to find standard URLs in text
+        url_pattern = re.compile(r'(https?://[^\s<>"]+|www\.[^\s<>"]+)')
+
+        # Regular expression for subdomain-only URLs (like apple.adobe or hiring.justpay)
+        # Matches domain patterns that have at least one dot and don't have spaces or common punctuation
+        subdomain_pattern = re.compile(
+            r"([a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z0-9][-a-zA-Z0-9\.]*\.[a-zA-Z]{2,}|\b[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,})"
+        )
+
+        # Regular expression to find HTML anchor tags
+        html_link_pattern = re.compile(
+            r'<a\s+(?:[^>]*?\s+)?href=["\'](.*?)["\'].*?>(.*?)<\/a>', re.IGNORECASE
+        )
+
+        # Process each line
+        lines = text.split("\n")
+        result_lines = []
+
+        for line in lines:
+            line_trimmed = line.strip()
+            if not line_trimmed:
+                result_lines.append(line)
+                continue
+
+            result_lines.append(line)
+
+            # Check if the line is just a standalone URL
+            if url_pattern.fullmatch(line_trimmed) or subdomain_pattern.fullmatch(
+                line_trimmed
+            ):
+                continue  # Skip adding duplicate if it's already a standalone URL
+
+            # Check for HTML links
+            html_matches = html_link_pattern.findall(line)
+            if html_matches:
+                for url, link_text in html_matches:
+                    if url:  # Always extract URLs from HTML tags
+                        result_lines.append(url)
+                continue  # Skip other checks for this line
+
+            # Look for standard URLs in the text
+            matches = url_pattern.findall(line)
+            if matches:
+                for url in matches:
+                    result_lines.append(url)
+                continue  # Skip subdomain check if we found standard URLs
+
+            # Look for subdomain-only URLs
+            subdomain_matches = subdomain_pattern.findall(line)
+            for domain in subdomain_matches:
+                # Filter out common false positives like "v1.0" or dates like "17.06.2023"
+                if (
+                    not re.match(r"^\d+\.\d+$", domain)  # Not version numbers
+                    and not re.match(r"^\d+\.\d+\.\d+$", domain)  # Not version numbers
+                    and not re.match(
+                        r"^\d{1,2}\.\d{1,2}\.\d{2,4}$", domain
+                    )  # Not dates
+                    and not domain.endswith(".png")  # Not image extensions
+                    and not domain.endswith(".jpg")
+                    and not domain.endswith(".jpeg")
+                    and not domain.endswith(".gif")
+                ):
+                    result_lines.append(domain)
+
+        return "\n".join(result_lines)
 
     def clean_extra_newlines(self, text):
         """Clean up excessive newlines"""

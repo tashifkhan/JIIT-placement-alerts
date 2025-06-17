@@ -24,7 +24,7 @@ A bot that scrapes job postings from the SuperSet placement portal, saves them t
 ### Step 1: Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/SuperSet-telegram-notification-bot.git
+git clone https://github.com/tashifkhan/SuperSet-telegram-notification-bot.git
 cd SuperSet-telegram-notification-bot
 ```
 

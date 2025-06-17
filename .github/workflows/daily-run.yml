@@ -8,8 +8,6 @@ on:
     - cron: "30 6 * * *"
     # Run at 6:00 PM IST (12:30 PM UTC)
     - cron: "30 12 * * *"
-  # Allow manual triggering of the workflow
-  workflow_dispatch:
 
 jobs:
   run-notification-bot:

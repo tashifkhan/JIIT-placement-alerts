@@ -215,6 +215,7 @@ try:
             last_scroll_top = 0
             scroll_attempts = 0
             max_attempts = 5
+            clicked_buttons = set()  # using set to avoid double clicking the button
 
             while scroll_attempts < max_attempts:
                 driver.execute_script(
@@ -222,6 +223,69 @@ try:
                     scrollable_container,
                 )
                 time.sleep(2)
+
+                try:
+                    show_more_buttons = []
+                    buttons_by_text = driver.find_elements(
+                        By.XPATH,
+                        "//button[contains(text(), 'See More') or contains(text(), 'see more')]",
+                    )
+                    show_more_buttons.extend(buttons_by_text)
+
+                    mui_buttons = driver.find_elements(
+                        By.CSS_SELECTOR,
+                        "button.MuiButton-root.MuiButton-text.MuiButton-textPrimary",
+                    )
+                    for btn in mui_buttons:
+                        if "see more" in btn.text.lower():
+                            show_more_buttons.append(btn)
+
+                    css_buttons = driver.find_elements(
+                        By.CSS_SELECTOR,
+                        "button[class*='MuiButton-root'][class*='!text-xs'][class*='!mt-3']",
+                    )
+                    for btn in css_buttons:
+                        if "see more" in btn.text.lower():
+                            show_more_buttons.append(btn)
+
+                    print(
+                        f"Found {len(show_more_buttons)} potential 'See More' buttons"
+                    )
+
+                    for button in show_more_buttons:
+                        try:
+                            button_id = f"{button.location['x']}-{button.location['y']}-{button.text.strip()}"
+
+                            if (
+                                button_id not in clicked_buttons
+                                and button.is_displayed()
+                                and button.is_enabled()
+                                and "see more" in button.text.lower()
+                            ):
+
+                                print(
+                                    f"Clicking 'See More' button: '{button.text.strip()}'"
+                                )
+                                try:
+                                    button.click()
+
+                                except:
+                                    driver.execute_script(
+                                        "arguments[0].click();", button
+                                    )
+
+                                clicked_buttons.add(button_id)
+                                time.sleep(3)
+
+                                scroll_attempts = 0
+                                break
+
+                        except Exception as button_error:
+                            print(f"Error processing button: {button_error}")
+                            continue
+
+                except Exception as find_error:
+                    print(f"Error finding see more buttons: {find_error}")
 
                 current_scroll_top = driver.execute_script(
                     "return arguments[0].scrollTop", scrollable_container
@@ -235,7 +299,6 @@ try:
                     print(
                         f"Container scroll position unchanged, attempt {scroll_attempts}/{max_attempts}"
                     )
-
                 else:
                     scroll_attempts = 0
                     print(
@@ -244,7 +307,10 @@ try:
 
                 last_scroll_top = current_scroll_top
 
-            print("Finished scrolling the inner container.")
+            print(
+                f"Finished scrolling the inner container. Clicked {len(clicked_buttons)} 'Show more' buttons."
+            )
+
         else:
             print("No scrollable inner container found!")
 

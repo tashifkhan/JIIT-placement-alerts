@@ -1,7 +1,12 @@
 [project]
-name = "superset telegram notification bot"
+name = "superset-telegram-notification-bot"
 version = "0.1.0"
 description = "A bot to send notification of placement activity in superset via telegram bot"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "python-dotenv>=1.1.0",
+    "selenium>=4.33.0",
+    "webdriver-manager>=4.0.0",
+    "requests>=2.32.0",
+]

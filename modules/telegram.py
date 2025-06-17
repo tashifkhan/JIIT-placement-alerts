@@ -139,51 +139,48 @@ class TelegramBot:
 
             successful_sends = 0
             failed_sends = 0
+            send_results = []
 
             for i, post in enumerate(unsent_posts, 1):
-                post_content = post.get("content", "")
                 post_title = post.get("title", "No Title")
+                print(
+                    f"\nProcessing post {i}/{len(unsent_posts)}: {post_title[:50]}..."
+                )
 
-                if not post_content.strip():
-                    continue
+                try:
+                    success, message = self.validate_and_send_post(post)
 
-                print(f"Sending post {i}/{len(unsent_posts)}: {post_title[:50]}...")
-
-                # Send the post
-                success = False
-                if len(post_content) > 4000:
-                    chunks = self.split_long_message(post_content)
-                    chunk_success = True
-                    for j, chunk in enumerate(chunks, 1):
-                        print(f"  Sending chunk {j}/{len(chunks)}...")
-                        if not self.send_message_html(chunk):
-                            chunk_success = False
-                            failed_sends += 1
-                        time.sleep(1)
-                    success = chunk_success
-                else:
-                    success = self.send_message_html(post_content)
-
-                if success:
-                    successful_sends += 1
-                    # Mark as sent in database
-                    if self.db_manager.mark_as_sent(post["_id"]):
-                        print(f"✅ Post marked as sent in database")
+                    if success:
+                        successful_sends += 1
+                        send_results.append(f"✅ {post_title[:30]}...")
                     else:
-                        print(f"⚠️  Failed to mark post as sent in database")
-                else:
+                        failed_sends += 1
+                        send_results.append(f"❌ {post_title[:30]}...: {message}")
+
+                except Exception as e:
                     failed_sends += 1
-                    print(f"❌ Failed to send post: {post_title[:50]}...")
+                    send_results.append(f"❌ {post_title[:30]}...: Exception: {str(e)}")
+                    print(f"❌ Unexpected error processing post: {e}")
 
-                time.sleep(2)  # Rate limiting
+                # Rate limiting between posts
+                if i < len(unsent_posts):  # Don't sleep after the last post
+                    time.sleep(2)
 
-            print(
-                f"Telegram sending completed: {successful_sends} successful, {failed_sends} failed"
-            )
+            # Summary report
+            print(f"\n📊 Sending Summary:")
+            print(f"   Total processed: {len(unsent_posts)}")
+            print(f"   Successful: {successful_sends}")
+            print(f"   Failed: {failed_sends}")
+
+            if send_results:
+                print(f"\n📋 Detailed Results:")
+                for result in send_results:
+                    print(f"   {result}")
+
             return successful_sends > 0
 
         except Exception as e:
-            print(f"Error sending posts from database: {e}")
+            print(f"Error in send_new_posts_from_db: {e}")
             return False
 
     def send_markdown_file(self):
@@ -325,6 +322,123 @@ class TelegramBot:
             print(f"Error getting database stats: {e}")
             return {}
 
+    def is_post_already_sent(self, post_id):
+        """Check if a specific post has already been sent to Telegram"""
+        try:
+            post = self.db_manager.collection.find_one({"_id": post_id})
+            if post:
+                return post.get("sent_to_telegram", False)
+            return False
+        except Exception as e:
+            print(f"Error checking if post was sent: {e}")
+            return False
+
+    def get_send_status_summary(self):
+        """Get a summary of sending status for all posts"""
+        try:
+            stats = self.db_manager.get_posts_stats()
+            print("\n📊 Send Status Summary:")
+            print(f"   Total posts: {stats.get('total_posts', 0)}")
+            print(f"   Already sent: {stats.get('sent_to_telegram', 0)}")
+            print(f"   Pending to send: {stats.get('pending_to_send', 0)}")
+            return stats
+        except Exception as e:
+            print(f"Error getting send status summary: {e}")
+            return {}
+
+    def validate_and_send_post(self, post):
+        """Validate a post and send it if it hasn't been sent already"""
+        try:
+            post_id = post["_id"]
+            post_title = post.get("title", "No Title")
+            post_content = post.get("content", "")
+
+            # Validation checks
+            if not post_content.strip():
+                print(f"⚠️  Skipping post with empty content: {post_title[:50]}...")
+                return False, "Empty content"
+
+            # Double-check database to ensure post wasn't sent in another process
+            # Refresh post data from database to get latest status
+            current_post = self.db_manager.collection.find_one({"_id": post_id})
+            if not current_post:
+                print(f"⚠️  Post no longer exists in database: {post_title[:50]}...")
+                return False, "Post not found"
+
+            sent_status = current_post.get("sent_to_telegram")
+            if sent_status is True:
+                print(f"⚠️  Post already marked as sent, skipping: {post_title[:50]}...")
+                return False, "Already sent"
+
+            # Send the post
+            print(f"Sending post: {post_title[:50]}...")
+
+            success = False
+            if len(post_content) > 4000:
+                chunks = self.split_long_message(post_content)
+                chunks_sent = 0
+
+                for j, chunk in enumerate(chunks, 1):
+                    print(f"  Sending chunk {j}/{len(chunks)}...")
+                    if self.send_message_html(chunk):
+                        chunks_sent += 1
+                        time.sleep(1)  # Rate limiting between chunks
+                    else:
+                        print(f"  ❌ Failed to send chunk {j}/{len(chunks)}")
+                        break  # Stop sending remaining chunks if one fails
+
+                # Consider successful only if ALL chunks were sent
+                success = chunks_sent == len(chunks)
+
+                if not success and chunks_sent > 0:
+                    print(f"  ⚠️  Partial send: {chunks_sent}/{len(chunks)} chunks sent")
+                    return False, f"Partial send: {chunks_sent}/{len(chunks)} chunks"
+            else:
+                success = self.send_message_html(post_content)
+
+            if success:
+                # Mark as sent in database only after successful transmission
+                # Use atomic update to prevent race conditions
+                update_result = self.db_manager.collection.update_one(
+                    {
+                        "_id": post_id,
+                        "sent_to_telegram": {"$ne": True},
+                    },  # Only update if not already sent
+                    {
+                        "$set": {
+                            "sent_to_telegram": True,
+                            "sent_at": time.time(),  # Use timestamp for better tracking
+                            "updated_at": time.time(),
+                        }
+                    },
+                )
+
+                if update_result.modified_count > 0:
+                    print(f"✅ Post sent and marked in database")
+                    return True, "Success"
+                else:
+                    print(
+                        f"⚠️  Post was sent but may have been marked as sent by another process"
+                    )
+                    # Check if it was already marked as sent
+                    current_status = self.db_manager.collection.find_one(
+                        {"_id": post_id}
+                    )
+                    if (
+                        current_status
+                        and current_status.get("sent_to_telegram") is True
+                    ):
+                        return True, "Success (already marked)"
+                    else:
+                        return False, "Database marking failed"
+            else:
+                print(f"❌ Failed to send post: {post_title[:50]}...")
+                return False, "Send failed"
+
+        except Exception as e:
+            print(f"❌ Exception while processing post: {e}")
+            return False, f"Exception: {str(e)}"
+
     def run(self):
         """Main method to run Telegram functionality"""
         print("SuperSet Telegram Bot - Send Mode")
@@ -338,15 +452,19 @@ class TelegramBot:
             print("To get your chat ID: Message @userinfobot on Telegram")
             return False
 
-        # Show database stats
+        # Show database stats and send status summary
         self.get_database_stats()
+        self.get_send_status_summary()
 
-        print("2. Sending new job posts to Telegram...")
+        print("\n2. Sending new job posts to Telegram...")
         result = self.send_new_posts_from_db()
 
         if result:
-            print("Telegram sending completed successfully!")
+            print("\n✅ Telegram sending completed successfully!")
+            # Show updated stats after sending
+            print("\nUpdated statistics:")
+            self.get_send_status_summary()
         else:
-            print("Telegram sending failed!")
+            print("\n❌ Telegram sending failed!")
 
         return result

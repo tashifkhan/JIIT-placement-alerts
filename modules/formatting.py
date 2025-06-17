@@ -1,5 +1,6 @@
 import re
 import os
+from datetime import datetime
 from .database import MongoDBManager
 
 
@@ -67,39 +68,55 @@ class TextFormatter:
                 # Format the content
                 formatted_block = self.format_placement_message(content_lines)
                 if formatted_block:
-                    # Save to MongoDB
+                    # Check if this post exists in database and update its formatted content
                     raw_content = "\n".join(content_lines)
-                    success, result = self.db_manager.save_post(
-                        title=title,
-                        content=formatted_block,
-                        raw_content=raw_content,
-                        author=author,
-                        posted_time=posted_time,
-                    )
+                    content_hash = self.db_manager.create_post_hash(raw_content)
 
-                    if success:
-                        new_posts_count += 1
+                    # Look for existing post with this hash
+                    existing_post = self.db_manager.post_exists(
+                        content_hash, raw_content
+                    )
+                    if existing_post:
+                        # Update the existing post with better formatted content
+                        post_id = existing_post["_id"]
+                        updated = self.db_manager.collection.update_one(
+                            {"_id": post_id},
+                            {
+                                "$set": {
+                                    "content": formatted_block,  # Update with formatted version
+                                    "updated_at": datetime.utcnow(),
+                                }
+                            },
+                        )
+                        if updated.modified_count > 0:
+                            print(
+                                f"✅ Updated formatting for existing post: {title[:50]}..."
+                            )
                         formatted_blocks.append(formatted_block)
-                        print(f"✅ New post saved to database: {title[:50]}...")
                     else:
-                        print(f"ℹ️  Post already exists: {title[:50]}...")
+                        # This shouldn't happen if webscraping ran first, but handle gracefully
+                        print(
+                            f"⚠️  Post not found in database, skipping: {title[:50]}..."
+                        )
+                        continue
 
             # Join all formatted blocks with proper Markdown separators
             final_content = "\n\n---\n\n".join(formatted_blocks)
 
-            # Save formatted content to file (only new posts)
+            # Save formatted content to file (only processed posts)
             with open(self.output_file, "w", encoding="utf-8") as f:
                 f.write(final_content)
 
+            posts_updated = len(formatted_blocks)
             print(
-                f"Content formatted and saved to {self.output_file} ({new_posts_count} new posts, {len(formatted_blocks)} total processed)"
+                f"Content formatted and saved to {self.output_file} ({posts_updated} posts updated, {posts_updated} total processed)"
             )
 
-            # Return information about new posts
+            # Return information about processed posts
             return {
                 "success": True,
-                "new_posts": new_posts_count,
-                "total_processed": len(formatted_blocks),
+                "new_posts": posts_updated,  # For compatibility with existing code
+                "total_processed": posts_updated,
             }
 
         except Exception as e:

@@ -1,4 +1,5 @@
 import os
+import re
 import dotenv
 from pymongo import MongoClient
 from datetime import datetime
@@ -39,29 +40,106 @@ class MongoDBManager:
         """Create a unique hash for post content to detect duplicates"""
         # Clean the content and create hash
         cleaned_content = content.strip().lower()
-        # Remove common variations that don't affect content meaning
-        cleaned_content = (
-            cleaned_content.replace(" ", "").replace("\n", "").replace("\t", "")
-        )
-        return hashlib.md5(cleaned_content.encode()).hexdigest()
+        # Remove common variations that don't affect content meaning but preserve structure
+        # Remove extra whitespace but keep single spaces
+        import re
 
-    def post_exists(self, content_hash):
+        cleaned_content = re.sub(r"\s+", " ", cleaned_content)
+        # Remove markdown formatting that doesn't affect content meaning
+        cleaned_content = re.sub(r"[*_`#>-]", "", cleaned_content)
+        # Remove URLs as they can have tracking parameters
+        cleaned_content = re.sub(
+            r"http[s]?://[^\s]+", "URL_PLACEHOLDER", cleaned_content
+        )
+
+        return hashlib.sha256(cleaned_content.encode()).hexdigest()
+
+    def post_exists(self, content_hash, content=None):
         """Check if a post with this hash already exists"""
         try:
+            # First check by hash
             existing_post = self.collection.find_one({"content_hash": content_hash})
-            return existing_post is not None
+            if existing_post:
+                return existing_post
+
+            # If content is provided, also check for very similar content
+            # (in case hash function changed or there are minor variations)
+            if content:
+                # Look for posts with very similar titles or first few lines
+                content_lines = content.strip().split("\n")
+                if content_lines:
+                    first_line = content_lines[0].strip()
+                    if (
+                        len(first_line) > 20
+                    ):  # Only check if we have substantial content
+                        # Search for posts with similar first line
+                        similar_posts = self.collection.find(
+                            {
+                                "$or": [
+                                    {
+                                        "title": {
+                                            "$regex": re.escape(first_line[:50]),
+                                            "$options": "i",
+                                        }
+                                    },
+                                    {
+                                        "content": {
+                                            "$regex": re.escape(first_line[:50]),
+                                            "$options": "i",
+                                        }
+                                    },
+                                ]
+                            }
+                        ).limit(5)
+
+                        for post in similar_posts:
+                            # Calculate simple similarity
+                            existing_first_line = (
+                                post.get("content", "").strip().split("\n")[0]
+                                if post.get("content")
+                                else ""
+                            )
+                            if self._are_posts_similar(first_line, existing_first_line):
+                                print(
+                                    f"Found similar existing post: {post.get('title', 'No Title')[:50]}..."
+                                )
+                                return post
+
+            return None
         except Exception as e:
             print(f"Error checking if post exists: {e}")
+            return None
+
+    def _are_posts_similar(self, text1, text2, threshold=0.8):
+        """Check if two text snippets are similar enough to be considered duplicates"""
+        if not text1 or not text2:
             return False
+
+        # Simple similarity check based on common words
+        words1 = set(text1.lower().split())
+        words2 = set(text2.lower().split())
+
+        if not words1 or not words2:
+            return False
+
+        intersection = words1.intersection(words2)
+        union = words1.union(words2)
+
+        similarity = len(intersection) / len(union) if union else 0
+        return similarity >= threshold
 
     def save_post(self, title, content, raw_content="", author="", posted_time=""):
         """Save a new post to MongoDB"""
         try:
             content_hash = self.create_post_hash(content)
 
-            # Check if post already exists
-            if self.post_exists(content_hash):
+            # Check if post already exists (enhanced check)
+            existing_post = self.post_exists(content_hash, content)
+            if existing_post:
                 print(f"Post already exists with hash: {content_hash}")
+                print(
+                    f"ℹ️  Post already exists: {existing_post.get('title', 'No Title')[:50]}..."
+                )
                 return False, "Post already exists"
 
             # Extract key information from content
@@ -156,11 +234,36 @@ class MongoDBManager:
     def get_unsent_posts(self):
         """Get all posts that haven't been sent to Telegram yet"""
         try:
+            # Query for posts that are explicitly marked as not sent
+            # Use explicit False check to avoid any None/null issues
+            query = {
+                "sent_to_telegram": {
+                    "$ne": True
+                }  # Not equal to True (covers False, None, missing)
+            }
+
             cursor = self.collection.find(
-                {"sent_to_telegram": False},
+                query,
                 sort=[("created_at", -1)],  # Most recent first
             )
-            return list(cursor)
+            posts = list(cursor)
+
+            # Additional safety check: filter out any posts that somehow have sent_to_telegram as True
+            unsent_posts = []
+            for post in posts:
+                sent_status = post.get("sent_to_telegram")
+                if sent_status is not True:  # Explicit check for not True
+                    unsent_posts.append(post)
+                else:
+                    print(
+                        f"⚠️  Filtering out post marked as sent: {post.get('title', 'No Title')[:30]}..."
+                    )
+
+            print(
+                f"Found {len(unsent_posts)} unsent posts out of {len(posts)} queried posts"
+            )
+            return unsent_posts
+
         except Exception as e:
             print(f"Error getting unsent posts: {e}")
             return []
@@ -181,6 +284,35 @@ class MongoDBManager:
             return result.modified_count > 0
         except Exception as e:
             print(f"Error marking post as sent: {e}")
+            return False
+
+    def is_post_sent(self, post_id):
+        """Check if a specific post has already been sent to Telegram"""
+        try:
+            post = self.collection.find_one({"_id": post_id})
+            if post:
+                return post.get("sent_to_telegram", False)
+            return False
+        except Exception as e:
+            print(f"Error checking if post was sent: {e}")
+            return False
+
+    def reset_send_status(self, post_id):
+        """Reset the send status of a post (for debugging/testing purposes)"""
+        try:
+            result = self.collection.update_one(
+                {"_id": post_id},
+                {
+                    "$set": {
+                        "sent_to_telegram": False,
+                        "updated_at": datetime.utcnow(),
+                    },
+                    "$unset": {"sent_at": ""},
+                },
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            print(f"Error resetting send status: {e}")
             return False
 
     def get_all_posts(self, limit=50):
@@ -215,6 +347,82 @@ class MongoDBManager:
         except Exception as e:
             print(f"Error getting posts stats: {e}")
             return {}
+
+    def clean_duplicate_posts(self, dry_run=True):
+        """Find and optionally remove duplicate posts based on content hash"""
+        try:
+            print("🔍 Scanning for duplicate posts...")
+
+            # Group posts by content hash
+            pipeline = [
+                {
+                    "$group": {
+                        "_id": "$content_hash",
+                        "posts": {
+                            "$push": {
+                                "id": "$_id",
+                                "title": "$title",
+                                "created_at": "$created_at",
+                            }
+                        },
+                        "count": {"$sum": 1},
+                    }
+                },
+                {"$match": {"count": {"$gt": 1}}},  # Only groups with more than 1 post
+            ]
+
+            duplicates = list(self.collection.aggregate(pipeline))
+
+            if not duplicates:
+                print("✅ No duplicate posts found!")
+                return {"duplicates_found": 0, "removed": 0}
+
+            print(f"Found {len(duplicates)} sets of duplicate posts:")
+
+            total_duplicates = 0
+            posts_to_remove = []
+
+            for dup_group in duplicates:
+                posts = dup_group["posts"]
+                count = dup_group["count"]
+                total_duplicates += count - 1  # Keep one, remove the rest
+
+                # Sort by creation date, keep the oldest
+                posts.sort(key=lambda x: x["created_at"])
+                posts_to_keep = posts[0]
+                posts_to_delete = posts[1:]
+
+                print(f"  📝 Hash: {dup_group['_id'][:16]}... ({count} duplicates)")
+                print(f"     Keeping: {posts_to_keep['title'][:50]}...")
+
+                for post in posts_to_delete:
+                    print(
+                        f"     {'Would remove' if dry_run else 'Removing'}: {post['title'][:50]}..."
+                    )
+                    posts_to_remove.append(post["id"])
+
+            removed_count = 0
+            if not dry_run and posts_to_remove:
+                result = self.collection.delete_many({"_id": {"$in": posts_to_remove}})
+                removed_count = result.deleted_count
+                print(f"✅ Removed {removed_count} duplicate posts")
+            elif dry_run:
+                print(
+                    f"🔍 DRY RUN: Would remove {len(posts_to_remove)} duplicate posts"
+                )
+                print(
+                    "   Use clean_duplicate_posts(dry_run=False) to actually remove them"
+                )
+
+            return {
+                "duplicates_found": total_duplicates,
+                "removed": removed_count,
+                "dry_run": dry_run,
+            }
+
+        except Exception as e:
+            print(f"❌ Error cleaning duplicate posts: {e}")
+            return {"error": str(e)}
 
     def close_connection(self):
         """Close MongoDB connection"""

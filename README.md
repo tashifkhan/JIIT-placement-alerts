@@ -1,15 +1,23 @@
 # SuperSet Telegram Notification Bot
 
-A bot that scrapes job postings from the SuperSet placement portal, saves them to MongoDB, enhances their formatting, and sends them to a Telegram channel or user. Eliminates the need to check the portal again and again.
+A bot that scrapes job postings from the SuperSet placement portal, saves them to MongoDB, enhances their formatting, and broadcasts them to all registered Telegram users. Eliminates the need to check the portal again and again.
 
 ## Features
 
+- **User Registration**: Users can register via `/start` command to receive notifications
 - **Automated Scraping**: Logs into SuperSet and extracts latest job postings
 - **Precise Duplicate Detection**: Uses exact content matching to prevent duplicate posts
 - **Enhanced Formatting**: Improves readability of job posts for Telegram
-- **Database-Powered**: MongoDB-based storage for reliable operation
-- **Scheduled Notifications**: Runs automatically at 12 AM, 12 PM, and 6 PM IST via GitHub Actions
-- **Incremental Updates**: Only processes new posts since last run
+- **Database-Powered**: MongoDB-based storage for users and posts
+- **Scheduled Broadcasting**: Runs automatically at 12 AM, 12 PM, and 6 PM IST
+- **Multi-User Support**: Broadcasts to all registered users simultaneously
+- **User Management**: Users can start/stop receiving notifications
+
+## Bot Commands
+
+- `/start` - Register for job posting notifications
+- `/stop` - Unsubscribe from notifications
+- `/status` - Check your subscription status
 
 ## Prerequisites
 
@@ -17,7 +25,6 @@ A bot that scrapes job postings from the SuperSet placement portal, saves them t
 - MongoDB database
 - Telegram Bot Token
 - SuperSet portal credentials
-- GitHub account (for deploying GitHub Actions)
 
 ## Setup Instructions
 
@@ -88,13 +95,90 @@ TELEGRAM_BOT_TOKEN=1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZ
 TELEGRAM_CHAT_ID=your_chat_id
 ```
 
-### Step 6: Running locally (for testing)
+### Step 6: Running the Bot
+
+#### Option 1: Bot Server with Scheduler (Recommended)
+
+Start the bot server that handles user registration and runs scheduled jobs:
 
 ```bash
+python app.py
+```
+
+This will:
+
+- Start the Telegram bot server to handle user interactions
+- Schedule automatic scraping and broadcasting 3 times a day (12 AM, 12 PM, 6 PM IST)
+- Allow users to register via `/start` command
+
+#### Option 2: One-time Run (Testing)
+
+Run the scraping and notification process once:
+
+```bash
+python app.py --run-once
+```
+
+#### Option 3: Manual Components
+
+Run individual components:
+
+```bash
+# Run only scraping
+python -c "from main import run_scraping_only; run_scraping_only()"
+
+# Run only formatting
+python -c "from main import run_formatting_only; run_formatting_only()"
+
+# Run only telegram sending
+python -c "from main import run_telegram_only; run_telegram_only()"
+
+# Run full pipeline once
 python main.py
 ```
 
-### Step 7: Deploy with GitHub Actions
+### Step 7: Testing the Setup
+
+Run the test suite to verify everything is configured correctly:
+
+```bash
+python test_setup.py
+```
+
+### Step 8: User Management
+
+#### View and manage users:
+
+```bash
+python manage_users.py
+```
+
+#### Bot Usage for Users:
+
+1. Users find your bot on Telegram
+2. Send `/start` to register for notifications
+3. Send `/stop` to unsubscribe
+4. Send `/status` to check subscription status
+
+### Step 9: Deploy for Production
+
+#### Option A: Local Server (Recommended for continuous operation)
+
+1. Run the bot server on a VPS or local machine that stays online:
+
+   ```bash
+   python app.py
+   ```
+
+2. For production, use a process manager like PM2:
+   ```bash
+   npm install -g pm2
+   pm2 start app.py --name superset-bot --interpreter python3
+   ```
+
+#### Option B: GitHub Actions (Limited - for periodic runs only)
+
+Note: GitHub Actions has limitations for long-running bot servers. Use for scheduled jobs only.
 
 1. Fork this repository to your GitHub account
 2. Go to your repository's Settings > Secrets and variables > Actions
@@ -104,8 +188,6 @@ python main.py
    - `MONGO_CONNECTION_STR`
    - `USER_ID` (your SuperSet email)
    - `PASSWORD` (your SuperSet password)
-
-The GitHub Actions workflow will now run automatically at the scheduled times!
 
 ## Customizing GitHub Actions Schedule
 

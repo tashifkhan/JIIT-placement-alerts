@@ -4,7 +4,6 @@ import os
 import signal
 from contextlib import contextmanager
 
-# Selenium imports
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -27,7 +26,6 @@ PORTAL_URL = "https://app.joinsuperset.com/students/login"
 
 chrome_options = ChromeOptions()
 # chrome_options.add_argument("--headless")
-# chrome_options.add_argument("--no-sandbox")
 chrome_options.add_argument("--disable-dev-shm-usage")
 chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--disable-extensions")
@@ -185,16 +183,70 @@ try:
         )
         print("Login successful, job posts section loaded!")
 
-        print("Scrolling to load all content...")
-        last_height = driver.execute_script("return document.body.scrollHeight")
-        while True:
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(2)
-            new_height = driver.execute_script("return document.body.scrollHeight")
-            if new_height == last_height:
-                break
-            last_height = new_height
-        print("Scrolled to the end of the page.")
+        print("Looking for scrollable inner containers...")
+
+        scrollable_container = None
+        try:
+            containers = driver.find_elements(
+                By.CSS_SELECTOR, "div[class*='overflow'], div[style*='overflow']"
+            )
+
+            for container in containers:
+
+                scroll_height = driver.execute_script(
+                    "return arguments[0].scrollHeight", container
+                )
+                client_height = driver.execute_script(
+                    "return arguments[0].clientHeight", container
+                )
+
+                if scroll_height > client_height:
+                    print(
+                        f"Found scrollable container: scrollHeight={scroll_height}, clientHeight={client_height}"
+                    )
+                    scrollable_container = container
+                    break
+
+        except Exception as e:
+            print(f"Error finding scrollable container: {e}")
+
+        if scrollable_container:
+            print("Scrolling the inner container...")
+            last_scroll_top = 0
+            scroll_attempts = 0
+            max_attempts = 5
+
+            while scroll_attempts < max_attempts:
+                driver.execute_script(
+                    "arguments[0].scrollTop = arguments[0].scrollHeight",
+                    scrollable_container,
+                )
+                time.sleep(2)
+
+                current_scroll_top = driver.execute_script(
+                    "return arguments[0].scrollTop", scrollable_container
+                )
+                scroll_height = driver.execute_script(
+                    "return arguments[0].scrollHeight", scrollable_container
+                )
+
+                if current_scroll_top == last_scroll_top:
+                    scroll_attempts += 1
+                    print(
+                        f"Container scroll position unchanged, attempt {scroll_attempts}/{max_attempts}"
+                    )
+
+                else:
+                    scroll_attempts = 0
+                    print(
+                        f"Container scrolled from {last_scroll_top} to {current_scroll_top} (max: {scroll_height})"
+                    )
+
+                last_scroll_top = current_scroll_top
+
+            print("Finished scrolling the inner container.")
+        else:
+            print("No scrollable inner container found!")
 
         selectors_to_try = [
             "div.px-5.pt-6.pb-0",
@@ -225,13 +277,12 @@ try:
         for i, element in enumerate(content_elements):
             try:
                 element_text = element.text.strip()
-                if (
-                    element_text and len(element_text) > 50
-                ):  # Only include substantial content
+                if element_text and len(element_text) > 50:
                     all_content.append(f"=== Content Block {i+1} ===\n{element_text}\n")
                     print(
                         f"Extracted content from element {i+1} ({len(element_text)} characters)"
                     )
+
             except Exception as element_error:
                 print(f"Error extracting content from element {i+1}: {element_error}")
 
@@ -241,6 +292,7 @@ try:
                 print(
                     f"Successfully wrote {len(all_content)} content blocks to page_content.txt"
                 )
+
             else:
                 f.write("No substantial content found in matching elements")
                 print("No substantial content found to write")
@@ -249,6 +301,7 @@ try:
             if all_content:
                 content_text = "\n\n".join(all_content)
                 f.write(content_text)
+
             else:
                 f.write("No content extracted")
 

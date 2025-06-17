@@ -125,7 +125,7 @@ schedule:
   - cron: "30 9 * * *"
 ```
 
-## 📚 Project Structure
+## Project Structure
 
 ```
 SuperSet-telegram-notification-bot/

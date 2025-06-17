@@ -9,7 +9,7 @@ import sys
 project_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, project_root)
 
-from .database import MongoDBManager
+from ..modules.database import MongoDBManager
 
 
 def test_mongodb_connection():

@@ -12,6 +12,7 @@ A bot that scrapes job postings from the SuperSet placement portal, saves them t
 - **Scheduled Broadcasting**: Runs automatically at 12 AM, 12 PM, and 6 PM IST
 - **Multi-User Support**: Broadcasts to all registered users simultaneously
 - **User Management**: Users can start/stop receiving notifications
+- **Daemon Mode**: Run in background with comprehensive logging support
 
 ## Bot Commands
 
@@ -102,7 +103,34 @@ TELEGRAM_CHAT_ID=your_chat_id
 Start the bot server that handles user registration and runs scheduled jobs:
 
 ```bash
+# Normal mode (with console output)
 python app.py
+
+# Daemon mode (background with logging)
+python app.py -d
+```
+
+**Daemon Mode Features:**
+
+- Runs in background (detached from terminal)
+- All output logged to `logs/superset_bot.log`
+- Perfect for production deployments
+- Use `python daemon_manager.py status` to check if running
+
+**Daemon Management:**
+
+```bash
+# Start daemon
+python daemon_manager.py start
+
+# Stop daemon
+python daemon_manager.py stop
+
+# Check status
+python daemon_manager.py status
+
+# View logs
+python daemon_manager.py logs
 ```
 
 This will:
@@ -215,12 +243,39 @@ SuperSet-telegram-notification-bot/
 ├── modules/                  # Core functionality
 │   ├── database.py           # MongoDB interactions
 │   ├── formatting.py         # Content enhancement
-│   ├── telegram.py           # Telegram bot integration
-│   └── webscraping.py        # SuperSet scraping logic
+│   ├── telegram.py           # Telegram bot operations
+│   └── webscraping.py        # Web scraping functionality
 ├── scripts/                  # Utility scripts
-├── .env                      # Environment variables (create this)
-├── main.py                   # Main entry point
-└── README.md                 # Documentation
+├── logs/                     # Log files (daemon mode)
+├── app.py                    # Main bot server with scheduler
+├── main.py                   # Core workflow orchestration
+├── daemon_manager.py         # Daemon management utility
+├── test_daemon.py            # Daemon functionality tests
+├── DAEMON_GUIDE.md           # Detailed daemon mode documentation
+├── requirements.txt          # Python dependencies
+└── .env                      # Environment variables (create this)
+```
+
+## Documentation
+
+- **[DAEMON_GUIDE.md](./DAEMON_GUIDE.md)** - Comprehensive daemon mode documentation
+- **[user_guide.md](./user_guide.md)** - User interaction guide
+
+## Logging
+
+All operations are logged with timestamps and severity levels:
+
+- **Normal mode**: Console + log file
+- **Daemon mode**: Log file only (`logs/superset_bot.log`)
+
+Log levels: INFO, WARNING, ERROR, DEBUG
+│ ├── telegram.py # Telegram bot integration
+│ └── webscraping.py # SuperSet scraping logic
+├── scripts/ # Utility scripts
+├── .env # Environment variables (create this)
+├── main.py # Main entry point
+└── README.md # Documentation
+
 ```
 
 ## Roadmap
@@ -239,3 +294,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 [GLP 3](./LICENSE)
+```

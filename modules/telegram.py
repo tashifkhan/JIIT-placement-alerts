@@ -2,6 +2,7 @@ import dotenv
 import os
 import re
 import time
+import logging
 import requests
 from .database import MongoDBManager
 from telegram import Update, Bot
@@ -18,12 +19,14 @@ dotenv.load_dotenv()
 
 class TelegramBot:
     def __init__(self):
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
         self.TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
         self.db_manager = MongoDBManager()
         self.bot = (
             Bot(token=self.TELEGRAM_BOT_TOKEN) if self.TELEGRAM_BOT_TOKEN else None
         )
+        self.logger.info("TelegramBot initialized")
 
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         output_dir = os.path.join(project_root, "output")
@@ -32,6 +35,7 @@ class TelegramBot:
             os.makedirs(output_dir)
 
         self.markdown_file = os.path.join(output_dir, "formatted_job_posts.md")
+        self.logger.debug(f"Markdown file path set to: {self.markdown_file}")
 
     # Bot Command Handlers
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

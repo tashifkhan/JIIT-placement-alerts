@@ -1,6 +1,7 @@
 import os
 import re
 import dotenv
+import logging
 from pymongo import MongoClient
 from datetime import datetime
 import hashlib
@@ -10,20 +11,23 @@ dotenv.load_dotenv()
 
 class MongoDBManager:
     def __init__(self):
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.connection_string = os.getenv("MONGO_CONNECTION_STR")
         self.client = None
         self.db = None
         self.collection = None
         self.users_collection = None  # Add users collection
+        self.logger.info("Initializing MongoDBManager")
         self.connect()
 
     def connect(self):
         """Connect to MongoDB"""
+        self.logger.info("Attempting to connect to MongoDB")
         try:
             if not self.connection_string:
-                raise ValueError(
-                    "MONGO_CONNECTION_STR not found in environment variables"
-                )
+                error_msg = "MONGO_CONNECTION_STR not found in environment variables"
+                self.logger.error(error_msg)
+                raise ValueError(error_msg)
 
             self.client = MongoClient(self.connection_string)
             self.db = self.client["SupersetPlacement"]
@@ -32,10 +36,14 @@ class MongoDBManager:
 
             # Test the connection
             self.client.admin.command("ping")
-            print("Successfully connected to MongoDB")
+            success_msg = "Successfully connected to MongoDB"
+            self.logger.info(success_msg)
+            print(success_msg)
 
         except Exception as e:
-            print(f"Failed to connect to MongoDB: {e}")
+            error_msg = f"Failed to connect to MongoDB: {e}"
+            self.logger.error(error_msg, exc_info=True)
+            print(error_msg)
             raise
 
     def create_post_hash(self, content):
@@ -43,11 +51,21 @@ class MongoDBManager:
         # Use the content exactly as-is for precise duplicate detection
         # Only strip leading/trailing whitespace to avoid formatting issues
         exact_content = content.strip()
-
-        return hashlib.sha256(exact_content.encode("utf-8")).hexdigest()
+        content_hash = hashlib.sha256(exact_content.encode("utf-8")).hexdigest()
+        self.logger.debug(f"Created hash for content: {content_hash[:16]}...")
+        return content_hash
 
     def post_exists(self, content_hash, content=None):
         """Check if a post with this exact hash already exists (no fuzzy matching)"""
+        self.logger.debug(f"Checking if post exists with hash: {content_hash[:16]}...")
+        try:
+            existing_post = self.collection.find_one({"content_hash": content_hash})
+            exists = existing_post is not None
+            self.logger.debug(f"Post exists check result: {exists}")
+            return exists
+        except Exception as e:
+            self.logger.error(f"Error checking if post exists: {e}", exc_info=True)
+            return False
         try:
             # Only check for exact hash matches - no similarity checking
             existing_post = self.collection.find_one({"content_hash": content_hash})

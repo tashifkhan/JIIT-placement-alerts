@@ -14,68 +14,142 @@ Features:
 - User management (start/stop subscriptions)
 - Scheduled job posting notifications to all registered users
 - Database-driven user management
+- Daemon mode support with comprehensive logging
 """
 
 import asyncio
 import schedule
 import time
 import threading
+import os
+import sys
+import logging
+import argparse
 from datetime import datetime
 import pytz
 from modules.telegram import TelegramBot
 from main import main as run_main_process
 
 
+def setup_logging(daemon_mode=False):
+    """Setup logging configuration for daemon and normal modes"""
+    # Create logs directory if it doesn't exist
+    logs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+
+    log_file = os.path.join(logs_dir, "superset_bot.log")
+
+    # Configure logging format
+    log_format = (
+        "%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s"
+    )
+    date_format = "%Y-%m-%d %H:%M:%S"
+
+    # Configure root logger
+    logging.basicConfig(
+        level=logging.INFO,
+        format=log_format,
+        datefmt=date_format,
+        handlers=[
+            logging.FileHandler(log_file, mode="a", encoding="utf-8"),
+            logging.StreamHandler() if not daemon_mode else logging.NullHandler(),
+        ],
+    )
+
+    # Set specific loggers to appropriate levels
+    logging.getLogger("telegram").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("selenium").setLevel(logging.WARNING)
+
+    logger = logging.getLogger(__name__)
+    logger.info(f"Logging initialized. Mode: {'Daemon' if daemon_mode else 'Normal'}")
+    logger.info(f"Log file: {log_file}")
+
+    return logger
+
+
 class BotScheduler:
-    def __init__(self):
+    def __init__(self, daemon_mode=False):
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.daemon_mode = daemon_mode
         self.telegram_bot = TelegramBot()
         self.ist = pytz.timezone("Asia/Kolkata")
         self.running = True
 
+        self.logger.info(
+            f"BotScheduler initialized in {'daemon' if daemon_mode else 'normal'} mode"
+        )
+
     def scheduled_job(self):
         """Run the main scraping and notification process"""
+        self.logger.info("Starting scheduled job execution")
         try:
             current_time = datetime.now(self.ist).strftime("%Y-%m-%d %H:%M:%S IST")
-            print(f"\n{'='*60}")
-            print(f"SCHEDULED JOB STARTED AT {current_time}")
-            print(f"{'='*60}")
+
+            if not self.daemon_mode:
+                print(f"\n{'='*60}")
+                print(f"SCHEDULED JOB STARTED AT {current_time}")
+                print(f"{'='*60}")
+
+            self.logger.info(f"SCHEDULED JOB STARTED AT {current_time}")
 
             # Run the main process (scraping + formatting + sending)
             result = run_main_process()
 
             if result == 0:
-                print(f"✅ Scheduled job completed successfully at {current_time}")
+                success_msg = (
+                    f"✅ Scheduled job completed successfully at {current_time}"
+                )
+                self.logger.info(success_msg)
+                if not self.daemon_mode:
+                    print(success_msg)
             else:
-                print(f"❌ Scheduled job completed with issues at {current_time}")
+                error_msg = f"❌ Scheduled job completed with issues at {current_time} (exit code: {result})"
+                self.logger.warning(error_msg)
+                if not self.daemon_mode:
+                    print(error_msg)
 
         except Exception as e:
-            print(f"❌ Error in scheduled job: {e}")
+            error_msg = f"❌ Error in scheduled job: {e}"
+            self.logger.error(error_msg, exc_info=True)
+            if not self.daemon_mode:
+                print(error_msg)
 
     def setup_schedule(self):
         """Setup the scheduled jobs for 3 times a day"""
+        self.logger.info("Setting up scheduled jobs")
 
         schedule.every().day.at("12:00").do(self.scheduled_job)
-
         schedule.every().day.at("00:00").do(self.scheduled_job)
-
         schedule.every().day.at("18:00").do(self.scheduled_job)
 
-        print("📅 Scheduled jobs setup:")
-        print("   - 12:00 PM IST (Noon)")
-        print("   - 12:00 AM IST (Midnight)")
-        print("   - 6:00 PM IST (Evening)")
+        schedule_msg = "📅 Scheduled jobs setup: 12:00 PM IST (Noon), 12:00 AM IST (Midnight), 6:00 PM IST (Evening)"
+        self.logger.info(schedule_msg)
+
+        if not self.daemon_mode:
+            print("📅 Scheduled jobs setup:")
+            print("   - 12:00 PM IST (Noon)")
+            print("   - 12:00 AM IST (Midnight)")
+            print("   - 6:00 PM IST (Evening)")
 
     def run_scheduler(self):
         """Run the scheduler in a separate thread"""
-        print("🕐 Starting job scheduler...")
+        self.logger.info("Starting job scheduler thread")
+        if not self.daemon_mode:
+            print("🕐 Starting job scheduler...")
+
         while self.running:
             schedule.run_pending()
-            time.sleep(60)  #
+            time.sleep(60)  # Check every minute
+
+        self.logger.info("Job scheduler thread stopped")
 
     def start_bot_and_scheduler(self):
         """Start both the Telegram bot and the scheduler"""
+        self.logger.info("Starting SuperSet Telegram Bot Server")
         try:
-            print("Starting SuperSet Telegram Bot Server...")
+            if not self.daemon_mode:
+                print("Starting SuperSet Telegram Bot Server...")
 
             # Setup scheduled jobs
             self.setup_schedule()
@@ -83,52 +157,132 @@ class BotScheduler:
             # Start scheduler in a separate thread
             scheduler_thread = threading.Thread(target=self.run_scheduler, daemon=True)
             scheduler_thread.start()
+            self.logger.info("Scheduler thread started")
 
             # Get current time in IST
             current_time = datetime.now(self.ist)
-            print(
+            time_msg = (
                 f"🕐 Current time (IST): {current_time.strftime('%Y-%m-%d %H:%M:%S')}"
             )
+            self.logger.info(time_msg)
+
+            if not self.daemon_mode:
+                print(time_msg)
 
             # Show user statistics
             self.telegram_bot.get_user_stats()
 
-            print("\nStarting Telegram bot server...")
-            print("Send /start to the bot to register for notifications!")
+            start_msg = "Starting Telegram bot server..."
+            self.logger.info(start_msg)
+            if not self.daemon_mode:
+                print(start_msg)
+                print("Send /start to the bot to register for notifications!")
 
             # Start the bot server (this will block)
             self.telegram_bot.start_bot_server()
 
         except KeyboardInterrupt:
-            print("\nShutting down bot server...")
+            shutdown_msg = "Shutting down bot server..."
+            self.logger.info(shutdown_msg)
+            if not self.daemon_mode:
+                print(f"\n{shutdown_msg}")
             self.running = False
         except Exception as e:
-            print(f"Error starting bot server: {e}")
+            error_msg = f"Error starting bot server: {e}"
+            self.logger.error(error_msg, exc_info=True)
+            if not self.daemon_mode:
+                print(error_msg)
 
     def run_once_now(self):
         """Run the job once immediately (for testing)"""
-        print("Running job immediately for testing...")
+        self.logger.info("Running job immediately for testing")
+        if not self.daemon_mode:
+            print("Running job immediately for testing...")
         self.scheduled_job()
+
+
+def create_daemon():
+    """Create a daemon process"""
+    try:
+        # First fork
+        pid = os.fork()
+        if pid > 0:
+            # Parent process, exit
+            sys.exit(0)
+    except OSError as e:
+        sys.stderr.write(f"Fork #1 failed: {e}\n")
+        sys.exit(1)
+
+    # Decouple from parent environment
+    os.chdir("/")
+    os.setsid()
+    os.umask(0)
+
+    # Second fork
+    try:
+        pid = os.fork()
+        if pid > 0:
+            # Parent process, exit
+            sys.exit(0)
+    except OSError as e:
+        sys.stderr.write(f"Fork #2 failed: {e}\n")
+        sys.exit(1)
+
+    # Redirect standard file descriptors to /dev/null
+    sys.stdout.flush()
+    sys.stderr.flush()
+    si = open(os.devnull, "r")
+    so = open(os.devnull, "a+")
+    se = open(os.devnull, "a+")
+    os.dup2(si.fileno(), sys.stdin.fileno())
+    os.dup2(so.fileno(), sys.stdout.fileno())
+    os.dup2(se.fileno(), sys.stderr.fileno())
 
 
 def main():
     """Main function"""
-    import sys
+    parser = argparse.ArgumentParser(description="SuperSet Telegram Bot Server")
+    parser.add_argument(
+        "-d",
+        "--daemon",
+        action="store_true",
+        help="Run in daemon/detached mode with logging to file",
+    )
+    parser.add_argument(
+        "--run-once", action="store_true", help="Run scraping job once immediately"
+    )
+    parser.add_argument(
+        "--help-extended", action="store_true", help="Show extended help message"
+    )
 
-    bot_scheduler = BotScheduler()
+    args = parser.parse_args()
 
-    if len(sys.argv) > 1:
-        if sys.argv[1] == "--run-once":
-            bot_scheduler.run_once_now()
-            return
+    if args.help_extended:
+        print("SuperSet Telegram Bot Server")
+        print("\nUsage:")
+        print("  python app.py                - Start bot server with scheduler")
+        print("  python app.py -d             - Start bot server in daemon mode")
+        print("  python app.py --daemon       - Start bot server in daemon mode")
+        print("  python app.py --run-once     - Run scraping job once immediately")
+        print("  python app.py --help-extended - Show this help message")
+        print("\nDaemon Mode:")
+        print("  In daemon mode, the process runs in the background and all output")
+        print("  is logged to 'logs/superset_bot.log' file instead of console.")
+        print("  Use this mode for production deployments.")
+        return
 
-        elif sys.argv[1] == "--help":
-            print("SuperSet Telegram Bot Server")
-            print("\nUsage:")
-            print("  python app.py              - Start bot server with scheduler")
-            print("  python app.py --run-once   - Run scraping job once immediately")
-            print("  python app.py --help       - Show this help message")
-            return
+    # Setup daemon mode if requested
+    if args.daemon:
+        create_daemon()
+
+    # Setup logging
+    logger = setup_logging(daemon_mode=args.daemon)
+
+    bot_scheduler = BotScheduler(daemon_mode=args.daemon)
+
+    if args.run_once:
+        bot_scheduler.run_once_now()
+        return
 
     bot_scheduler.start_bot_and_scheduler()
 

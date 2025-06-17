@@ -1,15 +1,19 @@
 import re
 import os
+import logging
 from datetime import datetime
 from .database import MongoDBManager
 
 
 class TextFormatter:
     def __init__(self):
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.db_manager = MongoDBManager()
+        self.logger.info("TextFormatter initialized")
 
     def format_content(self):
         """Main method to enhance formatting of posts in the database"""
+        self.logger.info("Starting content formatting enhancement")
         try:
             # Get all posts that need formatting enhancement
             posts = self.db_manager.collection.find(
@@ -18,7 +22,9 @@ class TextFormatter:
 
             posts_list = list(posts)
             if not posts_list:
-                print("No posts found to format")
+                msg = "No posts found to format"
+                print(msg)
+                self.logger.info(msg)
                 return {
                     "success": True,
                     "new_posts": 0,
@@ -27,6 +33,8 @@ class TextFormatter:
 
             enhanced_count = 0
             total_processed = len(posts_list)
+
+            self.logger.info(f"Found {total_processed} posts to process for formatting")
 
             for post in posts_list:
                 try:
@@ -55,15 +63,23 @@ class TextFormatter:
                             if result.modified_count > 0:
                                 enhanced_count += 1
                                 title = post.get("title", "No Title")
-                                print(f"✅ Enhanced formatting for: {title[:50]}...")
+                                success_msg = (
+                                    f"✅ Enhanced formatting for: {title[:50]}..."
+                                )
+                                print(success_msg)
+                                self.logger.debug(success_msg)
 
                 except Exception as post_error:
-                    print(f"Error processing post {post.get('_id')}: {post_error}")
+                    error_msg = f"Error processing post {post.get('_id')}: {post_error}"
+                    print(error_msg)
+                    self.logger.error(error_msg, exc_info=True)
                     continue
 
+            summary_msg = f"📝 Formatting enhancement completed: Posts processed: {total_processed}, Posts enhanced: {enhanced_count}"
             print(f"📝 Formatting enhancement completed:")
             print(f"   Posts processed: {total_processed}")
             print(f"   Posts enhanced: {enhanced_count}")
+            self.logger.info(summary_msg)
 
             return {
                 "success": True,
@@ -72,7 +88,9 @@ class TextFormatter:
             }
 
         except Exception as e:
-            print(f"Error during text formatting: {e}")
+            error_msg = f"Error during text formatting: {e}"
+            print(error_msg)
+            self.logger.error(error_msg, exc_info=True)
             return {"success": False, "error": str(e)}
 
     def extract_post_metadata(self, content_lines):

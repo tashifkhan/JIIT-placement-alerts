@@ -2,6 +2,7 @@ import dotenv
 import time
 import os
 import signal
+import logging
 from contextlib import contextmanager
 
 from selenium import webdriver
@@ -21,15 +22,18 @@ dotenv.load_dotenv()
 
 class WebScraper:
     def __init__(self):
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.USER_ID = os.getenv("USER_ID")
         self.PASSWORD = os.getenv("PASSWORD")
         self.PORTAL_URL = "https://app.joinsuperset.com/students/login"
         self.driver = None
         self.db_manager = MongoDBManager()
+        self.logger.info("WebScraper initialized")
         self._setup_chrome_options()
 
     def _setup_chrome_options(self):
         """Setup Chrome browser options"""
+        self.logger.debug("Setting up Chrome options")
         self.chrome_options = ChromeOptions()
         self.chrome_options.add_argument("--headless")
         self.chrome_options.add_argument("--disable-dev-shm-usage")
@@ -47,6 +51,7 @@ class WebScraper:
         self.chrome_options.add_argument(
             "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
+        self.logger.debug("Chrome options configured")
 
     @contextmanager
     def timeout(self, duration):
@@ -65,103 +70,153 @@ class WebScraper:
 
     def init_chrome_driver(self):
         """Initialize Chrome WebDriver"""
+        self.logger.info("Attempting to initialize Chrome WebDriver")
         try:
             print("Downloading/setting up ChromeDriver...")
+            self.logger.debug("Using ChromeDriverManager to install driver")
             with self.timeout(30):
                 service = ChromeService(ChromeDriverManager().install())
                 driver = webdriver.Chrome(service=service, options=self.chrome_options)
-                print("ChromeDriver initialized successfully!")
+                success_msg = "ChromeDriver initialized successfully!"
+                print(success_msg)
+                self.logger.info(success_msg)
                 return driver
 
         except TimeoutError:
-            print("ChromeDriver initialization timed out")
+            timeout_msg = "ChromeDriver initialization timed out"
+            print(timeout_msg)
+            self.logger.warning(timeout_msg)
 
         except Exception as e:
-            print(f"Failed to initialize Chrome driver with webdriver-manager: {e}")
+            error_msg = (
+                f"Failed to initialize Chrome driver with webdriver-manager: {e}"
+            )
+            print(error_msg)
+            self.logger.error(error_msg)
 
         try:
             print("Trying Chrome without webdriver-manager...")
+            self.logger.debug("Attempting Chrome fallback without webdriver-manager")
             with self.timeout(15):
                 driver = webdriver.Chrome(options=self.chrome_options)
-                print("ChromeDriver initialized with fallback!")
+                fallback_msg = "ChromeDriver initialized with fallback!"
+                print(fallback_msg)
+                self.logger.info(fallback_msg)
                 return driver
 
         except TimeoutError:
-            print("Chrome fallback initialization timed out")
+            timeout_msg = "Chrome fallback initialization timed out"
+            print(timeout_msg)
+            self.logger.warning(timeout_msg)
 
         except Exception as e2:
-            print(f"Chrome fallback also failed: {e2}")
+            error_msg = f"Chrome fallback also failed: {e2}"
+            print(error_msg)
+            self.logger.error(error_msg)
 
         return None
 
     def init_firefox_driver(self):
         """Initialize Firefox WebDriver"""
+        self.logger.info("Attempting to initialize Firefox WebDriver")
         try:
             print("Setting up Firefox driver...")
+            self.logger.debug("Setting up Firefox options")
             firefox_options = FirefoxOptions()
             firefox_options.add_argument("--headless")
 
             with self.timeout(30):
                 service = FirefoxService(GeckoDriverManager().install())
                 driver = webdriver.Firefox(service=service, options=firefox_options)
-                print("Firefox driver initialized successfully!")
+                success_msg = "Firefox driver initialized successfully!"
+                print(success_msg)
+                self.logger.info(success_msg)
                 return driver
 
         except TimeoutError:
-            print("Firefox initialization timed out")
+            timeout_msg = "Firefox initialization timed out"
+            print(timeout_msg)
+            self.logger.warning(timeout_msg)
 
         except Exception as e:
-            print(f"Failed to initialize Firefox driver: {e}")
+            error_msg = f"Failed to initialize Firefox driver: {e}"
+            print(error_msg)
+            self.logger.error(error_msg)
 
         return None
 
     def initialize_driver(self):
         """Initialize the best available WebDriver"""
+        self.logger.info("Starting WebDriver initialization")
         print("Attempting to initialize Chrome driver...")
         self.driver = self.init_chrome_driver()
 
         if self.driver is None:
+            self.logger.info("Chrome failed, attempting Firefox")
             print("Chrome failed, trying Firefox...")
             self.driver = self.init_firefox_driver()
 
         if self.driver is None:
-            print("Both Chrome and Firefox initialization failed!")
-            print("Please ensure you have either Chrome or Firefox installed.")
+            error_msg = "Both Chrome and Firefox initialization failed! Please ensure you have either Chrome or Firefox installed."
+            print(error_msg)
+            self.logger.error(error_msg)
             raise Exception("Failed to initialize any WebDriver")
 
+        self.logger.info("WebDriver successfully initialized")
         return self.driver
 
     def login(self):
         """Perform login to the portal"""
+        self.logger.info("Starting login process")
         try:
-            print(f"Navigating to: {self.PORTAL_URL}")
+            navigate_msg = f"Navigating to: {self.PORTAL_URL}"
+            print(navigate_msg)
+            self.logger.debug(navigate_msg)
             self.driver.get(self.PORTAL_URL)
+
             print("Page request sent, waiting for elements...")
+            self.logger.debug("Waiting for page body to load")
 
             WebDriverWait(self.driver, 15).until(
                 EC.presence_of_element_located((By.TAG_NAME, "body"))
             )
-            print("Page body loaded!")
 
-            print(f"Page title: {self.driver.title}")
+            body_msg = "Page body loaded!"
+            print(body_msg)
+            self.logger.debug(body_msg)
 
+            title_msg = f"Page title: {self.driver.title}"
+            print(title_msg)
+            self.logger.debug(title_msg)
+
+            self.logger.debug("Waiting for login elements")
             WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.ID, ":r1:"))
             )
-            print("Login elements found!")
+
+            elements_msg = "Login elements found!"
+            print(elements_msg)
+            self.logger.debug(elements_msg)
 
             username_field = self.driver.find_element(By.ID, ":r1:")
             password_field = self.driver.find_element(By.ID, ":r2:")
 
-            print(
-                f"Username field: {username_field.get_attribute('placeholder') or 'No placeholder'}"
+            username_placeholder = (
+                username_field.get_attribute("placeholder") or "No placeholder"
             )
-            print(
-                f"Password field: {password_field.get_attribute('placeholder') or 'No placeholder'}"
+            password_placeholder = (
+                password_field.get_attribute("placeholder") or "No placeholder"
+            )
+
+            print(f"Username field: {username_placeholder}")
+            print(f"Password field: {password_placeholder}")
+            self.logger.debug(
+                f"Found username field: {username_placeholder}, password field: {password_placeholder}"
             )
 
             username_field.send_keys(self.USER_ID)
             password_field.send_keys(self.PASSWORD)
+            self.logger.debug("Credentials entered")
 
             login_button = self.driver.find_element(
                 By.CSS_SELECTOR, "button[type='submit']"
@@ -620,7 +675,9 @@ class WebScraper:
             # Check if exact duplicate exists (no fuzzy matching)
             existing_post = self.db_manager.post_exists(content_hash)
             if existing_post:
-                print(f"� EXACT DUPLICATE found for post #{post_number}: {title[:50]}...")
+                print(
+                    f"� EXACT DUPLICATE found for post #{post_number}: {title[:50]}..."
+                )
                 print(f"   Stopping scraping - found identical content")
                 return "duplicate"
 

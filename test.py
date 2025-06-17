@@ -1,3 +1,7 @@
+"""
+inital test version for the telegram bot -> it is totally file based
+"""
+
 import dotenv
 import time
 import os

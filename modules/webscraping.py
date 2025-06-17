@@ -367,16 +367,15 @@ class WebScraper:
 
     def save_content(self, content):
         """Save extracted content to files and database"""
-        # Get the project root directory (parent of modules directory)
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        project_root = os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__)),
+        )
         output_dir = os.path.join(project_root, "output")
 
-        # Create output directory if it doesn't exist
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
             print(f"Created output directory: {output_dir}")
 
-        # Save page_content.txt
         file_name = os.path.join(output_dir, "page_content.txt")
         with open(file_name, "w", encoding="utf-8") as f:
             if content:
@@ -388,7 +387,6 @@ class WebScraper:
                 f.write("No substantial content found in matching elements")
                 print("No substantial content found to write")
 
-        # Save job_posts.txt
         file_name = os.path.join(output_dir, "job_posts.txt")
         with open(file_name, "w", encoding="utf-8") as f:
             if content:
@@ -397,12 +395,10 @@ class WebScraper:
             else:
                 f.write("No content extracted")
 
-        # Save job_posts_page.txt
         file_name = os.path.join(output_dir, "job_posts_page.txt")
         with open(file_name, "w", encoding="utf-8") as f:
             f.write(self.driver.page_source)
 
-        # Save to MongoDB database
         if content:
             self.save_to_database(content)
 
@@ -415,12 +411,10 @@ class WebScraper:
 
         try:
             for i, block in enumerate(content, 1):
-                # Extract content from block
                 lines = block.split("\n")
-                if len(lines) < 3:  # Skip blocks that are too short
+                if len(lines) < 3:
                     continue
 
-                # Remove the "=== Content Block N ===" header
                 content_lines = []
                 for line in lines:
                     if line.strip().startswith("===") and "Content Block" in line:
@@ -431,15 +425,12 @@ class WebScraper:
                 if not content_lines:
                     continue
 
-                # Extract metadata from content
                 title, author, posted_time = self.extract_post_metadata_from_raw(
                     content_lines
                 )
 
-                # Create basic formatted content (simple formatting for database)
                 formatted_content = self.create_basic_formatted_content(content_lines)
 
-                # Save to database
                 raw_content = "\n".join(content_lines)
                 success, result = self.db_manager.save_post(
                     title=title,
@@ -470,9 +461,8 @@ class WebScraper:
         author = ""
         posted_time = ""
 
-        # Look for title patterns in first few lines
         for line in content_lines[:5]:
-            # Check for job posting patterns
+
             if (
                 any(
                     pattern in line.lower()
@@ -489,10 +479,9 @@ class WebScraper:
                 )
                 and len(line) > 20
             ):
-                title = line[:100]  # Limit title length
+                title = line[:100]
                 break
 
-        # Look for author patterns
         author_names = [
             "anurag srivastava",
             "anita marwaha",
@@ -500,14 +489,21 @@ class WebScraper:
             "archita kumar",
             "deeksha jain",
             "placement team",
+            "sanjay dawar",
+            "breg. sanjay dawar",
         ]
         for line in content_lines:
             if any(name in line.lower() for name in author_names):
                 author = line.strip()
                 break
 
-        # Look for time patterns
-        time_keywords = ["days ago", "hours ago", "minutes ago", "yesterday", "today"]
+        time_keywords = [
+            "days ago",
+            "hours ago",
+            "minutes ago",
+            "yesterday",
+            "today",
+        ]
         for line in content_lines:
             if any(keyword in line.lower() for keyword in time_keywords):
                 posted_time = line.strip()
@@ -524,15 +520,12 @@ class WebScraper:
             if not line:
                 continue
 
-            # Skip "See Less" at the end
             if line == "See Less":
                 continue
 
-            # Remove the · symbol
             if line.strip() == "·":
                 continue
 
-            # Simple formatting rules
             if self.is_title_line_simple(line):
                 formatted_lines.append(f"## {line}")
             elif "deadline" in line.lower():

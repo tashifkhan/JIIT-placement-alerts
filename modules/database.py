@@ -38,11 +38,8 @@ class MongoDBManager:
 
     def create_post_hash(self, content):
         """Create a unique hash for post content to detect duplicates"""
-        # Clean the content and create hash
+
         cleaned_content = content.strip().lower()
-        # Remove common variations that don't affect content meaning but preserve structure
-        # Remove extra whitespace but keep single spaces
-        import re
 
         cleaned_content = re.sub(r"\s+", " ", cleaned_content)
         # Remove markdown formatting that doesn't affect content meaning
@@ -57,22 +54,17 @@ class MongoDBManager:
     def post_exists(self, content_hash, content=None):
         """Check if a post with this hash already exists"""
         try:
-            # First check by hash
             existing_post = self.collection.find_one({"content_hash": content_hash})
             if existing_post:
                 return existing_post
 
-            # If content is provided, also check for very similar content
-            # (in case hash function changed or there are minor variations)
             if content:
-                # Look for posts with very similar titles or first few lines
                 content_lines = content.strip().split("\n")
+
                 if content_lines:
                     first_line = content_lines[0].strip()
-                    if (
-                        len(first_line) > 20
-                    ):  # Only check if we have substantial content
-                        # Search for posts with similar first line
+
+                    if len(first_line) > 20:
                         similar_posts = self.collection.find(
                             {
                                 "$or": [
@@ -93,12 +85,13 @@ class MongoDBManager:
                         ).limit(5)
 
                         for post in similar_posts:
-                            # Calculate simple similarity
+
                             existing_first_line = (
                                 post.get("content", "").strip().split("\n")[0]
                                 if post.get("content")
                                 else ""
                             )
+
                             if self._are_posts_similar(first_line, existing_first_line):
                                 print(
                                     f"Found similar existing post: {post.get('title', 'No Title')[:50]}..."
@@ -115,7 +108,6 @@ class MongoDBManager:
         if not text1 or not text2:
             return False
 
-        # Simple similarity check based on common words
         words1 = set(text1.lower().split())
         words2 = set(text2.lower().split())
 
@@ -133,7 +125,6 @@ class MongoDBManager:
         try:
             content_hash = self.create_post_hash(content)
 
-            # Check if post already exists (enhanced check)
             existing_post = self.post_exists(content_hash, content)
             if existing_post:
                 print(f"Post already exists with hash: {content_hash}")
@@ -142,7 +133,6 @@ class MongoDBManager:
                 )
                 return False, "Post already exists"
 
-            # Extract key information from content
             post_data = {
                 "title": title.strip() if title else "No Title",
                 "content": content,
@@ -156,7 +146,6 @@ class MongoDBManager:
                 "updated_at": datetime.utcnow(),
             }
 
-            # Extract additional metadata
             post_data.update(self._extract_post_metadata(content))
 
             result = self.collection.insert_one(post_data)
@@ -178,7 +167,6 @@ class MongoDBManager:
 
         content_lower = content.lower()
 
-        # Check for deadline
         if "deadline" in content_lower or any(
             month in content_lower
             for month in [
@@ -198,7 +186,6 @@ class MongoDBManager:
         ):
             metadata["has_deadline"] = True
 
-        # Check for eligibility criteria
         if any(
             term in content_lower
             for term in [
@@ -212,20 +199,20 @@ class MongoDBManager:
         ):
             metadata["has_eligibility"] = True
 
-        # Check for links
         if "http" in content_lower or "www." in content_lower:
             metadata["has_link"] = True
 
-        # Determine post type
         if any(
             term in content_lower
             for term in ["open for applications", "hiring", "placement", "job"]
         ):
             metadata["post_type"] = "job_posting"
+
         elif any(
             term in content_lower for term in ["hackathon", "competition", "contest"]
         ):
             metadata["post_type"] = "competition"
+
         elif any(term in content_lower for term in ["webinar", "session", "workshop"]):
             metadata["post_type"] = "event"
 
@@ -234,21 +221,17 @@ class MongoDBManager:
     def get_unsent_posts(self):
         """Get all posts that haven't been sent to Telegram yet"""
         try:
-            # Query for posts that are explicitly marked as not sent
-            # Use explicit False check to avoid any None/null issues
-            query = {
-                "sent_to_telegram": {
-                    "$ne": True
-                }  # Not equal to True (covers False, None, missing)
-            }
+
+            query = {"sent_to_telegram": {"$ne": True}}
 
             cursor = self.collection.find(
                 query,
-                sort=[("created_at", -1)],  # Most recent first
+                sort=[
+                    ("created_at", -1),
+                ],
             )
             posts = list(cursor)
 
-            # Additional safety check: filter out any posts that somehow have sent_to_telegram as True
             unsent_posts = []
             for post in posts:
                 sent_status = post.get("sent_to_telegram")
@@ -282,6 +265,7 @@ class MongoDBManager:
                 },
             )
             return result.modified_count > 0
+
         except Exception as e:
             print(f"Error marking post as sent: {e}")
             return False
@@ -293,6 +277,7 @@ class MongoDBManager:
             if post:
                 return post.get("sent_to_telegram", False)
             return False
+
         except Exception as e:
             print(f"Error checking if post was sent: {e}")
             return False
@@ -311,6 +296,7 @@ class MongoDBManager:
                 },
             )
             return result.modified_count > 0
+
         except Exception as e:
             print(f"Error resetting send status: {e}")
             return False
@@ -320,6 +306,7 @@ class MongoDBManager:
         try:
             cursor = self.collection.find().sort("created_at", -1).limit(limit)
             return list(cursor)
+
         except Exception as e:
             print(f"Error getting all posts: {e}")
             return []
@@ -331,7 +318,6 @@ class MongoDBManager:
             sent_posts = self.collection.count_documents({"sent_to_telegram": True})
             unsent_posts = self.collection.count_documents({"sent_to_telegram": False})
 
-            # Get post types distribution
             pipeline = [
                 {"$group": {"_id": "$post_type", "count": {"$sum": 1}}},
                 {"$sort": {"count": -1}},
@@ -344,6 +330,7 @@ class MongoDBManager:
                 "pending_to_send": unsent_posts,
                 "post_types": post_types,
             }
+
         except Exception as e:
             print(f"Error getting posts stats: {e}")
             return {}
@@ -353,7 +340,6 @@ class MongoDBManager:
         try:
             print("🔍 Scanning for duplicate posts...")
 
-            # Group posts by content hash
             pipeline = [
                 {
                     "$group": {
@@ -368,7 +354,13 @@ class MongoDBManager:
                         "count": {"$sum": 1},
                     }
                 },
-                {"$match": {"count": {"$gt": 1}}},  # Only groups with more than 1 post
+                {
+                    "$match": {
+                        "count": {
+                            "$gt": 1,
+                        },
+                    },
+                },
             ]
 
             duplicates = list(self.collection.aggregate(pipeline))
@@ -385,9 +377,8 @@ class MongoDBManager:
             for dup_group in duplicates:
                 posts = dup_group["posts"]
                 count = dup_group["count"]
-                total_duplicates += count - 1  # Keep one, remove the rest
+                total_duplicates += count - 1
 
-                # Sort by creation date, keep the oldest
                 posts.sort(key=lambda x: x["created_at"])
                 posts_to_keep = posts[0]
                 posts_to_delete = posts[1:]
@@ -406,6 +397,7 @@ class MongoDBManager:
                 result = self.collection.delete_many({"_id": {"$in": posts_to_remove}})
                 removed_count = result.deleted_count
                 print(f"✅ Removed {removed_count} duplicate posts")
+
             elif dry_run:
                 print(
                     f"🔍 DRY RUN: Would remove {len(posts_to_remove)} duplicate posts"

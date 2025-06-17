@@ -162,18 +162,12 @@ class MongoDBManager:
         return metadata
 
     def get_unsent_posts(self):
-        """Get all posts that haven't been sent to Telegram yet, sorted by oldest first"""
+        """Get all posts that haven't been sent to Telegram yet, sorted by oldest first (chronological order)"""
         try:
-
             query = {"sent_to_telegram": {"$ne": True}}
 
-            # Sort by created_at in ascending order (1) to send oldest messages first
-            cursor = self.collection.find(
-                query,
-                sort=[
-                    ("created_at", 1),
-                ],
-            )
+            # Sort by created_at in ascending order (1) to send oldest messages first (chronological order)
+            cursor = self.collection.find(query).sort("created_at", -1)
             posts = list(cursor)
 
             unsent_posts = []

@@ -1,0 +1,446 @@
+import dotenv
+import time
+import os
+import signal
+from contextlib import contextmanager
+
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.chrome.options import Options as ChromeOptions
+from selenium.webdriver.firefox.service import Service as FirefoxService
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.firefox import GeckoDriverManager
+
+dotenv.load_dotenv()
+
+
+class WebScraper:
+    def __init__(self):
+        self.USER_ID = os.getenv("USER_ID")
+        self.PASSWORD = os.getenv("PASSWORD")
+        self.PORTAL_URL = "https://app.joinsuperset.com/students/login"
+        self.driver = None
+        self._setup_chrome_options()
+
+    def _setup_chrome_options(self):
+        """Setup Chrome browser options"""
+        self.chrome_options = ChromeOptions()
+        self.chrome_options.add_argument("--headless")
+        self.chrome_options.add_argument("--disable-dev-shm-usage")
+        self.chrome_options.add_argument("--disable-gpu")
+        self.chrome_options.add_argument("--disable-extensions")
+        self.chrome_options.add_argument("--disable-plugins")
+        self.chrome_options.add_argument(
+            "--disable-blink-features=AutomationControlled"
+        )
+        self.chrome_options.add_experimental_option(
+            "excludeSwitches", ["enable-automation"]
+        )
+        self.chrome_options.add_experimental_option("useAutomationExtension", False)
+        self.chrome_options.add_argument("--window-size=660,1080")
+        self.chrome_options.add_argument(
+            "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+
+    @contextmanager
+    def timeout(self, duration):
+        """Context manager for timeout handling"""
+
+        def timeout_handler(signum, frame):
+            raise TimeoutError(f"Operation timed out after {duration} seconds")
+
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(duration)
+
+        try:
+            yield
+        finally:
+            signal.alarm(0)
+
+    def init_chrome_driver(self):
+        """Initialize Chrome WebDriver"""
+        try:
+            print("Downloading/setting up ChromeDriver...")
+            with self.timeout(30):
+                service = ChromeService(ChromeDriverManager().install())
+                driver = webdriver.Chrome(service=service, options=self.chrome_options)
+                print("ChromeDriver initialized successfully!")
+                return driver
+
+        except TimeoutError:
+            print("ChromeDriver initialization timed out")
+
+        except Exception as e:
+            print(f"Failed to initialize Chrome driver with webdriver-manager: {e}")
+
+        try:
+            print("Trying Chrome without webdriver-manager...")
+            with self.timeout(15):
+                driver = webdriver.Chrome(options=self.chrome_options)
+                print("ChromeDriver initialized with fallback!")
+                return driver
+
+        except TimeoutError:
+            print("Chrome fallback initialization timed out")
+
+        except Exception as e2:
+            print(f"Chrome fallback also failed: {e2}")
+
+        return None
+
+    def init_firefox_driver(self):
+        """Initialize Firefox WebDriver"""
+        try:
+            print("Setting up Firefox driver...")
+            firefox_options = FirefoxOptions()
+            firefox_options.add_argument("--headless")
+
+            with self.timeout(30):
+                service = FirefoxService(GeckoDriverManager().install())
+                driver = webdriver.Firefox(service=service, options=firefox_options)
+                print("Firefox driver initialized successfully!")
+                return driver
+
+        except TimeoutError:
+            print("Firefox initialization timed out")
+
+        except Exception as e:
+            print(f"Failed to initialize Firefox driver: {e}")
+
+        return None
+
+    def initialize_driver(self):
+        """Initialize the best available WebDriver"""
+        print("Attempting to initialize Chrome driver...")
+        self.driver = self.init_chrome_driver()
+
+        if self.driver is None:
+            print("Chrome failed, trying Firefox...")
+            self.driver = self.init_firefox_driver()
+
+        if self.driver is None:
+            print("Both Chrome and Firefox initialization failed!")
+            print("Please ensure you have either Chrome or Firefox installed.")
+            raise Exception("Failed to initialize any WebDriver")
+
+        return self.driver
+
+    def login(self):
+        """Perform login to the portal"""
+        try:
+            print(f"Navigating to: {self.PORTAL_URL}")
+            self.driver.get(self.PORTAL_URL)
+            print("Page request sent, waiting for elements...")
+
+            WebDriverWait(self.driver, 15).until(
+                EC.presence_of_element_located((By.TAG_NAME, "body"))
+            )
+            print("Page body loaded!")
+
+            print(f"Page title: {self.driver.title}")
+
+            WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.ID, ":r1:"))
+            )
+            print("Login elements found!")
+
+            username_field = self.driver.find_element(By.ID, ":r1:")
+            password_field = self.driver.find_element(By.ID, ":r2:")
+
+            print(
+                f"Username field: {username_field.get_attribute('placeholder') or 'No placeholder'}"
+            )
+            print(
+                f"Password field: {password_field.get_attribute('placeholder') or 'No placeholder'}"
+            )
+
+            username_field.send_keys(self.USER_ID)
+            password_field.send_keys(self.PASSWORD)
+
+            login_button = self.driver.find_element(
+                By.CSS_SELECTOR, "button[type='submit']"
+            )
+            login_button.click()
+            print("Login button clicked!")
+
+            print("Waiting for login to complete...")
+            time.sleep(3)
+            print("Login attempt made, checking for success...")
+
+            WebDriverWait(self.driver, 15).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.px-5.pt-5.pb-0"))
+            )
+            print("Login successful, job posts section loaded!")
+            return True
+
+        except Exception as login_error:
+            print(f"Could not find login elements: {login_error}")
+            print("Page title:", self.driver.title)
+            print("Current URL:", self.driver.current_url)
+
+            try:
+                self.driver.save_screenshot("debug_screenshot.png")
+                print("Screenshot saved as debug_screenshot.png")
+            except:
+                pass
+
+            return False
+
+    def scroll_and_load_content(self):
+        """Scroll through the page and load all content"""
+        print("Looking for scrollable inner containers...")
+
+        scrollable_container = None
+        try:
+            containers = self.driver.find_elements(
+                By.CSS_SELECTOR, "div[class*='overflow'], div[style*='overflow']"
+            )
+
+            for container in containers:
+                scroll_height = self.driver.execute_script(
+                    "return arguments[0].scrollHeight", container
+                )
+                client_height = self.driver.execute_script(
+                    "return arguments[0].clientHeight", container
+                )
+
+                if scroll_height > client_height:
+                    print(
+                        f"Found scrollable container: scrollHeight={scroll_height}, clientHeight={client_height}"
+                    )
+                    scrollable_container = container
+                    break
+
+        except Exception as e:
+            print(f"Error finding scrollable container: {e}")
+
+        if scrollable_container:
+            print("Scrolling the inner container...")
+            last_scroll_top = 0
+            scroll_attempts = 0
+            max_attempts = 5
+            clicked_buttons = set()  # using set to avoid double clicking the button
+
+            while scroll_attempts < max_attempts:
+                self.driver.execute_script(
+                    "arguments[0].scrollTop = arguments[0].scrollHeight",
+                    scrollable_container,
+                )
+                time.sleep(2)
+
+                try:
+                    show_more_buttons = []
+                    buttons_by_text = self.driver.find_elements(
+                        By.XPATH,
+                        "//button[contains(text(), 'See More') or contains(text(), 'see more')]",
+                    )
+                    show_more_buttons.extend(buttons_by_text)
+
+                    mui_buttons = self.driver.find_elements(
+                        By.CSS_SELECTOR,
+                        "button.MuiButton-root.MuiButton-text.MuiButton-textPrimary",
+                    )
+                    for btn in mui_buttons:
+                        if "see more" in btn.text.lower():
+                            show_more_buttons.append(btn)
+
+                    css_buttons = self.driver.find_elements(
+                        By.CSS_SELECTOR,
+                        "button[class*='MuiButton-root'][class*='!text-xs'][class*='!mt-3']",
+                    )
+                    for btn in css_buttons:
+                        if "see more" in btn.text.lower():
+                            show_more_buttons.append(btn)
+
+                    print(
+                        f"Found {len(show_more_buttons)} potential 'See More' buttons"
+                    )
+
+                    for button in show_more_buttons:
+                        try:
+                            button_id = f"{button.location['x']}-{button.location['y']}-{button.text.strip()}"
+
+                            if (
+                                button_id not in clicked_buttons
+                                and button.is_displayed()
+                                and button.is_enabled()
+                                and "see more" in button.text.lower()
+                            ):
+
+                                print(
+                                    f"Clicking 'See More' button: '{button.text.strip()}'"
+                                )
+                                try:
+                                    button.click()
+                                except:
+                                    self.driver.execute_script(
+                                        "arguments[0].click();", button
+                                    )
+
+                                clicked_buttons.add(button_id)
+                                time.sleep(3)
+                                scroll_attempts = 0
+                                break
+
+                        except Exception as button_error:
+                            print(f"Error processing button: {button_error}")
+                            continue
+
+                except Exception as find_error:
+                    print(f"Error finding see more buttons: {find_error}")
+
+                current_scroll_top = self.driver.execute_script(
+                    "return arguments[0].scrollTop", scrollable_container
+                )
+                scroll_height = self.driver.execute_script(
+                    "return arguments[0].scrollHeight", scrollable_container
+                )
+
+                if current_scroll_top == last_scroll_top:
+                    scroll_attempts += 1
+                    print(
+                        f"Container scroll position unchanged, attempt {scroll_attempts}/{max_attempts}"
+                    )
+
+                else:
+                    scroll_attempts = 0
+                    print(
+                        f"Container scrolled from {last_scroll_top} to {current_scroll_top} (max: {scroll_height})"
+                    )
+
+                last_scroll_top = current_scroll_top
+
+            print(
+                f"Finished scrolling the inner container. Clicked {len(clicked_buttons)} 'Show more' buttons."
+            )
+
+        else:
+            print("No scrollable inner container found!")
+
+    def extract_content(self):
+        """Extract content from the page"""
+        selectors_to_try = [
+            "div.px-5.pt-6.pb-0",
+            "div.px-5.pt-5.pb-0",
+            "div[class*='px-5'][class*='pt-'][class*='pb-0']",
+            "div.px-5",
+        ]
+
+        content_elements = []
+        for selector in selectors_to_try:
+            print(f"Trying selector: {selector}")
+            elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+            if elements:
+                print(f"Found {len(elements)} elements with selector: {selector}")
+                content_elements = elements
+                break
+
+        if not content_elements:
+            print(
+                "No content elements found with any selector, trying to find all divs with px-5 class..."
+            )
+            content_elements = self.driver.find_elements(
+                By.CSS_SELECTOR, "div[class*='px-5']"
+            )
+            print(f"Found {len(content_elements)} elements with px-5 class")
+
+        all_content = []
+        for i, element in enumerate(content_elements):
+            try:
+                element_text = element.text.strip()
+                if element_text and len(element_text) > 50:
+                    all_content.append(f"=== Content Block {i+1} ===\n{element_text}\n")
+                    print(
+                        f"Extracted content from element {i+1} ({len(element_text)} characters)"
+                    )
+
+            except Exception as element_error:
+                print(f"Error extracting content from element {i+1}: {element_error}")
+
+        return all_content
+
+    def save_content(self, content):
+        """Save extracted content to files"""
+        # Get the project root directory (parent of modules directory)
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        output_dir = os.path.join(project_root, "output")
+
+        # Create output directory if it doesn't exist
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+            print(f"Created output directory: {output_dir}")
+
+        # Save page_content.txt
+        file_name = os.path.join(output_dir, "page_content.txt")
+        with open(file_name, "w", encoding="utf-8") as f:
+            if content:
+                f.write("\n".join(content))
+                print(
+                    f"Successfully wrote {len(content)} content blocks to page_content.txt"
+                )
+            else:
+                f.write("No substantial content found in matching elements")
+                print("No substantial content found to write")
+
+        # Save job_posts.txt
+        file_name = os.path.join(output_dir, "job_posts.txt")
+        with open(file_name, "w", encoding="utf-8") as f:
+            if content:
+                content_text = "\n\n".join(content)
+                f.write(content_text)
+            else:
+                f.write("No content extracted")
+
+        # Save job_posts_page.txt
+        file_name = os.path.join(output_dir, "job_posts_page.txt")
+        with open(file_name, "w", encoding="utf-8") as f:
+            f.write(self.driver.page_source)
+
+    def scrape(self):
+        """Main scraping method"""
+        try:
+            self.initialize_driver()
+
+            if not self.login():
+                raise Exception("Login failed")
+
+            self.scroll_and_load_content()
+            content = self.extract_content()
+            self.save_content(content)
+
+            print("Web scraping completed successfully!")
+            return True
+
+        except Exception as e:
+            print(f"An error occurred during scraping: {e}")
+            print(f"Error type: {type(e).__name__}")
+
+            try:
+                print(
+                    "Current URL:",
+                    self.driver.current_url if self.driver else "Driver not available",
+                )
+                print(
+                    "Page title:",
+                    self.driver.title if self.driver else "Driver not available",
+                )
+            except:
+                print("Could not get additional error information")
+
+            return False
+
+        finally:
+            self.cleanup()
+
+    def cleanup(self):
+        """Clean up resources"""
+        if self.driver:
+            try:
+                self.driver.quit()
+                print("Browser closed successfully.")
+            except Exception as close_error:
+                print(f"Error closing browser: {close_error}")

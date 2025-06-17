@@ -503,6 +503,9 @@ class WebScraper:
             "minutes ago",
             "yesterday",
             "today",
+            "hrs",
+            "mins",
+            "ago",
         ]
         for line in content_lines:
             if any(keyword in line.lower() for keyword in time_keywords):
@@ -528,16 +531,21 @@ class WebScraper:
 
             if self.is_title_line_simple(line):
                 formatted_lines.append(f"## {line}")
+
             elif "deadline" in line.lower():
                 formatted_lines.append(f"⚠️ DEADLINE: {line}")
+
             elif any(
                 term in line.lower() for term in ["eligibility", "process", "benefits"]
             ):
                 formatted_lines.append(f"**{line}:**")
+
             elif line.startswith("•") or line.startswith("-"):
                 formatted_lines.append(line)
+
             elif "http" in line.lower() or "www." in line.lower():
                 formatted_lines.append(f"🔗 {line}")
+
             else:
                 formatted_lines.append(line)
 
@@ -555,6 +563,7 @@ class WebScraper:
             "campus connect",
             "webinar",
         ]
+
         return (
             any(pattern in line.lower() for pattern in title_patterns)
             and len(line) > 20
@@ -575,7 +584,6 @@ class WebScraper:
 
             print("Web scraping completed successfully!")
 
-            # Get database stats after scraping
             try:
                 stats = self.db_manager.get_posts_stats()
                 print(f"📊 Database Summary:")
@@ -613,12 +621,13 @@ class WebScraper:
             try:
                 self.driver.quit()
                 print("Browser closed successfully.")
+
             except Exception as close_error:
                 print(f"Error closing browser: {close_error}")
 
-        # Close database connection
         if hasattr(self, "db_manager") and self.db_manager:
             try:
                 self.db_manager.close_connection()
+
             except Exception as db_error:
                 print(f"Error closing database connection: {db_error}")

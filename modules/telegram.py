@@ -48,9 +48,9 @@ class TelegramBot:
 
             url = f"https://api.telegram.org/bot{self.TELEGRAM_BOT_TOKEN}/sendMessage"
 
-            # Convert and escape the message for Telegram
             if parse_mode == "MarkdownV2":
                 formatted_message = self.convert_markdown_to_telegram(message)
+
             else:
                 formatted_message = message
 
@@ -71,18 +71,21 @@ class TelegramBot:
             else:
                 print(f"Failed to send message. Status code: {response.status_code}")
                 print(f"Response: {response.text}")
-                # Try fallback with plain text if MarkdownV2 fails
+
+                # if MarkdownV2 fails
                 if parse_mode == "MarkdownV2":
                     print("Retrying with plain text...")
                     return self.send_message(message, parse_mode=None)
+
                 return False
 
         except Exception as e:
             print(f"Error sending Telegram message: {e}")
-            # Try fallback with plain text
+            # fallback plain text
             if parse_mode == "MarkdownV2":
                 print("Retrying with plain text...")
                 return self.send_message(message, parse_mode=None)
+
             return False
 
     def send_message_html(self, message):
@@ -110,6 +113,7 @@ class TelegramBot:
                     f"HTML message sent successfully (length: {len(html_message)} chars)"
                 )
                 return True
+
             else:
                 print(
                     f"Failed to send HTML message. Status code: {response.status_code}"
@@ -128,7 +132,7 @@ class TelegramBot:
     def send_new_posts_from_db(self):
         """Send only new posts from MongoDB that haven't been sent to Telegram yet"""
         try:
-            # Get unsent posts from database
+
             unsent_posts = self.db_manager.get_unsent_posts()
 
             if not unsent_posts:
@@ -153,6 +157,7 @@ class TelegramBot:
                     if success:
                         successful_sends += 1
                         send_results.append(f"✅ {post_title[:30]}...")
+
                     else:
                         failed_sends += 1
                         send_results.append(f"❌ {post_title[:30]}...: {message}")
@@ -163,10 +168,9 @@ class TelegramBot:
                     print(f"❌ Unexpected error processing post: {e}")
 
                 # Rate limiting between posts
-                if i < len(unsent_posts):  # Don't sleep after the last post
+                if i < len(unsent_posts):
                     time.sleep(2)
 
-            # Summary report
             print(f"\n📊 Sending Summary:")
             print(f"   Total processed: {len(unsent_posts)}")
             print(f"   Successful: {successful_sends}")
@@ -202,14 +206,17 @@ class TelegramBot:
                 if current_chunk:
                     chunks.append(current_chunk.strip())
                     current_chunk = line + "\n"
+
                 else:
                     words = line.split(" ")
                     current_line = ""
+
                     for word in words:
                         if len(current_line) + len(word) + 1 > max_length:
                             if current_line:
                                 chunks.append(current_line.strip())
                                 current_line = word + " "
+
                             else:
                                 chunks.append(word[:max_length])
                                 current_line = ""
@@ -227,7 +234,7 @@ class TelegramBot:
 
     def escape_markdown_v2(self, text):
         """Escape special characters for Telegram MarkdownV2"""
-        # Characters that need to be escaped in MarkdownV2
+
         escape_chars = [
             "_",
             "*",
@@ -318,6 +325,7 @@ class TelegramBot:
                     print(f"     - {pt['_id']}: {pt['count']}")
 
             return stats
+
         except Exception as e:
             print(f"Error getting database stats: {e}")
             return {}
@@ -328,7 +336,9 @@ class TelegramBot:
             post = self.db_manager.collection.find_one({"_id": post_id})
             if post:
                 return post.get("sent_to_telegram", False)
+
             return False
+
         except Exception as e:
             print(f"Error checking if post was sent: {e}")
             return False
@@ -353,13 +363,10 @@ class TelegramBot:
             post_title = post.get("title", "No Title")
             post_content = post.get("content", "")
 
-            # Validation checks
             if not post_content.strip():
                 print(f"⚠️  Skipping post with empty content: {post_title[:50]}...")
                 return False, "Empty content"
 
-            # Double-check database to ensure post wasn't sent in another process
-            # Refresh post data from database to get latest status
             current_post = self.db_manager.collection.find_one({"_id": post_id})
             if not current_post:
                 print(f"⚠️  Post no longer exists in database: {post_title[:50]}...")
@@ -370,7 +377,6 @@ class TelegramBot:
                 print(f"⚠️  Post already marked as sent, skipping: {post_title[:50]}...")
                 return False, "Already sent"
 
-            # Send the post
             print(f"Sending post: {post_title[:50]}...")
 
             success = False
@@ -385,9 +391,8 @@ class TelegramBot:
                         time.sleep(1)  # Rate limiting between chunks
                     else:
                         print(f"  ❌ Failed to send chunk {j}/{len(chunks)}")
-                        break  # Stop sending remaining chunks if one fails
+                        break
 
-                # Consider successful only if ALL chunks were sent
                 success = chunks_sent == len(chunks)
 
                 if not success and chunks_sent > 0:
@@ -397,17 +402,16 @@ class TelegramBot:
                 success = self.send_message_html(post_content)
 
             if success:
-                # Mark as sent in database only after successful transmission
-                # Use atomic update to prevent race conditions
+
                 update_result = self.db_manager.collection.update_one(
                     {
                         "_id": post_id,
                         "sent_to_telegram": {"$ne": True},
-                    },  # Only update if not already sent
+                    },
                     {
                         "$set": {
                             "sent_to_telegram": True,
-                            "sent_at": time.time(),  # Use timestamp for better tracking
+                            "sent_at": time.time(),
                             "updated_at": time.time(),
                         }
                     },
@@ -420,17 +424,20 @@ class TelegramBot:
                     print(
                         f"⚠️  Post was sent but may have been marked as sent by another process"
                     )
-                    # Check if it was already marked as sent
+
                     current_status = self.db_manager.collection.find_one(
                         {"_id": post_id}
                     )
+
                     if (
                         current_status
                         and current_status.get("sent_to_telegram") is True
                     ):
                         return True, "Success (already marked)"
+
                     else:
                         return False, "Database marking failed"
+
             else:
                 print(f"❌ Failed to send post: {post_title[:50]}...")
                 return False, "Send failed"
@@ -452,7 +459,6 @@ class TelegramBot:
             print("To get your chat ID: Message @userinfobot on Telegram")
             return False
 
-        # Show database stats and send status summary
         self.get_database_stats()
         self.get_send_status_summary()
 
@@ -461,9 +467,10 @@ class TelegramBot:
 
         if result:
             print("\n✅ Telegram sending completed successfully!")
-            # Show updated stats after sending
+
             print("\nUpdated statistics:")
             self.get_send_status_summary()
+
         else:
             print("\n❌ Telegram sending failed!")
 

@@ -2,6 +2,14 @@
 
 A bot that scrapes job postings from the SuperSet placement portal, saves them to MongoDB, enhances their formatting, and broadcasts them to all registered Telegram users. Eliminates the need to check the portal again and again.
 
+## Try the Live Bot
+
+**The bot is already running and fully functional!** You can start using it immediately:
+
+**[Start using SuperSet Notification Bot](https://t.me/SupersetNotificationBot)**
+
+Simply open the link above, send `/start` to register, and you'll automatically receive job posting notifications from SuperSet. No setup required on your end!
+
 ## Features
 
 - **User Registration**: Users can register via `/start` command to receive notifications
@@ -19,6 +27,12 @@ A bot that scrapes job postings from the SuperSet placement portal, saves them t
 - `/start` - Register for job posting notifications
 - `/stop` - Unsubscribe from notifications
 - `/status` - Check your subscription status
+
+**Live Bot:** [https://t.me/SupersetNotificationBot](https://t.me/SupersetNotificationBot)
+
+## Want to Run Your Own Instance?
+
+While the live bot above is fully functional and ready to use, you can also run your own instance of the bot for customization or learning purposes. Follow the setup instructions below.
 
 ## Prerequisites
 
@@ -183,6 +197,15 @@ python manage_users.py
 
 #### Bot Usage for Users:
 
+**Using the Live Bot (Recommended):**
+
+1. Open [https://t.me/SupersetNotificationBot](https://t.me/SupersetNotificationBot)
+2. Send `/start` to register for notifications
+3. Send `/stop` to unsubscribe
+4. Send `/status` to check subscription status
+
+**Using Your Own Bot Instance:**
+
 1. Users find your bot on Telegram
 2. Send `/start` to register for notifications
 3. Send `/stop` to unsubscribe
@@ -268,6 +291,7 @@ All operations are logged with timestamps and severity levels:
 - **Normal mode**: Console + log file
 - **Daemon mode**: Log file only (`logs/superset_bot.log`)
 
+```
 Log levels: INFO, WARNING, ERROR, DEBUG
 │ ├── telegram.py # Telegram bot integration
 │ └── webscraping.py # SuperSet scraping logic
@@ -294,4 +318,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 [GLP 3](./LICENSE)
-```

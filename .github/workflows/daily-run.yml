@@ -1,42 +1,42 @@
-name: SuperSet Placement Notifications
+# name: SuperSet Placement Notifications
 
-on:
-  schedule:
-    # Run at 12:00 AM IST (6:30 PM UTC previous day)
-    - cron: "30 18 * * *"
-    # Run at 12:00 PM IST (6:30 AM UTC)
-    - cron: "30 6 * * *"
-    # Run at 6:30 PM IST (1:00 PM UTC)
-    - cron: "0 13 * * *"
+# on:
+#   schedule:
+#     # Run at 12:00 AM IST (6:30 PM UTC previous day)
+#     - cron: "30 18 * * *"
+#     # Run at 12:00 PM IST (6:30 AM UTC)
+#     - cron: "30 6 * * *"
+#     # Run at 6:30 PM IST (1:00 PM UTC)
+#     - cron: "0 13 * * *"
 
-jobs:
-  run-notification-bot:
-    runs-on: ubuntu-latest
+# jobs:
+#   run-notification-bot:
+#     runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
+#       - name: Set up Python
+#         uses: actions/setup-python@v4
+#         with:
+#           python-version: "3.11"
 
-      - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+#       - name: Install uv
+#         run: |
+#           curl -LsSf https://astral.sh/uv/install.sh | sh
+#           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Install dependencies
-        run: |
-          uv sync
+#       - name: Install dependencies
+#         run: |
+#           uv sync
 
-      - name: Run main script
-        run: |
-          uv run python main.py
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          MONGO_CONNECTION_STR: ${{ secrets.MONGO_CONNECTION_STR }}
-          USER_ID: ${{ secrets.USER_ID }}
-          PASSWORD: ${{ secrets.PASSWORD }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+#       - name: Run main script
+#         run: |
+#           uv run python main.py
+#         env:
+#           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+#           MONGO_CONNECTION_STR: ${{ secrets.MONGO_CONNECTION_STR }}
+#           USER_ID: ${{ secrets.USER_ID }}
+#           PASSWORD: ${{ secrets.PASSWORD }}
+#           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

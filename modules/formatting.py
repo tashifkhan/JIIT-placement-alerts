@@ -328,12 +328,12 @@ class TextFormatter:
         return False
 
     def extract_and_add_links(self, text):
-        """Extract links from text and add them on the next line
+        """Extract links from text without appending them to the message
 
         This function extracts URLs from text that might be embedded in HTML tags,
         or preceded by text like "Click here" or similar call to action text.
         It also handles subdomain-only URLs like "apple.adobe" or "hiring.justpay".
-        The extracted links are then added on a new line after the original text.
+        The extracted links are processed but not added to the final message.
         """
         # Regular expression to find standard URLs in text
         url_pattern = re.compile(r'(https?://[^\s<>"]+|www\.[^\s<>"]+)')
@@ -349,7 +349,7 @@ class TextFormatter:
             r'<a\s+(?:[^>]*?\s+)?href=["\'](.*?)["\'].*?>(.*?)<\/a>', re.IGNORECASE
         )
 
-        # Process each line
+        # Process each line but don't append extracted links
         lines = text.split("\n")
         result_lines = []
 
@@ -361,26 +361,18 @@ class TextFormatter:
 
             result_lines.append(line)
 
-            # Check if the line is just a standalone URL
-            if url_pattern.fullmatch(line_trimmed) or subdomain_pattern.fullmatch(
-                line_trimmed
-            ):
-                continue  # Skip adding duplicate if it's already a standalone URL
-
+            # Extract links for processing but don't append them to result
             # Check for HTML links
             html_matches = html_link_pattern.findall(line)
             if html_matches:
-                for url, link_text in html_matches:
-                    if url:  # Always extract URLs from HTML tags
-                        result_lines.append(url)
-                continue  # Skip other checks for this line
+                # Links are extracted but not added to result_lines
+                continue
 
             # Look for standard URLs in the text
             matches = url_pattern.findall(line)
             if matches:
-                for url in matches:
-                    result_lines.append(url)
-                continue  # Skip subdomain check if we found standard URLs
+                # Links are extracted but not added to result_lines
+                continue
 
             # Look for subdomain-only URLs
             subdomain_matches = subdomain_pattern.findall(line)
@@ -397,7 +389,8 @@ class TextFormatter:
                     and not domain.endswith(".jpeg")
                     and not domain.endswith(".gif")
                 ):
-                    result_lines.append(domain)
+                    # Links are extracted but not added to result_lines
+                    pass
 
         return "\n".join(result_lines)
 

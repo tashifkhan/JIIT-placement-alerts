@@ -4,6 +4,7 @@ import os
 import signal
 import logging
 from contextlib import contextmanager
+from .config import safe_print
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -72,46 +73,46 @@ class WebScraper:
         """Initialize Chrome WebDriver"""
         self.logger.info("Attempting to initialize Chrome WebDriver")
         try:
-            print("Downloading/setting up ChromeDriver...")
+            safe_print("Downloading/setting up ChromeDriver...")
             self.logger.debug("Using ChromeDriverManager to install driver")
             with self.timeout(30):
                 service = ChromeService(ChromeDriverManager().install())
                 driver = webdriver.Chrome(service=service, options=self.chrome_options)
                 success_msg = "ChromeDriver initialized successfully!"
-                print(success_msg)
+                safe_print(success_msg)
                 self.logger.info(success_msg)
                 return driver
 
         except TimeoutError:
             timeout_msg = "ChromeDriver initialization timed out"
-            print(timeout_msg)
+            safe_print(timeout_msg)
             self.logger.warning(timeout_msg)
 
         except Exception as e:
             error_msg = (
                 f"Failed to initialize Chrome driver with webdriver-manager: {e}"
             )
-            print(error_msg)
+            safe_print(error_msg)
             self.logger.error(error_msg)
 
         try:
-            print("Trying Chrome without webdriver-manager...")
+            safe_print("Trying Chrome without webdriver-manager...")
             self.logger.debug("Attempting Chrome fallback without webdriver-manager")
             with self.timeout(15):
                 driver = webdriver.Chrome(options=self.chrome_options)
                 fallback_msg = "ChromeDriver initialized with fallback!"
-                print(fallback_msg)
+                safe_print(fallback_msg)
                 self.logger.info(fallback_msg)
                 return driver
 
         except TimeoutError:
             timeout_msg = "Chrome fallback initialization timed out"
-            print(timeout_msg)
+            safe_print(timeout_msg)
             self.logger.warning(timeout_msg)
 
         except Exception as e2:
             error_msg = f"Chrome fallback also failed: {e2}"
-            print(error_msg)
+            safe_print(error_msg)
             self.logger.error(error_msg)
 
         return None
@@ -120,7 +121,7 @@ class WebScraper:
         """Initialize Firefox WebDriver"""
         self.logger.info("Attempting to initialize Firefox WebDriver")
         try:
-            print("Setting up Firefox driver...")
+            safe_print("Setting up Firefox driver...")
             self.logger.debug("Setting up Firefox options")
             firefox_options = FirefoxOptions()
             firefox_options.add_argument("--headless")
@@ -129,18 +130,18 @@ class WebScraper:
                 service = FirefoxService(GeckoDriverManager().install())
                 driver = webdriver.Firefox(service=service, options=firefox_options)
                 success_msg = "Firefox driver initialized successfully!"
-                print(success_msg)
+                safe_print(success_msg)
                 self.logger.info(success_msg)
                 return driver
 
         except TimeoutError:
             timeout_msg = "Firefox initialization timed out"
-            print(timeout_msg)
+            safe_print(timeout_msg)
             self.logger.warning(timeout_msg)
 
         except Exception as e:
             error_msg = f"Failed to initialize Firefox driver: {e}"
-            print(error_msg)
+            safe_print(error_msg)
             self.logger.error(error_msg)
 
         return None
@@ -148,17 +149,17 @@ class WebScraper:
     def initialize_driver(self):
         """Initialize the best available WebDriver"""
         self.logger.info("Starting WebDriver initialization")
-        print("Attempting to initialize Chrome driver...")
+        safe_print("Attempting to initialize Chrome driver...")
         self.driver = self.init_chrome_driver()
 
         if self.driver is None:
             self.logger.info("Chrome failed, attempting Firefox")
-            print("Chrome failed, trying Firefox...")
+            safe_print("Chrome failed, trying Firefox...")
             self.driver = self.init_firefox_driver()
 
         if self.driver is None:
             error_msg = "Both Chrome and Firefox initialization failed! Please ensure you have either Chrome or Firefox installed."
-            print(error_msg)
+            safe_print(error_msg)
             self.logger.error(error_msg)
             raise Exception("Failed to initialize any WebDriver")
 
@@ -170,11 +171,11 @@ class WebScraper:
         self.logger.info("Starting login process")
         try:
             navigate_msg = f"Navigating to: {self.PORTAL_URL}"
-            print(navigate_msg)
+            safe_print(navigate_msg)
             self.logger.debug(navigate_msg)
             self.driver.get(self.PORTAL_URL)
 
-            print("Page request sent, waiting for elements...")
+            safe_print("Page request sent, waiting for elements...")
             self.logger.debug("Waiting for page body to load")
 
             WebDriverWait(self.driver, 15).until(
@@ -182,11 +183,11 @@ class WebScraper:
             )
 
             body_msg = "Page body loaded!"
-            print(body_msg)
+            safe_print(body_msg)
             self.logger.debug(body_msg)
 
             title_msg = f"Page title: {self.driver.title}"
-            print(title_msg)
+            safe_print(title_msg)
             self.logger.debug(title_msg)
 
             self.logger.debug("Waiting for login elements")
@@ -195,7 +196,7 @@ class WebScraper:
             )
 
             elements_msg = "Login elements found!"
-            print(elements_msg)
+            safe_print(elements_msg)
             self.logger.debug(elements_msg)
 
             username_field = self.driver.find_element(By.ID, ":r1:")
@@ -208,8 +209,8 @@ class WebScraper:
                 password_field.get_attribute("placeholder") or "No placeholder"
             )
 
-            print(f"Username field: {username_placeholder}")
-            print(f"Password field: {password_placeholder}")
+            safe_print(f"Username field: {username_placeholder}")
+            safe_print(f"Password field: {password_placeholder}")
             self.logger.debug(
                 f"Found username field: {username_placeholder}, password field: {password_placeholder}"
             )
@@ -222,26 +223,26 @@ class WebScraper:
                 By.CSS_SELECTOR, "button[type='submit']"
             )
             login_button.click()
-            print("Login button clicked!")
+            safe_print("Login button clicked!")
 
-            print("Waiting for login to complete...")
+            safe_print("Waiting for login to complete...")
             time.sleep(3)
-            print("Login attempt made, checking for success...")
+            safe_print("Login attempt made, checking for success...")
 
             WebDriverWait(self.driver, 15).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "div.px-5.pt-5.pb-0"))
             )
-            print("Login successful, job posts section loaded!")
+            safe_print("Login successful, job posts section loaded!")
             return True
 
         except Exception as login_error:
-            print(f"Could not find login elements: {login_error}")
-            print("Page title:", self.driver.title)
-            print("Current URL:", self.driver.current_url)
+            safe_print(f"Could not find login elements: {login_error}")
+            safe_print("Page title:", self.driver.title)
+            safe_print("Current URL:", self.driver.current_url)
 
             try:
                 self.driver.save_screenshot("debug_screenshot.png")
-                print("Screenshot saved as debug_screenshot.png")
+                safe_print("Screenshot saved as debug_screenshot.png")
             except:
                 pass
 
@@ -249,7 +250,7 @@ class WebScraper:
 
     def scroll_and_load_content(self):
         """Scroll through the page and load all content"""
-        print("Looking for scrollable inner containers...")
+        safe_print("Looking for scrollable inner containers...")
 
         scrollable_container = None
         try:
@@ -266,17 +267,17 @@ class WebScraper:
                 )
 
                 if scroll_height > client_height:
-                    print(
+                    safe_print(
                         f"Found scrollable container: scrollHeight={scroll_height}, clientHeight={client_height}"
                     )
                     scrollable_container = container
                     break
 
         except Exception as e:
-            print(f"Error finding scrollable container: {e}")
+            safe_print(f"Error finding scrollable container: {e}")
 
         if scrollable_container:
-            print("Scrolling the inner container...")
+            safe_print("Scrolling the inner container...")
             last_scroll_top = 0
             scroll_attempts = 0
             max_attempts = 5
@@ -313,7 +314,7 @@ class WebScraper:
                         if "see more" in btn.text.lower():
                             show_more_buttons.append(btn)
 
-                    print(
+                    safe_print(
                         f"Found {len(show_more_buttons)} potential 'See More' buttons"
                     )
 
@@ -328,7 +329,7 @@ class WebScraper:
                                 and "see more" in button.text.lower()
                             ):
 
-                                print(
+                                safe_print(
                                     f"Clicking 'See More' button: '{button.text.strip()}'"
                                 )
                                 try:
@@ -344,11 +345,11 @@ class WebScraper:
                                 break
 
                         except Exception as button_error:
-                            print(f"Error processing button: {button_error}")
+                            safe_print(f"Error processing button: {button_error}")
                             continue
 
                 except Exception as find_error:
-                    print(f"Error finding see more buttons: {find_error}")
+                    safe_print(f"Error finding see more buttons: {find_error}")
 
                 current_scroll_top = self.driver.execute_script(
                     "return arguments[0].scrollTop", scrollable_container
@@ -359,28 +360,28 @@ class WebScraper:
 
                 if current_scroll_top == last_scroll_top:
                     scroll_attempts += 1
-                    print(
+                    safe_print(
                         f"Container scroll position unchanged, attempt {scroll_attempts}/{max_attempts}"
                     )
 
                 else:
                     scroll_attempts = 0
-                    print(
+                    safe_print(
                         f"Container scrolled from {last_scroll_top} to {current_scroll_top} (max: {scroll_height})"
                     )
 
                 last_scroll_top = current_scroll_top
 
-            print(
+            safe_print(
                 f"Finished scrolling the inner container. Clicked {len(clicked_buttons)} 'Show more' buttons."
             )
 
         else:
-            print("No scrollable inner container found!")
+            safe_print("No scrollable inner container found!")
 
     def extract_content_incrementally(self):
         """Extract content from the page and check database incrementally"""
-        print("\n📝 Extracting content with incremental database checking...")
+        safe_print("\n📝 Extracting content with incremental database checking...")
 
         selectors_to_try = [
             "div.px-5.pt-6.pb-0",
@@ -391,21 +392,21 @@ class WebScraper:
 
         content_elements = []
         for selector in selectors_to_try:
-            print(f"Trying selector: {selector}")
+            safe_print(f"Trying selector: {selector}")
             elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
             if elements:
-                print(f"Found {len(elements)} elements with selector: {selector}")
+                safe_print(f"Found {len(elements)} elements with selector: {selector}")
                 content_elements = elements
                 break
 
         if not content_elements:
-            print(
+            safe_print(
                 "No content elements found with any selector, trying to find all divs with px-5 class..."
             )
             content_elements = self.driver.find_elements(
                 By.CSS_SELECTOR, "div[class*='px-5']"
             )
-            print(f"Found {len(content_elements)} elements with px-5 class")
+            safe_print(f"Found {len(content_elements)} elements with px-5 class")
 
         new_posts = []
         processed_count = 0
@@ -415,14 +416,14 @@ class WebScraper:
                 element_text = element.text.strip()
                 if element_text and len(element_text) > 50:
                     processed_count += 1
-                    print(
+                    safe_print(
                         f"Processing post #{processed_count} ({len(element_text)} characters)..."
                     )
 
                     result = self.process_single_post(element_text, processed_count)
 
                     if result == "duplicate":
-                        print(
+                        safe_print(
                             f"🛑 Found duplicate post #{processed_count}. Stopping scraping."
                         )
                         break
@@ -430,17 +431,17 @@ class WebScraper:
                         new_posts.append(element_text)
 
             except Exception as element_error:
-                print(f"Error processing element {i+1}: {element_error}")
+                safe_print(f"Error processing element {i+1}: {element_error}")
 
-        print(f"📊 Scraping Summary:")
-        print(f"   Total posts processed: {processed_count}")
-        print(f"   New posts saved: {len(new_posts)}")
+        safe_print(f"📊 Scraping Summary:")
+        safe_print(f"   Total posts processed: {processed_count}")
+        safe_print(f"   New posts saved: {len(new_posts)}")
 
         return new_posts, processed_count
 
     def fallback_content_extraction(self):
         """Fallback method for content extraction"""
-        print("Attempting fallback content extraction...")
+        safe_print("Attempting fallback content extraction...")
 
         try:
             # Try to find any divs with text content
@@ -459,11 +460,13 @@ class WebScraper:
                 except:
                     continue
 
-            print(f"Fallback extraction found {len(content_blocks)} content blocks")
+            safe_print(
+                f"Fallback extraction found {len(content_blocks)} content blocks"
+            )
             return content_blocks
 
         except Exception as e:
-            print(f"Fallback extraction failed: {e}")
+            safe_print(f"Fallback extraction failed: {e}")
             return []
 
     # Database saving is now handled individually in process_single_post method
@@ -594,35 +597,35 @@ class WebScraper:
             self.scroll_and_load_content()
             new_posts, processed_count = self.extract_content_incrementally()
 
-            print(f"\n🎯 Web scraping completed!")
-            print(f"   Posts processed: {processed_count}")
-            print(f"   New posts saved: {len(new_posts)}")
+            safe_print(f"\n🎯 Web scraping completed!")
+            safe_print(f"   Posts processed: {processed_count}")
+            safe_print(f"   New posts saved: {len(new_posts)}")
 
             try:
                 stats = self.db_manager.get_posts_stats()
-                print(f"📊 Database Summary:")
-                print(f"   Total posts in database: {stats.get('total_posts', 0)}")
-                print(f"   Unsent posts: {stats.get('pending_to_send', 0)}")
+                safe_print(f"📊 Database Summary:")
+                safe_print(f"   Total posts in database: {stats.get('total_posts', 0)}")
+                safe_print(f"   Unsent posts: {stats.get('pending_to_send', 0)}")
             except Exception as stats_error:
-                print(f"Could not get database stats: {stats_error}")
+                safe_print(f"Could not get database stats: {stats_error}")
 
             return True
 
         except Exception as e:
-            print(f"An error occurred during scraping: {e}")
-            print(f"Error type: {type(e).__name__}")
+            safe_print(f"An error occurred during scraping: {e}")
+            safe_print(f"Error type: {type(e).__name__}")
 
             try:
-                print(
+                safe_print(
                     "Current URL:",
                     self.driver.current_url if self.driver else "Driver not available",
                 )
-                print(
+                safe_print(
                     "Page title:",
                     self.driver.title if self.driver else "Driver not available",
                 )
             except:
-                print("Could not get additional error information")
+                safe_print("Could not get additional error information")
 
             return False
 
@@ -634,17 +637,17 @@ class WebScraper:
         if self.driver:
             try:
                 self.driver.quit()
-                print("Browser closed successfully.")
+                safe_print("Browser closed successfully.")
 
             except Exception as close_error:
-                print(f"Error closing browser: {close_error}")
+                safe_print(f"Error closing browser: {close_error}")
 
         if hasattr(self, "db_manager") and self.db_manager:
             try:
                 self.db_manager.close_connection()
 
             except Exception as db_error:
-                print(f"Error closing database connection: {db_error}")
+                safe_print(f"Error closing database connection: {db_error}")
 
     def process_single_post(self, content_text, post_number):
         """Process a single post and check if it already exists in database using exact matching
@@ -675,10 +678,10 @@ class WebScraper:
             # Check if exact duplicate exists (no fuzzy matching)
             existing_post = self.db_manager.post_exists(content_hash)
             if existing_post:
-                print(
+                safe_print(
                     f"� EXACT DUPLICATE found for post #{post_number}: {title[:50]}..."
                 )
-                print(f"   Stopping scraping - found identical content")
+                safe_print(f"   Stopping scraping - found identical content")
                 return "duplicate"
 
             # Save new post to database
@@ -692,12 +695,12 @@ class WebScraper:
             )
 
             if success:
-                print(f"✅ Post #{post_number} saved: {title[:50]}...")
+                safe_print(f"✅ Post #{post_number} saved: {title[:50]}...")
                 return "saved"
             else:
-                print(f"❌ Post #{post_number} failed to save: {result}")
+                safe_print(f"❌ Post #{post_number} failed to save: {result}")
                 return "error"
 
         except Exception as e:
-            print(f"❌ Error processing post #{post_number}: {e}")
+            safe_print(f"❌ Error processing post #{post_number}: {e}")
             return "error"

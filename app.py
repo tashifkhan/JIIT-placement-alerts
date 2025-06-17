@@ -28,7 +28,7 @@ import argparse
 from datetime import datetime
 import pytz
 from modules.telegram import TelegramBot
-from main import main as run_main_process
+from main import main as run_main_process, run_once_and_notify_if_new_posts
 
 
 def setup_logging(daemon_mode=False):
@@ -94,7 +94,7 @@ class BotScheduler:
             self.logger.info(f"SCHEDULED JOB STARTED AT {current_time}")
 
             # Run the main process (scraping + formatting + sending)
-            result = run_main_process()
+            result = run_main_process(daemon_mode=self.daemon_mode)
 
             if result == 0:
                 success_msg = (
@@ -249,7 +249,9 @@ def main():
         help="Run in daemon/detached mode with logging to file",
     )
     parser.add_argument(
-        "--run-once", action="store_true", help="Run scraping job once immediately"
+        "--run-once",
+        action="store_true",
+        help="Run scraping job once and send to all users if new posts found",
     )
     parser.add_argument(
         "--help-extended", action="store_true", help="Show extended help message"
@@ -263,12 +265,22 @@ def main():
         print("  python app.py                - Start bot server with scheduler")
         print("  python app.py -d             - Start bot server in daemon mode")
         print("  python app.py --daemon       - Start bot server in daemon mode")
-        print("  python app.py --run-once     - Run scraping job once immediately")
+        print(
+            "  python app.py --run-once     - Run scraping job once and send to all users if new posts found"
+        )
         print("  python app.py --help-extended - Show this help message")
         print("\nDaemon Mode:")
         print("  In daemon mode, the process runs in the background and all output")
         print("  is logged to 'logs/superset_bot.log' file instead of console.")
         print("  Use this mode for production deployments.")
+        print("\nRun-Once Mode:")
+        print("  The --run-once command will:")
+        print("  1. Scrape for new job posts")
+        print(
+            "  2. Only proceed with formatting and notifications if NEW posts are found"
+        )
+        print("  3. Send notifications to ALL registered users in the database")
+        print("  4. Provide detailed feedback about the process")
         return
 
     # Setup daemon mode if requested
@@ -281,8 +293,9 @@ def main():
     bot_scheduler = BotScheduler(daemon_mode=args.daemon)
 
     if args.run_once:
-        bot_scheduler.run_once_now()
-        return
+        logger.info("Running run-once command with smart notifications")
+        # Use the new function that only sends to users if new posts are found
+        return run_once_and_notify_if_new_posts(daemon_mode=args.daemon)
 
     bot_scheduler.start_bot_and_scheduler()
 

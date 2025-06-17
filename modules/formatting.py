@@ -3,6 +3,7 @@ import os
 import logging
 from datetime import datetime
 from .database import MongoDBManager
+from .config import safe_print
 
 
 class TextFormatter:
@@ -23,7 +24,7 @@ class TextFormatter:
             posts_list = list(posts)
             if not posts_list:
                 msg = "No posts found to format"
-                print(msg)
+                safe_print(msg)
                 self.logger.info(msg)
                 return {
                     "success": True,
@@ -66,19 +67,19 @@ class TextFormatter:
                                 success_msg = (
                                     f"✅ Enhanced formatting for: {title[:50]}..."
                                 )
-                                print(success_msg)
+                                safe_print(success_msg)
                                 self.logger.debug(success_msg)
 
                 except Exception as post_error:
                     error_msg = f"Error processing post {post.get('_id')}: {post_error}"
-                    print(error_msg)
+                    safe_print(error_msg)
                     self.logger.error(error_msg, exc_info=True)
                     continue
 
             summary_msg = f"📝 Formatting enhancement completed: Posts processed: {total_processed}, Posts enhanced: {enhanced_count}"
-            print(f"📝 Formatting enhancement completed:")
-            print(f"   Posts processed: {total_processed}")
-            print(f"   Posts enhanced: {enhanced_count}")
+            safe_print(f"📝 Formatting enhancement completed:")
+            safe_print(f"   Posts processed: {total_processed}")
+            safe_print(f"   Posts enhanced: {enhanced_count}")
             self.logger.info(summary_msg)
 
             return {
@@ -89,7 +90,7 @@ class TextFormatter:
 
         except Exception as e:
             error_msg = f"Error during text formatting: {e}"
-            print(error_msg)
+            safe_print(error_msg)
             self.logger.error(error_msg, exc_info=True)
             return {"success": False, "error": str(e)}
 
@@ -191,7 +192,7 @@ class TextFormatter:
             return result
 
         except Exception as e:
-            print(f"Error formatting message: {e}")
+            safe_print(f"Error formatting message: {e}")
             return "\n".join(content_lines)
 
     def is_title_line(self, line):

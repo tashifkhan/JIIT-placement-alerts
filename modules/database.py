@@ -5,6 +5,7 @@ import logging
 from pymongo import MongoClient
 from datetime import datetime
 import hashlib
+from .config import safe_print
 
 dotenv.load_dotenv()
 
@@ -38,12 +39,12 @@ class MongoDBManager:
             self.client.admin.command("ping")
             success_msg = "Successfully connected to MongoDB"
             self.logger.info(success_msg)
-            print(success_msg)
+            safe_print(success_msg)
 
         except Exception as e:
             error_msg = f"Failed to connect to MongoDB: {e}"
             self.logger.error(error_msg, exc_info=True)
-            print(error_msg)
+            safe_print(error_msg)
             raise
 
     def create_post_hash(self, content):
@@ -70,13 +71,13 @@ class MongoDBManager:
             # Only check for exact hash matches - no similarity checking
             existing_post = self.collection.find_one({"content_hash": content_hash})
             if existing_post:
-                print(f"Found exact duplicate with hash: {content_hash[:16]}...")
+                safe_print(f"Found exact duplicate with hash: {content_hash[:16]}...")
                 return existing_post
 
             return None
 
         except Exception as e:
-            print(f"Error checking if post exists: {e}")
+            safe_print(f"Error checking if post exists: {e}")
             return None
 
     # Removed fuzzy matching method - now using exact content matching only
@@ -90,8 +91,8 @@ class MongoDBManager:
             # Check for exact duplicates only
             existing_post = self.post_exists(content_hash)
             if existing_post:
-                print(f"Exact duplicate found with hash: {content_hash[:16]}...")
-                print(
+                safe_print(f"Exact duplicate found with hash: {content_hash[:16]}...")
+                safe_print(
                     f"🔄 Exact duplicate exists: {existing_post.get('title', 'No Title')[:50]}..."
                 )
                 return False, "Exact duplicate post already exists"
@@ -112,11 +113,11 @@ class MongoDBManager:
             post_data.update(self._extract_post_metadata(content))
 
             result = self.collection.insert_one(post_data)
-            print(f"Saved new post with ID: {result.inserted_id}")
+            safe_print(f"Saved new post with ID: {result.inserted_id}")
             return True, str(result.inserted_id)
 
         except Exception as e:
-            print(f"Error saving post: {e}")
+            safe_print(f"Error saving post: {e}")
             return False, str(e)
 
     def _extract_post_metadata(self, content):
@@ -196,17 +197,17 @@ class MongoDBManager:
                 if sent_status is not True:  # Explicit check for not True
                     unsent_posts.append(post)
                 else:
-                    print(
+                    safe_print(
                         f"⚠️  Filtering out post marked as sent: {post.get('title', 'No Title')[:30]}..."
                     )
 
-            print(
+            safe_print(
                 f"Found {len(unsent_posts)} unsent posts out of {len(posts)} queried posts"
             )
             return unsent_posts
 
         except Exception as e:
-            print(f"Error getting unsent posts: {e}")
+            safe_print(f"Error getting unsent posts: {e}")
             return []
 
     def mark_as_sent(self, post_id):
@@ -225,7 +226,7 @@ class MongoDBManager:
             return result.modified_count > 0
 
         except Exception as e:
-            print(f"Error marking post as sent: {e}")
+            safe_print(f"Error marking post as sent: {e}")
             return False
 
     def is_post_sent(self, post_id):
@@ -237,7 +238,7 @@ class MongoDBManager:
             return False
 
         except Exception as e:
-            print(f"Error checking if post was sent: {e}")
+            safe_print(f"Error checking if post was sent: {e}")
             return False
 
     def reset_send_status(self, post_id):
@@ -256,7 +257,7 @@ class MongoDBManager:
             return result.modified_count > 0
 
         except Exception as e:
-            print(f"Error resetting send status: {e}")
+            safe_print(f"Error resetting send status: {e}")
             return False
 
     def get_all_posts(self, limit=50):
@@ -266,7 +267,7 @@ class MongoDBManager:
             return list(cursor)
 
         except Exception as e:
-            print(f"Error getting all posts: {e}")
+            safe_print(f"Error getting all posts: {e}")
             return []
 
     def get_posts_stats(self):
@@ -290,13 +291,13 @@ class MongoDBManager:
             }
 
         except Exception as e:
-            print(f"Error getting posts stats: {e}")
+            safe_print(f"Error getting posts stats: {e}")
             return {}
 
     def clean_duplicate_posts(self, dry_run=True):
         """Find and optionally remove duplicate posts based on content hash"""
         try:
-            print("🔍 Scanning for duplicate posts...")
+            safe_print("🔍 Scanning for duplicate posts...")
 
             pipeline = [
                 {
@@ -324,10 +325,10 @@ class MongoDBManager:
             duplicates = list(self.collection.aggregate(pipeline))
 
             if not duplicates:
-                print("✅ No duplicate posts found!")
+                safe_print("✅ No duplicate posts found!")
                 return {"duplicates_found": 0, "removed": 0}
 
-            print(f"Found {len(duplicates)} sets of duplicate posts:")
+            safe_print(f"Found {len(duplicates)} sets of duplicate posts:")
 
             total_duplicates = 0
             posts_to_remove = []
@@ -341,11 +342,13 @@ class MongoDBManager:
                 posts_to_keep = posts[0]
                 posts_to_delete = posts[1:]
 
-                print(f"  📝 Hash: {dup_group['_id'][:16]}... ({count} duplicates)")
-                print(f"     Keeping: {posts_to_keep['title'][:50]}...")
+                safe_print(
+                    f"  📝 Hash: {dup_group['_id'][:16]}... ({count} duplicates)"
+                )
+                safe_print(f"     Keeping: {posts_to_keep['title'][:50]}...")
 
                 for post in posts_to_delete:
-                    print(
+                    safe_print(
                         f"     {'Would remove' if dry_run else 'Removing'}: {post['title'][:50]}..."
                     )
                     posts_to_remove.append(post["id"])
@@ -354,13 +357,13 @@ class MongoDBManager:
             if not dry_run and posts_to_remove:
                 result = self.collection.delete_many({"_id": {"$in": posts_to_remove}})
                 removed_count = result.deleted_count
-                print(f"✅ Removed {removed_count} duplicate posts")
+                safe_print(f"✅ Removed {removed_count} duplicate posts")
 
             elif dry_run:
-                print(
+                safe_print(
                     f"🔍 DRY RUN: Would remove {len(posts_to_remove)} duplicate posts"
                 )
-                print(
+                safe_print(
                     "   Use clean_duplicate_posts(dry_run=False) to actually remove them"
                 )
 
@@ -371,14 +374,14 @@ class MongoDBManager:
             }
 
         except Exception as e:
-            print(f"❌ Error cleaning duplicate posts: {e}")
+            safe_print(f"❌ Error cleaning duplicate posts: {e}")
             return {"error": str(e)}
 
     def close_connection(self):
         """Close MongoDB connection"""
         if self.client:
             self.client.close()
-            print("MongoDB connection closed")
+            safe_print("MongoDB connection closed")
 
     # User Management Methods
     def add_user(self, user_id, username=None, first_name=None, last_name=None):
@@ -402,11 +405,11 @@ class MongoDBManager:
                         },
                     )
                     if result.modified_count > 0:
-                        print(f"Reactivated user: {user_id} (@{username})")
+                        safe_print(f"Reactivated user: {user_id} (@{username})")
                         return True, "User reactivated"
 
                 # User already exists and is active
-                print(f"User {user_id} already exists and is active")
+                safe_print(f"User {user_id} already exists and is active")
                 return False, "User already exists and is active"
 
             # Create new user
@@ -421,11 +424,11 @@ class MongoDBManager:
             }
 
             result = self.users_collection.insert_one(user_data)
-            print(f"Added new user: {user_id} (@{username})")
+            safe_print(f"Added new user: {user_id} (@{username})")
             return True, str(result.inserted_id)
 
         except Exception as e:
-            print(f"Error adding user: {e}")
+            safe_print(f"Error adding user: {e}")
             return False, str(e)
 
     def get_all_users(self):
@@ -434,7 +437,7 @@ class MongoDBManager:
             users = list(self.users_collection.find({"is_active": True}))
             return users
         except Exception as e:
-            print(f"Error getting users: {e}")
+            safe_print(f"Error getting users: {e}")
             return []
 
     def get_user_by_id(self, user_id):
@@ -443,7 +446,7 @@ class MongoDBManager:
             user = self.users_collection.find_one({"user_id": user_id})
             return user
         except Exception as e:
-            print(f"Error getting user by ID: {e}")
+            safe_print(f"Error getting user by ID: {e}")
             return None
 
     def deactivate_user(self, user_id):
@@ -460,7 +463,7 @@ class MongoDBManager:
             )
             return result.modified_count > 0
         except Exception as e:
-            print(f"Error deactivating user: {e}")
+            safe_print(f"Error deactivating user: {e}")
             return False
 
     def get_users_stats(self):
@@ -476,7 +479,7 @@ class MongoDBManager:
                 "inactive_users": inactive_users,
             }
         except Exception as e:
-            print(f"Error getting user stats: {e}")
+            safe_print(f"Error getting user stats: {e}")
             return {}
 
     def reactivate_user(self, user_id):
@@ -493,7 +496,7 @@ class MongoDBManager:
             )
             return result.modified_count > 0
         except Exception as e:
-            print(f"Error reactivating user: {e}")
+            safe_print(f"Error reactivating user: {e}")
             return False
 
     def fix_user_activation_status(self):
@@ -504,7 +507,7 @@ class MongoDBManager:
                 self.users_collection.find({"is_active": {"$ne": True}})
             )
 
-            print(f"Found {len(inactive_users)} users with non-active status")
+            safe_print(f"Found {len(inactive_users)} users with non-active status")
 
             fixed_count = 0
             for user in inactive_users:
@@ -524,13 +527,15 @@ class MongoDBManager:
 
                 if result.modified_count > 0:
                     fixed_count += 1
-                    print(f"Fixed activation status for user {user_id} (@{username})")
+                    safe_print(
+                        f"Fixed activation status for user {user_id} (@{username})"
+                    )
 
-            print(f"Fixed activation status for {fixed_count} users")
+            safe_print(f"Fixed activation status for {fixed_count} users")
             return fixed_count
 
         except Exception as e:
-            print(f"Error fixing user activation status: {e}")
+            safe_print(f"Error fixing user activation status: {e}")
             return 0
 
     # ...existing code...

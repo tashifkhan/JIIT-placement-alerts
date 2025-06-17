@@ -35,7 +35,7 @@ chrome_options.add_argument("--disable-plugins")
 chrome_options.add_argument("--disable-blink-features=AutomationControlled")
 chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
 chrome_options.add_experimental_option("useAutomationExtension", False)
-chrome_options.add_argument("--window-size=1920,1080")
+chrome_options.add_argument("--window-size=660,1080")
 chrome_options.add_argument(
     "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )

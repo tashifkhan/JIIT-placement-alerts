@@ -2,6 +2,7 @@ import dotenv
 import time
 import os
 import signal
+import requests
 from contextlib import contextmanager
 
 from selenium import webdriver
@@ -19,6 +20,10 @@ from webdriver_manager.firefox import GeckoDriverManager
 dotenv.load_dotenv()
 USER_ID = os.getenv("USER_ID", "default_user_id")
 PASSWORD = os.getenv("PASSWORD", "default_password")
+
+# Telegram Bot Configuration
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 
 PORTAL_URL = "https://app.joinsuperset.com/students/login"
@@ -682,15 +687,182 @@ def clean_extra_newlines(text):
     return text.strip()
 
 
+def send_telegram_message(message, parse_mode="Markdown"):
+    try:
+        if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+            print("Error: Telegram bot token or chat ID not configured")
+            return False
+
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": message,
+            "parse_mode": parse_mode,
+            "disable_web_page_preview": True,
+        }
+
+        response = requests.post(url, json=payload)
+
+        if response.status_code == 200:
+            print(f"Message sent successfully (length: {len(message)} chars)")
+            return True
+        else:
+            print(f"Failed to send message. Status code: {response.status_code}")
+            print(f"Response: {response.text}")
+            return False
+
+    except Exception as e:
+        print(f"Error sending Telegram message: {e}")
+        return False
+
+
+def send_markdown_file_to_telegram():
+    """Read the formatted markdown file and send each job posting as separate messages"""
+    try:
+        # Check if the formatted file exists
+        if not os.path.exists("formatted_job_posts.md"):
+            print("Error: formatted_job_posts.md file not found")
+            return
+
+        with open("formatted_job_posts.md", "r", encoding="utf-8") as f:
+            content = f.read()
+
+        if not content.strip():
+            print("No content to send")
+            return
+
+        job_posts = content.split("---")
+
+        successful_sends = 0
+        failed_sends = 0
+
+        for i, post in enumerate(job_posts, 1):
+            post = post.strip()
+            if not post:
+                continue
+
+            print(f"Sending job post {i}/{len(job_posts)}...")
+
+            if len(post) > 4000:
+
+                chunks = split_long_message(post)
+                for j, chunk in enumerate(chunks, 1):
+                    print(f"  Sending chunk {j}/{len(chunks)}...")
+                    if send_telegram_message(chunk):
+                        successful_sends += 1
+                    else:
+                        failed_sends += 1
+                    time.sleep(1)
+            else:
+                if send_telegram_message(post):
+                    successful_sends += 1
+                else:
+                    failed_sends += 1
+
+            time.sleep(2)
+
+        print(
+            f"Telegram sending completed: {successful_sends} successful, {failed_sends} failed"
+        )
+
+    except Exception as e:
+        print(f"Error reading or sending markdown file: {e}")
+
+
+def split_long_message(message, max_length=4000):
+    """Split a long message into smaller chunks while preserving markdown formatting"""
+    if len(message) <= max_length:
+        return [message]
+
+    chunks = []
+    lines = message.split("\n")
+    current_chunk = ""
+
+    for line in lines:
+
+        if len(current_chunk) + len(line) + 1 > max_length:
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+                current_chunk = line + "\n"
+            else:
+
+                words = line.split(" ")
+                current_line = ""
+                for word in words:
+                    if len(current_line) + len(word) + 1 > max_length:
+                        if current_line:
+                            chunks.append(current_line.strip())
+                            current_line = word + " "
+                        else:
+
+                            chunks.append(word[:max_length])
+                            current_line = ""
+                    else:
+                        current_line += word + " "
+                if current_line:
+                    current_chunk = current_line + "\n"
+        else:
+            current_chunk += line + "\n"
+
+    if current_chunk.strip():
+        chunks.append(current_chunk.strip())
+
+    return chunks
+
+
+def test_telegram_connection():
+    """Test if Telegram bot is configured correctly"""
+    try:
+        if not TELEGRAM_BOT_TOKEN:
+            print("TELEGRAM_BOT_TOKEN not set in .env file")
+            return False
+
+        if not TELEGRAM_CHAT_ID:
+            print("TELEGRAM_CHAT_ID not set in .env file")
+            return False
+
+        test_message = "SuperSet Notification Bot Test\n\nBot is working correctly!"
+
+        if send_telegram_message(test_message):
+            print("Telegram connection test successful!")
+            return True
+
+        else:
+            print("Telegram connection test failed!")
+            return False
+
+    except Exception as e:
+        print(f"Error testing Telegram connection: {e}")
+        return False
+
+
+def main_telegram_only():
+    """Run only the Telegram sending functionality"""
+    print("SuperSet Telegram Bot - Send Mode")
+    print("1. Testing Telegram connection...")
+
+    if not test_telegram_connection():
+        print("Please configure your Telegram bot token and chat ID in the .env file")
+        print("To get a bot token: Message @BotFather on Telegram")
+        print("To get your chat ID: Message @userinfobot on Telegram")
+        return
+
+    print("2. Sending job posts to Telegram...")
+    send_markdown_file_to_telegram()
+    print("Telegram sending completed!")
+
+
 if __name__ == "__main__":
     print("Starting SuperSet Telegram Notification Bot...")
 
-    # Run web scraping
     print("1. Starting web scraping...")
     # webscraping()
 
-    # Format the extracted content
     print("2. Formatting extracted content...")
-    text_formating()
+    # text_formating()
+
+    print("3. Sending formatted content to Telegram...")
+    main_telegram_only()
 
     print("Process completed successfully!")

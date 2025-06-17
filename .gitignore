@@ -190,3 +190,5 @@ cython_debug/
 
 debug_screenshot.png
 page_content.txt
+job_posts.txt
+job_posts_page.txt

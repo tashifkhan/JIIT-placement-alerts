@@ -27,7 +27,7 @@ PORTAL_URL = "https://app.joinsuperset.com/students/login"
 
 chrome_options = ChromeOptions()
 # chrome_options.add_argument("--headless")
-chrome_options.add_argument("--no-sandbox")
+# chrome_options.add_argument("--no-sandbox")
 chrome_options.add_argument("--disable-dev-shm-usage")
 chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--disable-extensions")
@@ -49,8 +49,10 @@ def timeout(duration):
 
     signal.signal(signal.SIGALRM, timeout_handler)
     signal.alarm(duration)
+
     try:
         yield
+
     finally:
         signal.alarm(0)
 
@@ -174,7 +176,84 @@ try:
         login_button.click()
         print("Login button clicked!")
 
-        time.sleep(30)
+        print("Waiting for login to complete...")
+        time.sleep(3)
+        print("Login attempt made, checking for success...")
+
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.px-5.pt-5.pb-0"))
+        )
+        print("Login successful, job posts section loaded!")
+
+        print("Scrolling to load all content...")
+        last_height = driver.execute_script("return document.body.scrollHeight")
+        while True:
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(2)
+            new_height = driver.execute_script("return document.body.scrollHeight")
+            if new_height == last_height:
+                break
+            last_height = new_height
+        print("Scrolled to the end of the page.")
+
+        selectors_to_try = [
+            "div.px-5.pt-6.pb-0",
+            "div.px-5.pt-5.pb-0",
+            "div[class*='px-5'][class*='pt-'][class*='pb-0']",
+            "div.px-5",
+        ]
+
+        content_elements = []
+        for selector in selectors_to_try:
+            print(f"Trying selector: {selector}")
+            elements = driver.find_elements(By.CSS_SELECTOR, selector)
+            if elements:
+                print(f"Found {len(elements)} elements with selector: {selector}")
+                content_elements = elements
+                break
+
+        if not content_elements:
+            print(
+                "No content elements found with any selector, trying to find all divs with px-5 class..."
+            )
+            content_elements = driver.find_elements(
+                By.CSS_SELECTOR, "div[class*='px-5']"
+            )
+            print(f"Found {len(content_elements)} elements with px-5 class")
+
+        all_content = []
+        for i, element in enumerate(content_elements):
+            try:
+                element_text = element.text.strip()
+                if (
+                    element_text and len(element_text) > 50
+                ):  # Only include substantial content
+                    all_content.append(f"=== Content Block {i+1} ===\n{element_text}\n")
+                    print(
+                        f"Extracted content from element {i+1} ({len(element_text)} characters)"
+                    )
+            except Exception as element_error:
+                print(f"Error extracting content from element {i+1}: {element_error}")
+
+        with open("page_content.txt", "w", encoding="utf-8") as f:
+            if all_content:
+                f.write("\n".join(all_content))
+                print(
+                    f"Successfully wrote {len(all_content)} content blocks to page_content.txt"
+                )
+            else:
+                f.write("No substantial content found in matching elements")
+                print("No substantial content found to write")
+
+        with open("job_posts.txt", "w", encoding="utf-8") as f:
+            if all_content:
+                content_text = "\n\n".join(all_content)
+                f.write(content_text)
+            else:
+                f.write("No content extracted")
+
+        with open("job_posts_page.txt", "w", encoding="utf-8") as f:
+            f.write(driver.page_source)
 
     except Exception as login_error:
         print(f"Could not find login elements: {login_error}")

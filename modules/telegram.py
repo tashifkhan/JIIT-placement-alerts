@@ -4,6 +4,14 @@ import re
 import time
 import requests
 from .database import MongoDBManager
+from telegram import Update, Bot
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+)
 
 dotenv.load_dotenv()
 
@@ -13,6 +21,9 @@ class TelegramBot:
         self.TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
         self.TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
         self.db_manager = MongoDBManager()
+        self.bot = (
+            Bot(token=self.TELEGRAM_BOT_TOKEN) if self.TELEGRAM_BOT_TOKEN else None
+        )
 
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         output_dir = os.path.join(project_root, "output")
@@ -21,6 +32,70 @@ class TelegramBot:
             os.makedirs(output_dir)
 
         self.markdown_file = os.path.join(output_dir, "formatted_job_posts.md")
+
+    # Bot Command Handlers
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /start command"""
+        user = update.effective_user
+        chat_id = update.effective_chat.id
+
+        # Store user information in database
+        success, message = self.db_manager.add_user(
+            user_id=user.id,
+            username=user.username,
+            first_name=user.first_name,
+            last_name=user.last_name,
+        )
+
+        if success:
+            welcome_text = f"Hello {user.first_name}! 👋\n\n"
+            welcome_text += "Welcome to SuperSet Placement Notifications Bot!\n"
+            welcome_text += "You'll receive job posting updates automatically.\n\n"
+            welcome_text += "Commands:\n"
+            welcome_text += "/start - Register for notifications\n"
+            welcome_text += "/stop - Stop receiving notifications\n"
+            welcome_text += "/status - Check your subscription status"
+        else:
+            welcome_text = f"Welcome back {user.first_name}! 👋\n\n"
+            welcome_text += (
+                "You're already registered for SuperSet placement notifications.\n"
+            )
+            welcome_text += (
+                "You'll continue receiving job posting updates automatically."
+            )
+
+        await update.message.reply_text(welcome_text)
+        print(f"User {user.id} (@{user.username}) started the bot")
+
+    async def stop_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /stop command"""
+        user = update.effective_user
+
+        success = self.db_manager.deactivate_user(user.id)
+
+        if success:
+            text = "You've been unsubscribed from SuperSet placement notifications.\n"
+            text += "Use /start to subscribe again anytime."
+        else:
+            text = "There was an error unsubscribing you. Please try again."
+
+        await update.message.reply_text(text)
+        print(f"User {user.id} (@{user.username}) stopped the bot")
+
+    async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /status command"""
+        user = update.effective_user
+
+        user_data = self.db_manager.get_user_by_id(user.id)
+
+        if user_data and user_data.get("is_active", False):
+            text = "✅ You're subscribed to SuperSet placement notifications.\n"
+            text += f"Registered on: {user_data.get('created_at', 'Unknown').strftime('%B %d, %Y')}"
+        else:
+            text = "❌ You're not subscribed to notifications.\n"
+            text += "Use /start to subscribe."
+
+        await update.message.reply_text(text)
 
     def test_connection(self):
         """Test if Telegram bot is configured correctly"""
@@ -130,62 +205,8 @@ class TelegramBot:
             return False
 
     def send_new_posts_from_db(self):
-        """Send only new posts from MongoDB that haven't been sent to Telegram yet"""
-        try:
-
-            unsent_posts = self.db_manager.get_unsent_posts()
-
-            if not unsent_posts:
-                print("No new posts to send to Telegram")
-                return True
-
-            print(f"Found {len(unsent_posts)} new posts to send to Telegram")
-
-            successful_sends = 0
-            failed_sends = 0
-            send_results = []
-
-            for i, post in enumerate(unsent_posts, 1):
-                post_title = post.get("title", "No Title")
-                print(
-                    f"\nProcessing post {i}/{len(unsent_posts)}: {post_title[:50]}..."
-                )
-
-                try:
-                    success, message = self.validate_and_send_post(post)
-
-                    if success:
-                        successful_sends += 1
-                        send_results.append(f"✅ {post_title[:30]}...")
-
-                    else:
-                        failed_sends += 1
-                        send_results.append(f"❌ {post_title[:30]}...: {message}")
-
-                except Exception as e:
-                    failed_sends += 1
-                    send_results.append(f"❌ {post_title[:30]}...: Exception: {str(e)}")
-                    print(f"❌ Unexpected error processing post: {e}")
-
-                # Rate limiting between posts
-                if i < len(unsent_posts):
-                    time.sleep(2)
-
-            print(f"\n📊 Sending Summary:")
-            print(f"   Total processed: {len(unsent_posts)}")
-            print(f"   Successful: {successful_sends}")
-            print(f"   Failed: {failed_sends}")
-
-            if send_results:
-                print(f"\n📋 Detailed Results:")
-                for result in send_results:
-                    print(f"   {result}")
-
-            return successful_sends > 0
-
-        except Exception as e:
-            print(f"Error in send_new_posts_from_db: {e}")
-            return False
+        """Send new posts to all registered users"""
+        return self.send_new_posts_to_all_users()
 
     def send_markdown_file(self):
         """Legacy method - now redirects to database-based sending"""
@@ -446,6 +467,150 @@ class TelegramBot:
             print(f"❌ Exception while processing post: {e}")
             return False, f"Exception: {str(e)}"
 
+    def broadcast_to_all_users(self, message, parse_mode="HTML"):
+        """Broadcast a message to all registered users"""
+        try:
+            users = self.db_manager.get_all_users()
+            if not users:
+                print("No users found to broadcast to")
+                return False
+
+            successful_sends = 0
+            failed_sends = 0
+
+            print(f"Broadcasting to {len(users)} users...")
+
+            for user in users:
+                try:
+                    user_id = user.get("user_id")
+                    username = user.get("username", "Unknown")
+
+                    # Send message directly to user
+                    url = f"https://api.telegram.org/bot{self.TELEGRAM_BOT_TOKEN}/sendMessage"
+                    payload = {
+                        "chat_id": user_id,
+                        "text": message,
+                        "parse_mode": parse_mode,
+                        "disable_web_page_preview": True,
+                    }
+
+                    response = requests.post(url, json=payload)
+
+                    if response.status_code == 200:
+                        successful_sends += 1
+                        print(f"✅ Sent to user {user_id} (@{username})")
+                    else:
+                        failed_sends += 1
+                        print(
+                            f"❌ Failed to send to user {user_id} (@{username}): {response.text}"
+                        )
+
+                        # If user blocked the bot, deactivate them
+                        if "blocked by the user" in response.text.lower():
+                            self.db_manager.deactivate_user(user_id)
+                            print(f"Deactivated user {user_id} (blocked bot)")
+
+                    # Rate limiting
+                    time.sleep(0.1)
+
+                except Exception as e:
+                    failed_sends += 1
+                    print(
+                        f"❌ Error sending to user {user.get('user_id', 'Unknown')}: {e}"
+                    )
+
+            print(f"Broadcast complete: {successful_sends} sent, {failed_sends} failed")
+            return successful_sends > 0
+
+        except Exception as e:
+            print(f"Error in broadcast: {e}")
+            return False
+
+    def send_new_posts_to_all_users(self):
+        """Send new posts to all registered users instead of just one chat"""
+        try:
+            unsent_posts = self.db_manager.get_unsent_posts()
+
+            if not unsent_posts:
+                print("No new posts to send")
+                return True
+
+            users = self.db_manager.get_all_users()
+            if not users:
+                print("No users registered for notifications")
+                return False
+
+            print(f"Found {len(unsent_posts)} new posts to send to {len(users)} users")
+
+            successful_posts = 0
+
+            for post in unsent_posts:
+                post_content = post.get("content", "")
+                if not post_content.strip():
+                    continue
+
+                # Convert to HTML format
+                html_message = self.convert_markdown_to_html(post_content)
+
+                # Broadcast this post to all users
+                if self.broadcast_to_all_users(html_message):
+                    # Mark as sent only if successfully sent to at least some users
+                    self.db_manager.mark_as_sent(post["_id"])
+                    successful_posts += 1
+                    print(
+                        f"✅ Post broadcasted and marked as sent: {post.get('title', 'No Title')[:50]}..."
+                    )
+                else:
+                    print(
+                        f"❌ Failed to broadcast post: {post.get('title', 'No Title')[:50]}..."
+                    )
+
+                # Rate limiting between posts
+                time.sleep(2)
+
+            print(
+                f"Broadcast summary: {successful_posts}/{len(unsent_posts)} posts sent successfully"
+            )
+            return successful_posts > 0
+
+        except Exception as e:
+            print(f"Error in send_new_posts_to_all_users: {e}")
+            return False
+
+    def start_bot_server(self):
+        """Start the bot server to handle user interactions"""
+        try:
+            if not self.TELEGRAM_BOT_TOKEN:
+                print("TELEGRAM_BOT_TOKEN not configured")
+                return False
+
+            application = Application.builder().token(self.TELEGRAM_BOT_TOKEN).build()
+
+            # Add command handlers
+            application.add_handler(CommandHandler("start", self.start_command))
+            application.add_handler(CommandHandler("stop", self.stop_command))
+            application.add_handler(CommandHandler("status", self.status_command))
+
+            print("Bot server starting...")
+            application.run_polling(drop_pending_updates=True)
+
+        except Exception as e:
+            print(f"Error starting bot server: {e}")
+            return False
+
+    def get_user_stats(self):
+        """Get and display user statistics"""
+        try:
+            stats = self.db_manager.get_users_stats()
+            print("\n👥 User Statistics:")
+            print(f"   Total users: {stats.get('total_users', 0)}")
+            print(f"   Active users: {stats.get('active_users', 0)}")
+            print(f"   Inactive users: {stats.get('inactive_users', 0)}")
+            return stats
+        except Exception as e:
+            print(f"Error getting user stats: {e}")
+            return {}
+
     def run(self):
         """Main method to run Telegram functionality"""
         print("SuperSet Telegram Bot - Send Mode")
@@ -460,18 +625,20 @@ class TelegramBot:
             return False
 
         self.get_database_stats()
+        self.get_user_stats()
         self.get_send_status_summary()
 
-        print("\n2. Sending new job posts to Telegram...")
-        result = self.send_new_posts_from_db()
+        print("\n2. Sending new job posts to all registered users...")
+        result = self.send_new_posts_to_all_users()
 
         if result:
-            print("\n✅ Telegram sending completed successfully!")
+            print("\n✅ Telegram broadcasting completed successfully!")
 
             print("\nUpdated statistics:")
             self.get_send_status_summary()
+            self.get_user_stats()
 
         else:
-            print("\n❌ Telegram sending failed!")
+            print("\n❌ Telegram broadcasting failed!")
 
         return result

@@ -14,6 +14,7 @@ class MongoDBManager:
         self.client = None
         self.db = None
         self.collection = None
+        self.users_collection = None  # Add users collection
         self.connect()
 
     def connect(self):
@@ -27,6 +28,7 @@ class MongoDBManager:
             self.client = MongoClient(self.connection_string)
             self.db = self.client["SupersetPlacement"]
             self.collection = self.db["Posts"]
+            self.users_collection = self.db["Users"]  # Initialize users collection
 
             # Test the connection
             self.client.admin.command("ping")
@@ -359,6 +361,85 @@ class MongoDBManager:
         if self.client:
             self.client.close()
             print("MongoDB connection closed")
+
+    # User Management Methods
+    def add_user(self, user_id, username=None, first_name=None, last_name=None):
+        """Add a new user to the database"""
+        try:
+            # Check if user already exists
+            existing_user = self.users_collection.find_one({"user_id": user_id})
+            if existing_user:
+                print(f"User {user_id} already exists")
+                return False, "User already exists"
+
+            user_data = {
+                "user_id": user_id,
+                "username": username,
+                "first_name": first_name,
+                "last_name": last_name,
+                "is_active": True,
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
+            }
+
+            result = self.users_collection.insert_one(user_data)
+            print(f"Added new user: {user_id} (@{username})")
+            return True, str(result.inserted_id)
+
+        except Exception as e:
+            print(f"Error adding user: {e}")
+            return False, str(e)
+
+    def get_all_users(self):
+        """Get all active users"""
+        try:
+            users = list(self.users_collection.find({"is_active": True}))
+            return users
+        except Exception as e:
+            print(f"Error getting users: {e}")
+            return []
+
+    def get_user_by_id(self, user_id):
+        """Get a specific user by ID"""
+        try:
+            user = self.users_collection.find_one({"user_id": user_id})
+            return user
+        except Exception as e:
+            print(f"Error getting user by ID: {e}")
+            return None
+
+    def deactivate_user(self, user_id):
+        """Deactivate a user (soft delete)"""
+        try:
+            result = self.users_collection.update_one(
+                {"user_id": user_id},
+                {
+                    "$set": {
+                        "is_active": False,
+                        "updated_at": datetime.utcnow(),
+                    }
+                },
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            print(f"Error deactivating user: {e}")
+            return False
+
+    def get_users_stats(self):
+        """Get user statistics"""
+        try:
+            total_users = self.users_collection.count_documents({})
+            active_users = self.users_collection.count_documents({"is_active": True})
+            inactive_users = total_users - active_users
+
+            return {
+                "total_users": total_users,
+                "active_users": active_users,
+                "inactive_users": inactive_users,
+            }
+        except Exception as e:
+            print(f"Error getting user stats: {e}")
+            return {}
 
     def __del__(self):
         """Destructor to ensure connection is closed"""

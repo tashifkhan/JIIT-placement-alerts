@@ -1,15 +1,20 @@
 import dotenv
 import time
 import os
+import signal
+from contextlib import contextmanager
 
 # Selenium imports
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.chrome.options import Options as ChromeOptions
+from selenium.webdriver.firefox.service import Service as FirefoxService
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.firefox import GeckoDriverManager
 
 
 dotenv.load_dotenv()
@@ -20,8 +25,7 @@ PASSWORD = os.getenv("PASSWORD", "default_password")
 PORTAL_URL = "https://app.joinsuperset.com/students/login"
 
 
-# Configure Chrome options
-chrome_options = Options()
+chrome_options = ChromeOptions()
 # chrome_options.add_argument("--headless")
 chrome_options.add_argument("--no-sandbox")
 chrome_options.add_argument("--disable-dev-shm-usage")
@@ -36,29 +40,89 @@ chrome_options.add_argument(
     "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
-try:
-    #  driver manager
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-    print("ChromeDriver initialized successfully!")
 
-except Exception as e:
-    print(f"Failed to initialize Chrome driver: {e}")
-    print("Trying fallback approach...")
+@contextmanager
+def timeout(duration):
 
-    # Fallback: try without webdriver-manager
+    def timeout_handler(signum, frame):
+        raise TimeoutError(f"Operation timed out after {duration} seconds")
+
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(duration)
     try:
-        driver = webdriver.Chrome(options=chrome_options)
-        print("ChromeDriver initialized with fallback!")
+        yield
+    finally:
+        signal.alarm(0)
+
+
+def init_chrome_driver():
+    try:
+        print("Downloading/setting up ChromeDriver...")
+        with timeout(30):
+            service = ChromeService(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+            print("ChromeDriver initialized successfully!")
+            return driver
+
+    except TimeoutError:
+        print("ChromeDriver initialization timed out")
+
+    except Exception as e:
+        print(f"Failed to initialize Chrome driver with webdriver-manager: {e}")
+
+    try:
+        print("Trying Chrome without webdriver-manager...")
+        with timeout(15):
+            driver = webdriver.Chrome(options=chrome_options)
+            print("ChromeDriver initialized with fallback!")
+            return driver
+
+    except TimeoutError:
+        print("Chrome fallback initialization timed out")
 
     except Exception as e2:
-        print(f"All attempts failed: {e2}")
-        print("Please check your Chrome browser installation")
-        exit(1)
+        print(f"Chrome fallback also failed: {e2}")
+
+    return None
+
+
+def init_firefox_driver():
+    try:
+        print("Setting up Firefox driver...")
+        firefox_options = FirefoxOptions()
+        # firefox_options.add_argument("--headless")
+
+        with timeout(30):
+            service = FirefoxService(GeckoDriverManager().install())
+            driver = webdriver.Firefox(service=service, options=firefox_options)
+            print("Firefox driver initialized successfully!")
+            return driver
+
+    except TimeoutError:
+        print("Firefox initialization timed out")
+
+    except Exception as e:
+        print(f"Failed to initialize Firefox driver: {e}")
+
+    return None
+
+
+driver = None
+print("Attempting to initialize Chrome driver...")
+driver = init_chrome_driver()
+
+if driver is None:
+    print("Chrome failed, trying Firefox...")
+    driver = init_firefox_driver()
+
+if driver is None:
+    print("Both Chrome and Firefox initialization failed!")
+    print("Please ensure you have either Chrome or Firefox installed.")
+    exit(1)
 
 
 # login form
-# input id=":r3:"      id
+# input id=":r1:"      id
 # input id=":r2:'      pass
 
 # login button
@@ -78,33 +142,64 @@ except Exception as e:
 # use that md to send to telegram
 
 try:
+    print(f"Navigating to: {PORTAL_URL}")
     driver.get(PORTAL_URL)
+    print("Page request sent, waiting for elements...")
 
-    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, ":r3:")))
-
-    print("Page loaded successfully!")
-    print("Found login elements:")
-    username_field = driver.find_element(By.ID, ":r3:")
-    password_field = driver.find_element(By.ID, ":r2:")
-
-    print(
-        f"Username field: {username_field.get_attribute('placeholder') or 'No placeholder'}"
+    WebDriverWait(driver, 15).until(
+        EC.presence_of_element_located((By.TAG_NAME, "body"))
     )
-    print(
-        f"Password field: {password_field.get_attribute('placeholder') or 'No placeholder'}"
-    )
+    print("Page body loaded!")
 
-    # # Submit the form
-    # driver.find_element(By.XPATH, "//button[@type='submit']").click()
+    print(f"Page title: {driver.title}")
 
-    # Wait for the page to load after login
-    time.sleep(5)
+    try:
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, ":r1:")))
+        print("Login elements found!")
+
+        username_field = driver.find_element(By.ID, ":r1:")
+        password_field = driver.find_element(By.ID, ":r2:")
+
+        print(
+            f"Username field: {username_field.get_attribute('placeholder') or 'No placeholder'}"
+        )
+        print(
+            f"Password field: {password_field.get_attribute('placeholder') or 'No placeholder'}"
+        )
+
+        username_field.send_keys(USER_ID)
+        password_field.send_keys(PASSWORD)
+
+    except Exception as login_error:
+        print(f"Could not find login elements: {login_error}")
+        print("Page title:", driver.title)
+        print("Current URL:", driver.current_url)
+
+        try:
+            driver.save_screenshot("debug_screenshot.png")
+            print("Screenshot saved as debug_screenshot.png")
+
+        except:
+            pass
+
+    time.sleep(3)
 
 except Exception as e:
-    print(f"An error occurred: {e}")
+    print(f"An error occurred during navigation: {e}")
+    print(f"Error type: {type(e).__name__}")
+
+    try:
+        print("Current URL:", driver.current_url if driver else "Driver not available")
+        print("Page title:", driver.title if driver else "Driver not available")
+
+    except:
+        print("Could not get additional error information")
 
 finally:
+    if driver:
+        try:
+            driver.quit()
+            print("Browser closed successfully.")
 
-    if "driver" in locals():
-        driver.quit()
-        print("Browser closed successfully.")
+        except Exception as close_error:
+            print(f"Error closing browser: {close_error}")

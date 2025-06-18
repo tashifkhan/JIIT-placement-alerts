@@ -17,10 +17,6 @@ Features:
 - Daemon mode support with comprehensive logging
 """
 
-import asyncio
-import schedule
-import time
-import threading
 import os
 import sys
 import logging
@@ -28,7 +24,10 @@ import argparse
 from datetime import datetime
 import pytz
 from modules.telegram import TelegramBot
-from main import main as run_main_process, run_once_and_notify_if_new_posts
+import schedule
+import time
+import threading
+from main import main as run_main_process
 
 
 def setup_logging(daemon_mode=False):
@@ -59,7 +58,6 @@ def setup_logging(daemon_mode=False):
     # Set specific loggers to appropriate levels
     logging.getLogger("telegram").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("selenium").setLevel(logging.WARNING)
 
     logger = logging.getLogger(__name__)
     logger.info(f"Logging initialized. Mode: {'Daemon' if daemon_mode else 'Normal'}")
@@ -68,7 +66,7 @@ def setup_logging(daemon_mode=False):
     return logger
 
 
-class BotScheduler:
+class BotServer:
     def __init__(self, daemon_mode=False):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.daemon_mode = daemon_mode
@@ -77,7 +75,7 @@ class BotScheduler:
         self.running = True
 
         self.logger.info(
-            f"BotScheduler initialized in {'daemon' if daemon_mode else 'normal'} mode"
+            f"BotServer initialized in {'daemon' if daemon_mode else 'normal'} mode"
         )
 
     def scheduled_job(self):
@@ -177,7 +175,6 @@ class BotScheduler:
             if not self.daemon_mode:
                 print(start_msg)
                 print("Send /start to the bot to register for notifications!")
-
             # Start the bot server (this will block)
             self.telegram_bot.start_bot_server()
 
@@ -187,6 +184,46 @@ class BotScheduler:
             if not self.daemon_mode:
                 print(f"\n{shutdown_msg}")
             self.running = False
+        except Exception as e:
+            error_msg = f"Error starting bot server: {e}"
+            self.logger.error(error_msg, exc_info=True)
+            if not self.daemon_mode:
+                print(error_msg)
+
+    def start_bot(self):
+        """Start the Telegram bot server"""
+        self.logger.info("Starting SuperSet Telegram Bot Server")
+        try:
+            if not self.daemon_mode:
+                print("Starting SuperSet Telegram Bot Server...")
+
+            # Get current time in IST
+            current_time = datetime.now(self.ist)
+            time_msg = (
+                f"🕐 Current time (IST): {current_time.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+            self.logger.info(time_msg)
+
+            if not self.daemon_mode:
+                print(time_msg)
+
+            # Show user statistics
+            self.telegram_bot.get_user_stats()
+
+            start_msg = "Starting Telegram bot server..."
+            self.logger.info(start_msg)
+            if not self.daemon_mode:
+                print(start_msg)
+                print("Send /start to the bot to register!")
+            # Start the bot server (this will block)
+            self.telegram_bot.start_bot_server()
+
+        except KeyboardInterrupt:
+            shutdown_msg = "Shutting down bot server..."
+            self.logger.info(shutdown_msg)
+            if not self.daemon_mode:
+                print(f"\n{shutdown_msg}")
+
         except Exception as e:
             error_msg = f"Error starting bot server: {e}"
             self.logger.error(error_msg, exc_info=True)
@@ -249,11 +286,6 @@ def main():
         help="Run in daemon/detached mode with logging to file",
     )
     parser.add_argument(
-        "--run-once",
-        action="store_true",
-        help="Run scraping job once and send to all users if new posts found",
-    )
-    parser.add_argument(
         "--help-extended", action="store_true", help="Show extended help message"
     )
 
@@ -290,14 +322,17 @@ def main():
     # Setup logging
     logger = setup_logging(daemon_mode=args.daemon)
 
-    bot_scheduler = BotScheduler(daemon_mode=args.daemon)
+    # bot_scheduler = BotScheduler(daemon_mode=args.daemon)
 
-    if args.run_once:
-        logger.info("Running run-once command with smart notifications")
-        # Use the new function that only sends to users if new posts are found
-        return run_once_and_notify_if_new_posts(daemon_mode=args.daemon)
+    # if args.run_once:
+    #     logger.info("Running run-once command with smart notifications")
+    #     # Use the new function that only sends to users if new posts are found
+    #     return run_once_and_notify_if_new_posts(daemon_mode=args.daemon)
 
-    bot_scheduler.start_bot_and_scheduler()
+    # bot_scheduler.start_bot_and_scheduler()
+
+    bot_server = BotServer(daemon_mode=args.daemon)
+    bot_server.start_bot()
 
 
 if __name__ == "__main__":

@@ -133,6 +133,81 @@ class TelegramBot:
         await update.message.reply_text(text)
         safe_print(f"Status response sent to user {user.id}")
 
+    async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /stats command (admin only)"""
+        user = update.effective_user
+        chat_id = update.effective_chat.id
+
+        # Check if user is admin
+        if str(chat_id) != self.TELEGRAM_CHAT_ID:
+            await update.message.reply_text(
+                "❌ This command is only available to administrators."
+            )
+            return
+
+        try:
+            stats = self.db_manager.get_posts_stats()
+
+            text = "📊 Database Statistics:\n\n"
+            text += f"Total posts: {stats.get('total_posts', 0)}\n"
+            text += f"Sent to Telegram: {stats.get('sent_to_telegram', 0)}\n"
+            text += f"Pending to send: {stats.get('pending_to_send', 0)}\n\n"
+
+            post_types = stats.get("post_types", [])
+            if post_types:
+                text += "Post types distribution:\n"
+                for pt in post_types:
+                    text += f"- {pt['_id']}: {pt['count']}\n"
+
+            await update.message.reply_text(text)
+            safe_print(f"Admin {user.id} (@{user.username}) requested database stats")
+
+        except Exception as e:
+            error_msg = f"Error getting database stats: {e}"
+            await update.message.reply_text(f"❌ {error_msg}")
+            safe_print(error_msg)
+
+    async def users_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /users command (admin only)"""
+        user = update.effective_user
+        chat_id = update.effective_chat.id
+
+        # Check if user is admin
+        if str(chat_id) != self.TELEGRAM_CHAT_ID:
+            await update.message.reply_text(
+                "❌ This command is only available to administrators."
+            )
+            return
+
+        try:
+            users = self.db_manager.get_all_users()
+
+            if not users:
+                await update.message.reply_text("No users found in the database.")
+                return
+
+            text = "👥 User List:\n\n"
+            for i, user_data in enumerate(users, 1):
+                status = (
+                    "✅ Active" if user_data.get("is_active", False) else "❌ Inactive"
+                )
+                username = user_data.get("username", "No username")
+                first_name = user_data.get("first_name", "No name")
+                last_name = user_data.get("last_name", "")
+                user_id = user_data.get("user_id", "Unknown")
+
+                text += f"{i}. {first_name} {last_name} (@{username})\n"
+                text += f"   ID: {user_id}\n"
+                text += f"   Status: {status}\n\n"
+
+            await update.message.reply_text(text)
+            safe_print(f"Admin {user.id} (@{user.username}) requested user list")
+
+        except Exception as e:
+            error_msg = f"Error getting user list: {e}"
+            await update.message.reply_text(f"❌ {error_msg}")
+            safe_print(error_msg)
+
     def test_connection(self):
         """Test if Telegram bot is configured correctly"""
         try:
@@ -638,6 +713,8 @@ class TelegramBot:
             application.add_handler(CommandHandler("start", self.start_command))
             application.add_handler(CommandHandler("stop", self.stop_command))
             application.add_handler(CommandHandler("status", self.status_command))
+            application.add_handler(CommandHandler("stats", self.stats_command))
+            application.add_handler(CommandHandler("users", self.users_command))
 
             safe_print("Bot server starting...")
             application.run_polling(drop_pending_updates=True)

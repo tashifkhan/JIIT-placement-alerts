@@ -2,12 +2,12 @@ name: SuperSet Placement Notifications
 
 on:
   schedule:
-    # Run at 12:00 AM IST (6:30 PM UTC previous day)
-    - cron: "30 18 * * *"
     # Run at 12:00 PM IST (6:30 AM UTC)
     - cron: "30 6 * * *"
-    # Run at 6:30 PM IST (1:00 PM UTC)
-    - cron: "0 13 * * *"
+    # Run at 12:00 AM IST (6:30 PM UTC previous day)
+    - cron: "30 18 * * *"
+    # Run at 7:10 PM IST (1:40 PM UTC)
+    - cron: "40 13 * * *"
 
 jobs:
   run-notification-bot:

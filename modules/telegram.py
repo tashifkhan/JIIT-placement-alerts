@@ -208,6 +208,90 @@ class TelegramBot:
             await update.message.reply_text(f"❌ {error_msg}")
             safe_print(error_msg)
 
+    async def boo_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /boo command (admin only) for broadcasting messages"""
+        user = update.effective_user
+        chat_id = update.effective_chat.id
+
+        # Check if user is admin
+        if str(chat_id) != self.TELEGRAM_CHAT_ID:
+            await update.message.reply_text(
+                "❌ This command is only available to administrators."
+            )
+            return
+
+        # Get the full message text
+        message_text = update.message.text.strip()
+
+        # Remove the /boo command
+        message_text = message_text.replace("/boo", "").strip()
+
+        if not message_text:
+            await update.message.reply_text(
+                "❌ Please provide a message to send.\n"
+                "Usage:\n"
+                "- /boo broadcast <message> - Send to all users\n"
+                "- /boo <chat_id> <message> - Send to specific user"
+            )
+            return
+
+        # Check if it's a broadcast message
+        if message_text.lower().startswith("broadcast"):
+            # Remove "broadcast" from the message
+            broadcast_message = message_text.replace("broadcast", "", 1).strip()
+            if not broadcast_message:
+                await update.message.reply_text(
+                    "❌ Please provide a message to broadcast."
+                )
+                return
+
+            # Send broadcast message
+            success = self.broadcast_to_all_users(broadcast_message)
+            if success:
+                await update.message.reply_text("✅ Message broadcasted successfully!")
+            else:
+                await update.message.reply_text("❌ Failed to broadcast message.")
+            return
+
+        # Try to parse as targeted message
+        try:
+            # Split into chat_id and message
+            parts = message_text.split(" ", 1)
+            if len(parts) != 2:
+                await update.message.reply_text(
+                    "❌ Invalid format. Use:\n"
+                    "- /boo broadcast <message> - Send to all users\n"
+                    "- /boo <chat_id> <message> - Send to specific user"
+                )
+                return
+
+            target_chat_id, target_message = parts
+
+            # Send to specific user
+            url = f"https://api.telegram.org/bot{self.TELEGRAM_BOT_TOKEN}/sendMessage"
+            payload = {
+                "chat_id": target_chat_id,
+                "text": target_message,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            }
+
+            response = requests.post(url, json=payload)
+
+            if response.status_code == 200:
+                await update.message.reply_text(
+                    f"✅ Message sent to user {target_chat_id}"
+                )
+            else:
+                error_msg = f"Failed to send message: {response.text}"
+                await update.message.reply_text(f"❌ {error_msg}")
+                safe_print(error_msg)
+
+        except Exception as e:
+            error_msg = f"Error sending message: {e}"
+            await update.message.reply_text(f"❌ {error_msg}")
+            safe_print(error_msg)
+
     def test_connection(self):
         """Test if Telegram bot is configured correctly"""
         try:
@@ -715,6 +799,7 @@ class TelegramBot:
             application.add_handler(CommandHandler("status", self.status_command))
             application.add_handler(CommandHandler("stats", self.stats_command))
             application.add_handler(CommandHandler("users", self.users_command))
+            application.add_handler(CommandHandler("boo", self.boo_command))
 
             safe_print("Bot server starting...")
             application.run_polling(drop_pending_updates=True)

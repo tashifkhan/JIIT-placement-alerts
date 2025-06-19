@@ -18,7 +18,11 @@ class TextFormatter:
         try:
             # Get all posts that need formatting enhancement
             posts = self.db_manager.collection.find(
-                {"sent_to_telegram": {"$ne": True}}
+                {
+                    "sent_to_telegram": {
+                        "$ne": True,
+                    },
+                }
             ).sort("created_at", 1)
 
             posts_list = list(posts)

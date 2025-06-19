@@ -49,26 +49,52 @@ class MongoDBManager:
 
     def create_post_hash(self, content):
         """Create a unique hash for exact content matching (no fuzzy matching)"""
-        # Use the content exactly as-is for precise duplicate detection
-        # Only strip leading/trailing whitespace to avoid formatting issues
-        exact_content = content.strip()
+
+        lines = content.split("\n")
+        time_keywords = [
+            "days ago",
+            "hours ago",
+            "minutes ago",
+            "yesterday",
+            "today",
+            "time",
+            "ago",
+            "hours",
+            "days",
+            "hour",
+            "day",
+        ]
+        non_time_lines = [
+            line
+            for line in lines
+            if not any(keyword in line.lower() for keyword in time_keywords)
+        ]
+        content_to_hash = "\n".join(non_time_lines)
+
+        exact_content = content_to_hash.strip()
         content_hash = hashlib.sha256(exact_content.encode("utf-8")).hexdigest()
-        self.logger.debug(f"Created hash for content: {content_hash[:16]}...")
+        safe_print(f"Created hash for content: {content_hash[:16]}...")
         return content_hash
 
     def post_exists(self, content_hash, content=None):
         """Check if a post with this exact hash already exists (no fuzzy matching)"""
-        self.logger.debug(f"Checking if post exists with hash: {content_hash[:16]}...")
+
+        safe_print(f"Checking if post exists with hash: {content_hash[:16]}...")
         try:
-            existing_post = self.collection.find_one({"content_hash": content_hash})
+            existing_post = self.collection.find_one(
+                {
+                    "content_hash": content_hash,
+                },
+            )
             exists = existing_post is not None
-            self.logger.debug(f"Post exists check result: {exists}")
+            safe_print(f"Post exists check result: {exists}")
             return exists
+
         except Exception as e:
             self.logger.error(f"Error checking if post exists: {e}", exc_info=True)
             return False
+
         try:
-            # Only check for exact hash matches - no similarity checking
             existing_post = self.collection.find_one({"content_hash": content_hash})
             if existing_post:
                 safe_print(f"Found exact duplicate with hash: {content_hash[:16]}...")

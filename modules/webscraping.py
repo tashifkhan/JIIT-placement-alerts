@@ -37,6 +37,7 @@ class WebScraper:
         self.logger.debug("Setting up Chrome options")
         self.chrome_options = ChromeOptions()
         self.chrome_options.add_argument("--headless")
+        self.chrome_options.add_argument("--no-sandbox")
         self.chrome_options.add_argument("--disable-dev-shm-usage")
         self.chrome_options.add_argument("--disable-gpu")
         self.chrome_options.add_argument("--disable-extensions")

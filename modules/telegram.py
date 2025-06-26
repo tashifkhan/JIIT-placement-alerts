@@ -830,7 +830,7 @@ class TelegramBot:
             application.add_handler(CommandHandler("stats", self.stats_command))
             application.add_handler(CommandHandler("users", self.users_command))
             application.add_handler(CommandHandler("boo", self.boo_command))
-            application.add_handler(CommandHandler("scrapyyy", self.scrapyyy_command))
+            application.add_handler(CommandHandler("fu", self.scrapyyy_command))
 
             safe_print("Bot server starting...")
             application.run_polling(drop_pending_updates=True)

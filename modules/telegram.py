@@ -14,7 +14,6 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
-from main import main as run_main_process
 
 dotenv.load_dotenv()
 
@@ -309,6 +308,8 @@ class TelegramBot:
 
         await update.message.reply_text("⏳ Running main workflow (main.py)...")
         try:
+            from main import main as run_main_process
+
             result = run_main_process(daemon_mode=True)
             if result == 0:
                 await update.message.reply_text(

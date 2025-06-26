@@ -347,15 +347,28 @@ class TelegramBot:
             with open(log_path, "r") as f:
                 lines = f.readlines()
             last_lines = lines[-100:] if len(lines) >= 100 else lines
-            log_text = "".join(last_lines)
-            # Format as code block for HTML
-            log_text = f"<pre>{self.escape_html(log_text)}</pre>"
 
-            # Telegram max message length is 4096 chars for HTML
-            chunks = self.split_long_message(log_text, max_length=4000)
-            for chunk in chunks:
+            # Split lines into chunks of up to 4000 chars (Telegram HTML limit)
+            chunks = []
+            current_chunk = []
+            current_length = 0
+            for line in last_lines:
+                line_len = len(line)
+                # +20 for <pre> tags and margin
+                if current_length + line_len + 20 > 4000 and current_chunk:
+                    chunks.append(current_chunk)
+                    current_chunk = []
+                    current_length = 0
+                current_chunk.append(line)
+                current_length += line_len
+            if current_chunk:
+                chunks.append(current_chunk)
+
+            for chunk_lines in chunks:
+                chunk_text = "".join(chunk_lines)
+                chunk_html = f"<pre>{self.escape_html(chunk_text)}</pre>"
                 await update.message.reply_text(
-                    chunk, parse_mode="HTML", disable_web_page_preview=True
+                    chunk_html, parse_mode="HTML", disable_web_page_preview=True
                 )
         except Exception as e:
             await update.message.reply_text(f"❌ Error reading log file: {e}")

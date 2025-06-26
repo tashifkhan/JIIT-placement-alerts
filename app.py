@@ -117,18 +117,24 @@ class BotServer:
         """Setup the scheduled jobs for 3 times a day"""
         self.logger.info("Setting up scheduled jobs")
 
+        schedule.every().day.at("09:00").do(self.scheduled_job)
         schedule.every().day.at("12:00").do(self.scheduled_job)
-        schedule.every().day.at("00:00").do(self.scheduled_job)
+        schedule.every().day.at("15:00").do(self.scheduled_job)
         schedule.every().day.at("18:00").do(self.scheduled_job)
+        schedule.every().day.at("20:00").do(self.scheduled_job)
+        schedule.every().day.at("00:00").do(self.scheduled_job)
 
-        schedule_msg = "📅 Scheduled jobs setup: 12:00 PM IST (Noon), 12:00 AM IST (Midnight), 6:00 PM IST (Evening)"
+        schedule_msg = "📅 Scheduled jobs setup: 9:00 AM, 12:00 PM, 3:00 PM, 6:00 PM, 8:00 PM, 12:00 AM IST"
         self.logger.info(schedule_msg)
 
         if not self.daemon_mode:
             print("📅 Scheduled jobs setup:")
+            print("   - 9:00 AM IST (Morning)")
             print("   - 12:00 PM IST (Noon)")
-            print("   - 12:00 AM IST (Midnight)")
+            print("   - 3:00 PM IST (Afternoon)")
             print("   - 6:00 PM IST (Evening)")
+            print("   - 8:00 PM IST (Night)")
+            print("   - 12:00 AM IST (Midnight)")
 
     def run_scheduler(self):
         """Run the scheduler in a separate thread"""

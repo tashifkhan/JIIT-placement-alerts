@@ -14,6 +14,7 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
+from main import main as run_main_process
 
 dotenv.load_dotenv()
 
@@ -291,6 +292,34 @@ class TelegramBot:
             error_msg = f"Error sending message: {e}"
             await update.message.reply_text(f"❌ {error_msg}")
             safe_print(error_msg)
+
+    async def scrapyyy_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Handle /scrapyyy command (admin only): run main.py workflow"""
+        user = update.effective_user
+        chat_id = update.effective_chat.id
+
+        # Check if user is admin
+        if str(chat_id) != self.TELEGRAM_CHAT_ID:
+            await update.message.reply_text(
+                "❌ This command is only available to administrators."
+            )
+            return
+
+        await update.message.reply_text("⏳ Running main workflow (main.py)...")
+        try:
+            result = run_main_process(daemon_mode=True)
+            if result == 0:
+                await update.message.reply_text(
+                    "✅ main.py workflow completed successfully!"
+                )
+            else:
+                await update.message.reply_text(
+                    f"⚠️ main.py workflow completed with issues (exit code: {result})"
+                )
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error running main.py workflow: {e}")
 
     def test_connection(self):
         """Test if Telegram bot is configured correctly"""
@@ -800,6 +829,7 @@ class TelegramBot:
             application.add_handler(CommandHandler("stats", self.stats_command))
             application.add_handler(CommandHandler("users", self.users_command))
             application.add_handler(CommandHandler("boo", self.boo_command))
+            application.add_handler(CommandHandler("scrapyyy", self.scrapyyy_command))
 
             safe_print("Bot server starting...")
             application.run_polling(drop_pending_updates=True)

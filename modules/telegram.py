@@ -322,6 +322,49 @@ class TelegramBot:
         except Exception as e:
             await update.message.reply_text(f"❌ Error running main.py workflow: {e}")
 
+    async def logs_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /logs command (admin only): send last 100 lines of logs in formatted format"""
+        user = update.effective_user
+        chat_id = update.effective_chat.id
+
+        # Check if user is admin
+        if str(chat_id) != self.TELEGRAM_CHAT_ID:
+            await update.message.reply_text(
+                "❌ This command is only available to administrators."
+            )
+            return
+
+        log_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "logs",
+            "superset_bot.log",
+        )
+        if not os.path.exists(log_path):
+            await update.message.reply_text("❌ Log file not found.")
+            return
+
+        try:
+            with open(log_path, "r") as f:
+                lines = f.readlines()
+            last_lines = lines[-100:] if len(lines) >= 100 else lines
+            log_text = "".join(last_lines)
+            # Format as code block for HTML
+            log_text = f"<pre>{self.escape_html(log_text)}</pre>"
+
+            # Telegram max message length is 4096 chars for HTML
+            chunks = self.split_long_message(log_text, max_length=4000)
+            for chunk in chunks:
+                await update.message.reply_text(
+                    chunk, parse_mode="HTML", disable_web_page_preview=True
+                )
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error reading log file: {e}")
+
+    @staticmethod
+    def escape_html(text):
+        """Escape HTML special characters for Telegram HTML parse mode"""
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
     def test_connection(self):
         """Test if Telegram bot is configured correctly"""
         try:
@@ -831,6 +874,7 @@ class TelegramBot:
             application.add_handler(CommandHandler("users", self.users_command))
             application.add_handler(CommandHandler("boo", self.boo_command))
             application.add_handler(CommandHandler("fu", self.scrapyyy_command))
+            application.add_handler(CommandHandler("logs", self.logs_command))
 
             safe_print("Bot server starting...")
             application.run_polling(drop_pending_updates=True)

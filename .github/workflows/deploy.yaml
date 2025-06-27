@@ -1,0 +1,43 @@
+name: Run Placement Bot
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  VPS_HOST: ${{ secrets.VPS_HOST }}
+  VPS_USER: ${{ secrets.VPS_USER }}
+  VPS_PROJECT_PATH: ${{ secrets.VPS_PROJECT_PATH }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: Production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.VPS_HOST }}
+          username: ${{ env.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            echo "Navigating to project directory on VPS..."
+            cd ${{ env.VPS_PROJECT_PATH }}
+
+            echo "Pulling latest code from Git repository..."
+            git pull origin main 
+
+            echo "Activating virtual environment..."
+            source .venv/bin/activate.fish
+
+            echo "Installing dependencies..."
+            pip install -r requirements.txt
+
+            echo "Running bot..."
+            python app.py -d
+
+            echo "Deployment complete!"

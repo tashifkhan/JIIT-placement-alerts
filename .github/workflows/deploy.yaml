@@ -38,7 +38,7 @@ jobs:
             source .venv/bin/activate
 
             echo "Installing dependencies..."
-            pip install .
+            pip install -r requirements.txt
 
             echo "Running bot..."
             python app.py -d

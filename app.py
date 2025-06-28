@@ -338,7 +338,7 @@ def main():
     # bot_scheduler.start_bot_and_scheduler()
 
     bot_server = BotServer(daemon_mode=args.daemon)
-    bot_server.start_bot()
+    bot_server.start_bot_and_scheduler()
 
 
 if __name__ == "__main__":

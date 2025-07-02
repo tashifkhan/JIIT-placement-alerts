@@ -1,0 +1,59 @@
+name: SuperSet Placement Notifications
+
+on:
+  schedule:
+    # Run at 9:00 AM IST (03:30 UTC)
+    - cron: "30 3 * * *"
+    # Run at 12:00 PM IST (06:30 UTC)
+    - cron: "30 6 * * *"
+    # Run at 3:00 PM IST (09:30 UTC)
+    - cron: "30 9 * * *"
+    # Run at 5:00 PM IST (11:30 UTC)
+    - cron: "30 11 * * *"
+    # Run at 7:00 PM IST (13:30 UTC)
+    - cron: "30 13 * * *"
+    # Run at 12:00 AM IST (18:30 UTC)
+    - cron: "30 18 * * *"
+
+jobs:
+  run-notification-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Cache uv dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            .venv
+            uv.lock
+            .uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('**/uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          uv sync
+
+      - name: Run main script
+        run: |
+          uv run python main.py
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          MONGO_CONNECTION_STR: ${{ secrets.MONGO_CONNECTION_STR }}
+          USER_ID: ${{ secrets.USER_ID }}
+          PASSWORD: ${{ secrets.PASSWORD }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

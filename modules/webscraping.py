@@ -193,15 +193,23 @@ class WebScraper:
 
             self.logger.debug("Waiting for login elements")
             WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.ID, ":r1:"))
+                # EC.presence_of_element_located((By.ID, ":r1:"))
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']"))
             )
 
             elements_msg = "Login elements found!"
             safe_print(elements_msg)
             self.logger.debug(elements_msg)
 
-            username_field = self.driver.find_element(By.ID, ":r1:")
-            password_field = self.driver.find_element(By.ID, ":r2:")
+            # username_field = self.driver.find_element(By.ID, ":r1:")
+            # password_field = self.driver.find_element(By.ID, ":r2:")
+
+            username_field = self.driver.find_element(
+                By.CSS_SELECTOR, "input[type='email']"
+            )
+            password_field = self.driver.find_element(
+                By.CSS_SELECTOR, "input[type='password']"
+            )
 
             username_placeholder = (
                 username_field.get_attribute("placeholder") or "No placeholder"

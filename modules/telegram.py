@@ -10,8 +10,6 @@ from telegram import Update, Bot
 from telegram.ext import (
     Application,
     CommandHandler,
-    MessageHandler,
-    filters,
     ContextTypes,
 )
 
@@ -396,17 +394,55 @@ class TelegramBot:
             return False
 
     def send_message(self, message, parse_mode="MarkdownV2"):
-        """Send a single message to Telegram"""
+        """Send a message to Telegram, automatically splitting if too long"""
         try:
             if not self.TELEGRAM_BOT_TOKEN or not self.TELEGRAM_CHAT_ID:
                 safe_print("Error: Telegram bot token or chat ID not configured")
                 return False
 
+            # Check if message needs to be split
+            if len(message) > 4000:
+                safe_print(
+                    f"Message too long ({len(message)} chars), splitting into chunks..."
+                )
+                chunks = self.split_long_message(message, max_length=4000)
+                chunks_sent = 0
+
+                for i, chunk in enumerate(chunks, 1):
+                    safe_print(
+                        f"  Sending chunk {i}/{len(chunks)} ({len(chunk)} chars)..."
+                    )
+                    if self._send_single_message(chunk, parse_mode):
+                        chunks_sent += 1
+                        if i < len(chunks):  # Don't delay after the last chunk
+                            time.sleep(1)  # Rate limiting between chunks
+                    else:
+                        safe_print(f"  ❌ Failed to send chunk {i}/{len(chunks)}")
+                        break
+
+                success = chunks_sent == len(chunks)
+                if success:
+                    safe_print(f"✅ All {len(chunks)} chunks sent successfully")
+                else:
+                    safe_print(
+                        f"⚠️  Partial send: {chunks_sent}/{len(chunks)} chunks sent"
+                    )
+                return success
+            else:
+                # Single message, send normally
+                return self._send_single_message(message, parse_mode)
+
+        except Exception as e:
+            safe_print(f"Error sending Telegram message: {e}")
+            return False
+
+    def _send_single_message(self, message, parse_mode="MarkdownV2"):
+        """Send a single message chunk to Telegram"""
+        try:
             url = f"https://api.telegram.org/bot{self.TELEGRAM_BOT_TOKEN}/sendMessage"
 
             if parse_mode == "MarkdownV2":
                 formatted_message = self.convert_markdown_to_telegram(message)
-
             else:
                 formatted_message = message
 
@@ -430,29 +466,68 @@ class TelegramBot:
                 )
                 safe_print(f"Response: {response.text}")
 
-                # if MarkdownV2 fails
+                # if MarkdownV2 fails, retry with plain text
                 if parse_mode == "MarkdownV2":
                     safe_print("Retrying with plain text...")
-                    return self.send_message(message, parse_mode=None)
+                    return self._send_single_message(message, "")
 
                 return False
 
         except Exception as e:
-            safe_print(f"Error sending Telegram message: {e}")
+            safe_print(f"Error sending single Telegram message: {e}")
             # fallback plain text
             if parse_mode == "MarkdownV2":
                 safe_print("Retrying with plain text...")
-                return self.send_message(message, parse_mode=None)
+                return self._send_single_message(message, "")
 
             return False
 
     def send_message_html(self, message):
-        """Send message using HTML formatting (more reliable than Markdown)"""
+        """Send message using HTML formatting, automatically splitting if too long"""
         try:
             if not self.TELEGRAM_BOT_TOKEN or not self.TELEGRAM_CHAT_ID:
                 safe_print("Error: Telegram bot token or chat ID not configured")
                 return False
 
+            # Check if message needs to be split
+            if len(message) > 4000:
+                safe_print(
+                    f"HTML message too long ({len(message)} chars), splitting into chunks..."
+                )
+                chunks = self.split_long_message(message, max_length=4000)
+                chunks_sent = 0
+
+                for i, chunk in enumerate(chunks, 1):
+                    safe_print(
+                        f"  Sending HTML chunk {i}/{len(chunks)} ({len(chunk)} chars)..."
+                    )
+                    if self._send_single_html_message(chunk):
+                        chunks_sent += 1
+                        if i < len(chunks):  # Don't delay after the last chunk
+                            time.sleep(1)  # Rate limiting between chunks
+                    else:
+                        safe_print(f"  ❌ Failed to send HTML chunk {i}/{len(chunks)}")
+                        break
+
+                success = chunks_sent == len(chunks)
+                if success:
+                    safe_print(f"✅ All {len(chunks)} HTML chunks sent successfully")
+                else:
+                    safe_print(
+                        f"⚠️  Partial HTML send: {chunks_sent}/{len(chunks)} chunks sent"
+                    )
+                return success
+            else:
+                # Single message, send normally
+                return self._send_single_html_message(message)
+
+        except Exception as e:
+            safe_print(f"Error sending HTML Telegram message: {e}")
+            return False
+
+    def _send_single_html_message(self, message):
+        """Send a single HTML message chunk to Telegram"""
+        try:
             url = f"https://api.telegram.org/bot{self.TELEGRAM_BOT_TOKEN}/sendMessage"
 
             html_message = self.convert_markdown_to_html(message)
@@ -471,20 +546,20 @@ class TelegramBot:
                     f"HTML message sent successfully (length: {len(html_message)} chars)"
                 )
                 return True
-
             else:
                 safe_print(
                     f"Failed to send HTML message. Status code: {response.status_code}"
                 )
                 safe_print(f"Response: {response.text}")
 
-                payload["parse_mode"] = None
+                # Fallback to plain text
+                payload["parse_mode"] = ""
                 payload["text"] = message
                 response = requests.post(url, json=payload)
                 return response.status_code == 200
 
         except Exception as e:
-            safe_print(f"Error sending HTML Telegram message: {e}")
+            safe_print(f"Error sending single HTML Telegram message: {e}")
             return False
 
     def send_new_posts_from_db(self):
@@ -757,7 +832,7 @@ class TelegramBot:
             return False, f"Exception: {str(e)}"
 
     def broadcast_to_all_users(self, message, parse_mode="HTML"):
-        """Broadcast a message to all registered users"""
+        """Broadcast a message to all registered users, automatically splitting if too long"""
         try:
             users = self.db_manager.get_all_users()
             if not users:
@@ -769,37 +844,69 @@ class TelegramBot:
 
             safe_print(f"Broadcasting to {len(users)} users...")
 
+            # Check if message needs to be split
+            message_chunks = []
+            if len(message) > 4000:
+                safe_print(
+                    f"Message too long ({len(message)} chars), splitting for broadcast..."
+                )
+                message_chunks = self.split_long_message(message, max_length=4000)
+                safe_print(f"Split into {len(message_chunks)} chunks")
+            else:
+                message_chunks = [message]
+
             for user in users:
                 try:
                     user_id = user.get("user_id")
                     username = user.get("username", "Unknown")
+                    user_success = True
 
-                    # Send message directly to user
-                    url = f"https://api.telegram.org/bot{self.TELEGRAM_BOT_TOKEN}/sendMessage"
-                    payload = {
-                        "chat_id": user_id,
-                        "text": message,
-                        "parse_mode": parse_mode,
-                        "disable_web_page_preview": True,
-                    }
+                    # Send all chunks to this user
+                    for chunk_index, chunk in enumerate(message_chunks, 1):
+                        if len(message_chunks) > 1:
+                            safe_print(
+                                f"  Sending chunk {chunk_index}/{len(message_chunks)} to user {user_id} (@{username})"
+                            )
 
-                    response = requests.post(url, json=payload)
+                        url = f"https://api.telegram.org/bot{self.TELEGRAM_BOT_TOKEN}/sendMessage"
+                        payload = {
+                            "chat_id": user_id,
+                            "text": chunk,
+                            "parse_mode": parse_mode,
+                            "disable_web_page_preview": True,
+                        }
 
-                    if response.status_code == 200:
+                        response = requests.post(url, json=payload)
+
+                        if response.status_code == 200:
+                            if len(message_chunks) == 1:
+                                safe_print(f"✅ Sent to user {user_id} (@{username})")
+                        else:
+                            user_success = False
+                            safe_print(
+                                f"❌ Failed to send chunk {chunk_index} to user {user_id} (@{username}): {response.text}"
+                            )
+
+                            # If user blocked the bot, deactivate them
+                            if "blocked by the user" in response.text.lower():
+                                self.db_manager.deactivate_user(user_id)
+                                safe_print(f"Deactivated user {user_id} (blocked bot)")
+                            break  # Don't send remaining chunks to this user
+
+                        # Rate limiting between chunks
+                        if chunk_index < len(message_chunks):
+                            time.sleep(0.3)
+
+                    if user_success:
                         successful_sends += 1
-                        safe_print(f"✅ Sent to user {user_id} (@{username})")
+                        if len(message_chunks) > 1:
+                            safe_print(
+                                f"✅ All chunks sent to user {user_id} (@{username})"
+                            )
                     else:
                         failed_sends += 1
-                        safe_print(
-                            f"❌ Failed to send to user {user_id} (@{username}): {response.text}"
-                        )
 
-                        # If user blocked the bot, deactivate them
-                        if "blocked by the user" in response.text.lower():
-                            self.db_manager.deactivate_user(user_id)
-                            safe_print(f"Deactivated user {user_id} (blocked bot)")
-
-                    # Rate limiting
+                    # Rate limiting between users
                     time.sleep(0.1)
 
                 except Exception as e:

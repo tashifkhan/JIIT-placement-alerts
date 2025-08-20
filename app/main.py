@@ -109,7 +109,7 @@ def get_notices(user: LoginResponse) -> list[dict]:
     notices_sorted = sorted(
         notices,
         key=lambda x: x.get("lastModifiedOn", 0),
-        reverse=False,
+        reverse=True,
     )
     return notices_sorted
 
@@ -201,7 +201,7 @@ def get_job_listings(user: LoginResponse) -> list[dict]:
     job_listings_sorted = sorted(
         job_listings,
         key=lambda x: x.get("createdAt", 0),
-        reverse=False,
+        reverse=True,
     )
     for job in job_listings_sorted:
         job_id = job.get("jobProfileIdentifier")
@@ -214,11 +214,19 @@ def main():
     email = os.getenv("EMAIL")
     password = os.getenv("ENCRYPTION_PASSWORD")
     response = login(email, password)
-    print(json.dumps(response.model_dump(), indent=4))
-    # notices = get_notices(response)
-    # print(json.dumps(notices, indent=4))
+    print(f"Logged in as {response.name} ({response.username})")
+
+    os.makedirs("data", exist_ok=True)
+
+    notices = get_notices(response)
+    with open("data/notices.json", "w") as f:
+        json.dump(notices, f, indent=4)
+    print("Notices saved to data/notices.json")
+
     job_listings = get_job_listings(response)
-    print(json.dumps(job_listings, indent=4))
+    with open("data/job_listings.json", "w") as f:
+        json.dump(job_listings, f, indent=4)
+    print("Job listings saved to data/job_listings.json")
 
 
 if __name__ == "__main__":

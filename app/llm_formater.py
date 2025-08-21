@@ -68,7 +68,7 @@ class PostState(TypedDict, total=False):
 
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash",
+    model="gemini-2.0-flash-lite",
     temperature=0,
     google_api_key=GOOGLE_API_KEY,
 )
@@ -248,6 +248,16 @@ def format_message(state: PostState) -> PostState:
         total_shortlisted = data.get("total_shortlisted", len(students))
         company_name = job.company if job else data.get("company_name", "N/A")
         role = job.job_profile if job else data.get("role", "N/A")
+        package_info: Optional[str]
+        package_breakdown: str
+        if job:
+            package_lpa = job.package / 100000
+            package_info = f"{package_lpa:.2f} LPA"
+            package_breakdown = f"({job.package_info})" if job.package_info else ""
+        else:
+            extracted_package = data.get("package")
+            package_info = str(extracted_package) if extracted_package else None
+            package_breakdown = ""
 
         msg_parts.append(f"**🎉 Shortlisting Update**")
         msg_parts.append(f"**Company:** {company_name}")
@@ -262,6 +272,8 @@ def format_message(state: PostState) -> PostState:
                 [f"{i+1}. {step}" for i, step in enumerate(job.hiring_flow)]
             )
             msg_parts.append(f"\n**Hiring Process:**\n{hiring_flow_list}")
+        if package_info:
+            msg_parts.append(f"**CTC:** {package_info} {package_breakdown}\n")
 
     elif cat == "job posting":
         if job:
@@ -326,8 +338,8 @@ def format_message(state: PostState) -> PostState:
             msg_parts.append(f"\n⚠️ **Deadline:** {data.get('deadline')}")
 
     # --- Footer ---
-    msg_parts.append("\n" + "-" * 20)
-    msg_parts.append(f"*Posted by: {notice.author} \non {post_date}*")
+    msg_parts.append("\n")
+    msg_parts.append(f"*Posted by*: {notice.author} \n*On:* {post_date}")
 
     state["formatted_message"] = "\n".join(msg_parts)
     print("--- 5. Message Formatted ---")
@@ -380,12 +392,12 @@ if __name__ == "__main__":
         ]
         all_jobs.append(Job(**job_dict))
 
-    for notice_dict in notices_data[:10]:
+    for notice_dict in notices_data:
         notice = Notice(**notice_dict)
 
         inputs = {
             "notice": notice,
-            "jobs": all_jobs[:20],
+            "jobs": all_jobs,
         }
 
         result = app.invoke(inputs)  # type: ignore

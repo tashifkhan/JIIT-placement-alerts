@@ -381,7 +381,6 @@ def format_message(state: PostState) -> PostState:
             msg_parts.append(f"\n⚠️ **Deadline:** {data.get('deadline')}")
 
     # --- Footer ---
-    msg_parts.append("\n")
     msg_parts.append(f"*Posted by*: {notice.author} \n*On:* {post_date}")
 
     state["formatted_message"] = "\n".join(msg_parts)

@@ -38,7 +38,7 @@ class EligibilityMark(BaseModel):
     criteria: float
 
 
-class JobListing(BaseModel):
+class Job(BaseModel):
     id: str
     job_profile: str
     company: str
@@ -56,7 +56,7 @@ class JobListing(BaseModel):
     package_info: str
     required_skills: list[str]
     hiring_flow: list[str]
-    placement_type: str
+    placement_type: str | None = None
 
 
 def login(email: str | None, password: str | None) -> User:
@@ -222,7 +222,102 @@ def get_job_details(user: User, job_id: str) -> dict:
     return response.json()
 
 
-def get_job_listings(users: User | list[User]) -> list[dict]:
+def structure_job_listing(job: dict) -> Job:
+    category_mapping = {
+        1: "High",
+        2: "Middle",
+        3: "Offer is more than 4.6 lacs",
+        4: "six months internship",
+    }
+    tmp = {}
+    tmp["id"] = job.get("jobProfileIdentifier")
+    tmp["job_profile"] = job.get("jobProfileTitle", "Mazdur")
+    tmp["company"] = job.get("companyName", "??")
+    tmp["placement_category_code"] = job.get("placementCategoryLevel", "Unknown")
+    tmp["placement_category"] = (
+        job.get("placementCategoryName")
+        if job.get("placementCategoryName")
+        else category_mapping.get(tmp["placement_category_code"], "Unknown")
+    )
+    tmp["content"] = job.get("content", "")
+    tmp["createdAt"] = job.get("createdAt")
+    tmp["deadline"] = job.get("jobProfileApplicationDeadline", "")
+    job_details = job.get("jobDetails")
+    tmp["eligibility_marks"] = []
+    tmp["eligibility_courses"] = []
+    tmp["allowed_genders"] = []
+    tmp["job_description"] = ""
+    tmp["location"] = "Unknown"
+    tmp["package"] = 0
+    tmp["package_info"] = ""
+    tmp["required_skills"] = []
+    tmp["hiring_flow"] = []
+
+    if job_details:
+        for ganda_deatils in job_details.get("eligibilityCheckResult", {}).get(
+            "academicResults", []
+        ):
+            level = ganda_deatils.get("level", "UG")
+            creteria = ganda_deatils.get(
+                "required", 5 if ganda_deatils.get("level") == "UG" else 50
+            )
+            tmp["eligibility_marks"].append({"level": level, "criteria": creteria})
+
+        for ganda_details in (
+            job_details.get("eligibilityCheckResult", {})
+            .get("courseCheckResult", [])
+            .get("openedForCourses", [])
+        ):
+            program = ganda_details.get("program")
+            name = ganda_details.get("name")
+            if program and name:
+                short_name = program.get("shortName", "Unknown")
+                tmp["eligibility_courses"].append(f"{short_name} - {name}")
+            elif name:
+                tmp["eligibility_courses"].append(f"Unknown - {name}")
+            else:
+                tmp["eligibility_courses"].append("Unknown Course")
+
+        if job_details.get("jobProfile"):
+            more_details = job_details["jobProfile"]
+            if more_details.get("allowGenderFemale"):
+                tmp["allowed_genders"].append("Female")
+            if more_details.get("allowGenderMale"):
+                tmp["allowed_genders"].append("Male")
+            if more_details.get("allowGenderOther"):
+                tmp["allowed_genders"].append("Other")
+            if more_details.get("jobDescription"):
+                tmp["job_description"] = more_details.get(
+                    "jobDescription", ""
+                ) + more_details.get("invitationCustomText", "")
+            if more_details.get("location"):
+                tmp["location"] = more_details.get("location")
+            if more_details.get("package"):
+                tmp["package"] = more_details.get("package")
+            if more_details.get("ctcAdditionalInfo"):
+                tmp["package_info"] = more_details.get("ctcAdditionalInfo")
+            if more_details.get("requiredSkills"):
+                tmp["required_skills"].extend(more_details.get("requiredSkills"))
+            if more_details.get("stages"):
+                stages = more_details.get("stages")
+                max_seq = max(int(stage["sequence"]) for stage in stages)
+                tmp["hiring_flow"] = [None] * max_seq
+                for stage in stages:
+                    tmp["hiring_flow"][int(stage["sequence"]) - 1] = stage["name"]
+            if not more_details.get("package"):
+                if more_details.get("ctcMin"):
+                    tmp["package"] = more_details.get("ctcMin")
+
+        if tmp["location"] == "Unknown":
+            if job_details.get("jobProfileLocation"):
+                tmp["location"] = job_details.get("jobProfileLocation")
+
+        tmp["placement_type"] = job_details.get("positionType", "")
+
+    return Job(**tmp)
+
+
+def get_job_listings(users: User | list[User]) -> list[Job]:
     if isinstance(users, User):
         users = [users]
 
@@ -287,7 +382,12 @@ def get_job_listings(users: User | list[User]) -> list[dict]:
         if job_id:
             job["jobDetails"] = get_job_details(user, job_id)
 
-    return job_listings_sorted
+    formated_job_listings = []
+
+    for job in job_listings_sorted:
+        formated_job_listings.append(structure_job_listing(job))
+
+    return formated_job_listings
 
 
 def main():
@@ -303,21 +403,28 @@ def main():
 
     os.makedirs("data", exist_ok=True)
 
-    notices = get_notices([cse_user, ece_user])
-    # with open("data/notices.json", "w") as f:
-    for notice in notices:
+    # notices = get_notices([cse_user, ece_user])
+    # # with open("data/notices.json", "w") as f:
+    # for notice in notices:
+    #     print(
+    #         json.dumps(
+    #             notice.model_dump(),
+    #             indent=4,
+    #         )
+    #     )
+    # print("Notices saved to data/notices.json")
+
+    job_listings = get_job_listings([cse_user, ece_user])
+    # with open("data/job_listings.json", "w") as f:
+    #     json.dump(job_listings, f, indent=4)
+    for job in job_listings:
         print(
             json.dumps(
-                notice.model_dump(),
+                job.model_dump(),
                 indent=4,
             )
         )
-    print("Notices saved to data/notices.json")
-
-    # job_listings = get_job_listings([cse_user, ece_user])
-    # with open("data/job_listings.json", "w") as f:
-    #     json.dump(job_listings, f, indent=4)
-    # print("Job listings saved to data/job_listings.json")
+    print("Job listings saved to data/job_listings.json")
 
 
 if __name__ == "__main__":

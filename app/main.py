@@ -75,7 +75,7 @@ def login(email: str | None, password: str | None) -> User:
     return User(**response.json())
 
 
-def get_notices(users: User | list[User]) -> list[Notice]:
+def get_notices(users: User | list[User], num_posts: int = 10000) -> list[Notice]:
     if isinstance(users, User):
         users = [users]
 
@@ -90,7 +90,7 @@ def get_notices(users: User | list[User]) -> list[Notice]:
 
         params = {
             "page": 0,
-            "size": 1000,
+            "size": num_posts,
             "_loader_": "false",
         }
 

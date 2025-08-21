@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional
 from typing import Required, TypedDict
 from pydantic import BaseModel
 from bs4 import BeautifulSoup
+from bs4.element import Tag
 from rapidfuzz import fuzz, process
 from dotenv import load_dotenv
 import os
@@ -63,6 +64,7 @@ class PostState(TypedDict, total=False):
     category: str
     matched_job: Optional["Job"]
     matched_job_id: Optional[str]
+    job_location: Optional[str]
     extracted: Dict[str, Any]
     formatted_message: str
 
@@ -102,11 +104,15 @@ def format_html_breakdown(html_content: Optional[str]) -> str:
 
     # Process tables into "Key | Value" format for each row
     for table in soup.find_all("table"):
+        if not isinstance(table, Tag):
+            continue
         for row in table.find_all("tr"):
+            if not isinstance(row, Tag):
+                continue
             cells = [
                 cell.get_text(separator=" ", strip=True)
                 for cell in row.find_all(["td", "th"])
-                if cell.get_text(strip=True)
+                if isinstance(cell, Tag) and cell.get_text(strip=True)
             ]
             if cells:
                 lines.append(" | ".join(cells))
@@ -217,10 +223,12 @@ def match_job(state: PostState) -> PostState:
     if best_overall_match_job and highest_score > 80:
         state["matched_job"] = best_overall_match_job
         state["matched_job_id"] = best_overall_match_job.id
+        state["job_location"] = best_overall_match_job.location
         print(f"--- 3. Matched Job ID: {best_overall_match_job.id} ---")
     else:
         state["matched_job"] = None
         state["matched_job_id"] = None
+        state["job_location"] = None
         print("--- 3. No suitable job match found ---")
 
     return state
@@ -269,6 +277,7 @@ def format_message(state: PostState) -> PostState:
     data = state.get("extracted", {})
     cat = state.get("category", "announcement")
     job = state.get("matched_job")
+    job_location = state.get("job_location") or (job.location if job else None)
     notice = state["notice"]
 
     # --- Header ---
@@ -304,7 +313,10 @@ def format_message(state: PostState) -> PostState:
 
         msg_parts.append(f"**🎉 Shortlisting Update**")
         msg_parts.append(f"**Company:** {company_name}")
-        msg_parts.append(f"**Role:** {role}\n")
+        msg_parts.append(f"**Role:** {role}")
+        if job_location:
+            msg_parts.append(f"**Location:** {job_location}")
+        msg_parts.append("")  # blank line
         if total_shortlisted > 0 and student_list:
             msg_parts.append(f"**Total Shortlisted:** {total_shortlisted}")
             msg_parts.append("Congratulations to the following students:")
@@ -323,6 +335,7 @@ def format_message(state: PostState) -> PostState:
             # details from the matched job object
             company_name = job.company
             role = job.job_profile
+            job_location = job.location
             package_lpa = job.package / 100000
             package_info = f"{package_lpa:.2f} LPA"
             package_breakdown = format_html_breakdown(job.package_info)
@@ -355,6 +368,7 @@ def format_message(state: PostState) -> PostState:
             # Fallback to extracted info if no job is matched
             company_name = data.get("company_name", "N/A")
             role = data.get("role", "N/A")
+            job_location = None
             package_info = data.get("package", "Not specified")
             package_breakdown = ""
             deadline = data.get("deadline", "Not specified")
@@ -364,6 +378,8 @@ def format_message(state: PostState) -> PostState:
         msg_parts.append(f"**📢 Job Posting**")
         msg_parts.append(f"**Company:** {company_name}")
         msg_parts.append(f"**Role:** {role}")
+        if job_location:
+            msg_parts.append(f"**Location:** {job_location}")
         msg_parts.append(f"**CTC:** {package_info} {package_breakdown}\n")
         if eligibility_str:
             msg_parts.append(eligibility_str + "\n")
@@ -456,6 +472,9 @@ if __name__ == "__main__":
             matched_job.company if matched_job else extracted.get("company_name")
         )
         job_role = matched_job.job_profile if matched_job else extracted.get("role")
+        job_location_out = result.get("job_location") or (
+            matched_job.location if matched_job else None
+        )
         if matched_job:
             pkg_lpa = matched_job.package / 100000
             pkg_str = f"{pkg_lpa:.2f} LPA"
@@ -471,6 +490,7 @@ if __name__ == "__main__":
             "matched_job_id": result.get("matched_job_id"),
             "job_company": job_company,
             "job_role": job_role,
+            "job_location": job_location_out,
             "package": pkg_str,
             "package_breakdown": pkg_breakdown,
             "formatted_message": result.get("formatted_message"),

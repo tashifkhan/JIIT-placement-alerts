@@ -6,6 +6,7 @@ from rapidfuzz import fuzz, process
 from dotenv import load_dotenv
 import os
 import json
+from datetime import datetime
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, END
@@ -50,11 +51,13 @@ class Notice(BaseModel):
     createdAt: int
 
 
-# State for LangGraph
+# state - LangGraph
 class PostState(TypedDict, total=False):
+    # inputs
     notice: Required["Notice"]
     jobs: Required[List["Job"]]
 
+    # computed fields through the graph
     id: str
     raw_text: str
     category: str
@@ -65,13 +68,12 @@ class PostState(TypedDict, total=False):
 
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-1.5-flash",
+    model="gemini-2.0-flash",
     temperature=0,
     google_api_key=GOOGLE_API_KEY,
 )
 
 
-# Helper Function
 def _ensure_str_content(content: Any) -> str:
     """Normalize LLM message content (can be str or list of parts) to a string."""
     if isinstance(content, str):
@@ -88,6 +90,7 @@ def _ensure_str_content(content: Any) -> str:
 
 
 # Graph Nodes
+# -----------------------------
 
 
 def extract_text(state: PostState) -> PostState:
@@ -128,7 +131,6 @@ def match_job(state: PostState) -> PostState:
     notice_text = state.get("raw_text", "")
     jobs = state.get("jobs", [])
 
-    # Prompt to specifically extract company names
     company_extraction_prompt = ChatPromptTemplate.from_messages(
         [
             (
@@ -139,7 +141,6 @@ def match_job(state: PostState) -> PostState:
         ]
     )
 
-    # 1. Use LLM to extract potential company names
     extraction_chain = company_extraction_prompt | llm
     result = extraction_chain.invoke({"raw_text": notice_text})
     extracted_names_str = _ensure_str_content(result.content).strip()
@@ -153,10 +154,8 @@ def match_job(state: PostState) -> PostState:
     extracted_names = [name.strip() for name in extracted_names_str.split(",")]
     print(f"DEBUG: Extracted potential company names -> {extracted_names}")
 
-    # 2. Perform a fuzzy match for each extracted name
     best_overall_match_job = None
     highest_score = 0
-
     job_company_choices = [job.company for job in jobs]
 
     for name in extracted_names:
@@ -172,7 +171,6 @@ def match_job(state: PostState) -> PostState:
 
     print(f"DEBUG: Highest fuzzy match score -> {highest_score}")
 
-    # 3. Assign the best match if it meets the threshold
     if best_overall_match_job and highest_score > 80:
         state["matched_job"] = best_overall_match_job
         state["matched_job_id"] = best_overall_match_job.id
@@ -193,14 +191,14 @@ def extract_info(state: PostState) -> PostState:
                 "system",
                 "You are an information extractor. Based on the category, "
                 "extract structured details. Your response MUST be a valid JSON object.\n\n"
-                "- For shortlisting: extract a list of students under the key 'students'. Each student should be an object with 'name' and 'enrollment'. Also extract 'total_shortlisted' if mentioned.\n"
-                "- For all others: extract relevant details based on the context (e.g., 'deadline', 'message', 'event_name', etc.).",
+                "- For shortlisting: extract a list of students under the key 'students', each with 'name' and 'enrollment'. Also extract 'company_name' and 'role' if mentioned.\n"
+                "- For job posting: extract 'company_name', 'role', 'package', and 'deadline'.\n"
+                "- For all others: extract relevant details based on the context (e.g., 'message', 'event_name', etc.).",
             ),
             ("human", "Category: {category}\n\nNotice:\n{raw_text}"),
         ]
     )
     chain = extraction_prompt | llm
-
     result = chain.invoke(
         {
             "category": state.get("category", "announcement"),
@@ -208,31 +206,37 @@ def extract_info(state: PostState) -> PostState:
         }
     )
     raw_content = _ensure_str_content(result.content)
-
     cleaned_json_str = (
         raw_content.strip().replace("```json", "").replace("```", "").strip()
     )
     try:
         state["extracted"] = json.loads(cleaned_json_str)
         print("--- 4. Information Extracted Successfully ---")
-
     except json.JSONDecodeError:
         print("--- 4. FAILED to parse JSON from LLM ---")
-        state["extracted"] = {
-            "error": "Failed to parse JSON",
-            "raw": cleaned_json_str,
-        }
+        state["extracted"] = {"error": "Failed to parse JSON", "raw": cleaned_json_str}
     return state
 
 
 def format_message(state: PostState) -> PostState:
-    """Formats the final message based on all gathered data."""
+    """
+    Formats the final message using all available information, including the
+    original notice fields, extracted data, and any matched job.
+    """
     data = state.get("extracted", {})
     cat = state.get("category", "announcement")
     job = state.get("matched_job")
-    msg = ""
+    notice = state["notice"]
 
-    if cat == "shortlisting" and job:
+    # --- Header ---
+    post_date = datetime.fromtimestamp(notice.updatedAt / 1000).strftime(
+        "%B %d, %Y at %I:%M %p"
+    )
+    title = notice.title
+    msg_parts = [f"**{title}**\n"]
+
+    # --- Body (category-specific) ---
+    if cat == "shortlisting":
         students = data.get("students", [])
         student_list = "\n".join(
             [
@@ -242,29 +246,96 @@ def format_message(state: PostState) -> PostState:
             ]
         )
         total_shortlisted = data.get("total_shortlisted", len(students))
-        msg = (
-            f"**🎉 Shortlisting Update**\n\n"
-            f"**Company:** {job.company}\n"
-            f"**Role:** {job.job_profile}\n\n"
-            f"**Total Shortlisted:** {total_shortlisted}\n"
-            f"Congratulations to the following students:\n"
-            f"{student_list}"
-        )
-    else:
-        deadline_str = (
-            f"\n⚠️ **Deadline:** {data.get('deadline')}" if data.get("deadline") else ""
-        )
-        message_content = data.get(
-            "message", "Please refer to the original notice for details."
-        )
-        msg = f"**🔔 {cat.capitalize()}**\n\n" f"{message_content}" f"{deadline_str}"
+        company_name = job.company if job else data.get("company_name", "N/A")
+        role = job.job_profile if job else data.get("role", "N/A")
 
-    state["formatted_message"] = msg.strip()
+        msg_parts.append(f"**🎉 Shortlisting Update**")
+        msg_parts.append(f"**Company:** {company_name}")
+        msg_parts.append(f"**Role:** {role}\n")
+        if total_shortlisted > 0 and student_list:
+            msg_parts.append(f"**Total Shortlisted:** {total_shortlisted}")
+            msg_parts.append("Congratulations to the following students:")
+            msg_parts.append(student_list)
+
+        if job and job.hiring_flow:
+            hiring_flow_list = "\n".join(
+                [f"{i+1}. {step}" for i, step in enumerate(job.hiring_flow)]
+            )
+            msg_parts.append(f"\n**Hiring Process:**\n{hiring_flow_list}")
+
+    elif cat == "job posting":
+        if job:
+            # details from the matched job object
+            company_name = job.company
+            role = job.job_profile
+            package_lpa = job.package / 100000
+            package_info = f"{package_lpa:.2f} LPA"
+            package_breakdown = f"({job.package_info})" if job.package_info else ""
+            deadline = (
+                datetime.fromtimestamp(job.deadline / 1000).strftime(
+                    "%B %d, %Y, %I:%M %p"
+                )
+                if job.deadline
+                else "Not specified"
+            )
+
+            eligibility_list = [
+                f"- **Courses:** \n{'\n'.join(job.eligibility_courses)}"
+            ]
+            for mark in job.eligibility_marks:
+                eligibility_list.append(
+                    f"- **{mark.level} Marks:** {mark.criteria} CGPA or equivalent"
+                )
+            eligibility_str = "**Eligibility Criteria:**\n" + "\n".join(
+                eligibility_list
+            )
+
+            # Format hiring flow into a numbered list
+            hiring_flow_list = "\n".join(
+                [f"{i+1}. {step}" for i, step in enumerate(job.hiring_flow)]
+            )
+            hiring_flow_str = f"**Hiring Flow:**\n{hiring_flow_list}"
+
+        else:
+            # Fallback to extracted info if no job is matched
+            company_name = data.get("company_name", "N/A")
+            role = data.get("role", "N/A")
+            package_info = data.get("package", "Not specified")
+            package_breakdown = ""
+            deadline = data.get("deadline", "Not specified")
+            eligibility_str = ""
+            hiring_flow_str = ""
+
+        msg_parts.append(f"**📢 Job Posting**")
+        msg_parts.append(f"**Company:** {company_name}")
+        msg_parts.append(f"**Role:** {role}")
+        msg_parts.append(f"**CTC:** {package_info} {package_breakdown}\n")
+        if eligibility_str:
+            msg_parts.append(eligibility_str + "\n")
+        if hiring_flow_str:
+            msg_parts.append(hiring_flow_str)
+        msg_parts.append(f"\n⚠️ **Deadline:** {deadline}")
+
+    else:  # Fallback for announcement, update, etc.
+        message_content = data.get(
+            "message", state.get("raw_text", "See notice for details.")
+        )
+        msg_parts.append(f"**🔔 {cat.capitalize()}**\n")
+        msg_parts.append(message_content.replace(title, "").strip())
+        if data.get("deadline"):
+            msg_parts.append(f"\n⚠️ **Deadline:** {data.get('deadline')}")
+
+    # --- Footer ---
+    msg_parts.append("\n" + "-" * 20)
+    msg_parts.append(f"*Posted by: {notice.author} \non {post_date}*")
+
+    state["formatted_message"] = "\n".join(msg_parts)
     print("--- 5. Message Formatted ---")
     return state
 
 
-# Build LangGraph
+# build LangGraph
+
 workflow = StateGraph(PostState)
 
 workflow.add_node("extract_text", extract_text)
@@ -284,56 +355,46 @@ app = workflow.compile()
 
 
 if __name__ == "__main__":
-    notice = Notice(
-        id="1902cd5f-5870-4fdb-8eaa-28e0a6e68fbe",
-        title="Shortlist published for Stage 4 (Technical interview 1) of Lending Labs (formerly Kuliza Technologies),'s Software Engineer Intern ",
-        content="""
-        Following students are shortlisted for Stage 4 (Technical interview 1)
-        <ol>
-            <li>Shiv Pandey (22103093)</li>
-            <li>Vansh Tomar (22103274)</li>
-            <li>Harsh Vardhan (22103281)</li>
-        </ol>
-        """,
-        author="Anurag Srivastava",
-        updatedAt=1755751057000,
-        createdAt=1755751057000,
+    notices_path = os.path.join(
+        os.getcwd(),
+        "data",
+        "structured_notices.json",
+    )
+    with open(notices_path, "r") as f:
+        notices_data = json.load(f)
+
+    jobs_path = os.path.join(
+        os.getcwd(),
+        "data",
+        "structured_job_listings.json",
     )
 
-    jobs = [
-        Job(
-            id="7d7dd5e9-51e6-46b6-a0e2-c8cabf06acdc",
-            job_profile="Software Intern",
-            company="Lending Labs (formerly Kuliza Technologies)",
-            placement_category_code=3,
-            placement_category="Offer is more than 4.6 lacs",
-            content="",
-            createdAt=1755688649000,
-            deadline=1755751008000,
-            eligibility_marks=[EligibilityMark(level="UG", criteria=7.0)],
-            eligibility_courses=["B.Tech - CSE", "B.Tech - IT"],
-            allowed_genders=["Male", "Female", "Other"],
-            job_description="Internship role",
-            location="Noida",
-            package=600000,
-            package_info="6 LPA (Fixed + Bonus)",
-            required_skills=[],
-            hiring_flow=["Test", "Interview", "HR"],
-        )
-    ]
+    with open(jobs_path, "r") as f:
+        jobs_data = json.load(f)
 
-    inputs = {
-        "notice": notice,
-        "jobs": jobs,
-    }
-    post_state = PostState(notice=notice, jobs=jobs)
-    result = app.invoke(post_state)
+    all_jobs = []
+    for job_dict in jobs_data:
+        eligibility_marks_data = job_dict.get("eligibility_marks", [])
+        job_dict["eligibility_marks"] = [
+            EligibilityMark(**mark) for mark in eligibility_marks_data
+        ]
+        all_jobs.append(Job(**job_dict))
 
-    print("\n" + "=" * 30)
-    print("      FINAL OUTPUT")
-    print("=" * 30)
-    print("Notice ID:", result.get("id"))
-    print("Matched Job ID:", result.get("matched_job_id"))
-    print("\n--- Formatted Message ---")
-    print(result.get("formatted_message"))
-    print("=" * 30)
+    for notice_dict in notices_data[:10]:
+        notice = Notice(**notice_dict)
+
+        inputs = {
+            "notice": notice,
+            "jobs": all_jobs[:20],
+        }
+
+        result = app.invoke(inputs)  # type: ignore
+
+        print("\n" + "=" * 30)
+        print("      FINAL OUTPUT")
+        print("=" * 30)
+        print("Notice ID:", result.get("id"))
+        print("Matched Job ID:", result.get("matched_job_id"))
+        print("\n--- Formatted Message ---")
+        print(result.get("formatted_message"))
+        print("=" * 30)

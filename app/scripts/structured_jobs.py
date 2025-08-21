@@ -135,5 +135,17 @@ def main():
         json.dump(structured_job_listings, f, indent=4)
 
 
+def check_len():
+    path = os.path.join(
+        os.getcwd(),
+        "data",
+        "structured_job_listings.json",
+    )
+    with open(path, "r") as f:
+        data = f.read()
+        json_data = json.loads(data)
+        print(f"Total jobs: {len(json_data)}")
+
+
 if __name__ == "__main__":
-    main()
+    check_len()

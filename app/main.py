@@ -140,7 +140,7 @@ def get_notices(users: User | list[User]) -> list[Notice]:
         tmp["id"] = notice.get("identifier")
         tmp["title"] = notice.get("title", "Notice")
         tmp["content"] = notice.get("content", "")
-        tmp["author"] = notice.get("lastModifiedUserName", "")
+        tmp["author"] = notice.get("lastModifiedByUserName", "")
         tmp["updatedAt"] = (
             time
             if (time := notice.get("lastModifiedOn"))

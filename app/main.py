@@ -33,6 +33,32 @@ class Notice(BaseModel):
     createdAt: int
 
 
+class EligibilityMark(BaseModel):
+    level: str
+    criteria: float
+
+
+class JobListing(BaseModel):
+    id: str
+    job_profile: str
+    company: str
+    placement_category_code: int
+    placement_category: str
+    content: str
+    createdAt: int | None
+    deadline: int | None
+    eligibility_marks: list[EligibilityMark]
+    eligibility_courses: list[str]
+    allowed_genders: list[str]
+    job_description: str
+    location: str
+    package: float
+    package_info: str
+    required_skills: list[str]
+    hiring_flow: list[str]
+    placement_type: str
+
+
 def login(email: str | None, password: str | None) -> User:
     if not email or not password:
         raise ValueError(

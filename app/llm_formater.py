@@ -89,6 +89,49 @@ def _ensure_str_content(content: Any) -> str:
     return str(content)
 
 
+def format_html_breakdown(html_content: Optional[str]) -> str:
+    """
+    Parses an HTML string (typically from package_info) and formats it into a
+    clean, readable, multi-line string for display.
+    """
+    if not html_content:
+        return ""
+
+    soup = BeautifulSoup(html_content, "html.parser")
+    lines = []
+
+    # Process tables into "Key | Value" format for each row
+    for table in soup.find_all("table"):
+        for row in table.find_all("tr"):
+            cells = [
+                cell.get_text(separator=" ", strip=True)
+                for cell in row.find_all(["td", "th"])
+                if cell.get_text(strip=True)
+            ]
+            if cells:
+                lines.append(" | ".join(cells))
+
+    # Process paragraphs and list items
+    for element in soup.find_all(["p", "li"]):
+        text = element.get_text(separator=" ", strip=True)
+        if text:
+            lines.append(text)
+
+    # If no specific elements were found, fall back to getting all text
+    if not lines:
+        fallback_text = soup.get_text(separator="\n", strip=True)
+        if fallback_text:
+            lines.append(fallback_text)
+
+    # Clean up and format the final output
+    if not lines:
+        return ""
+
+    # Join lines, replace non-breaking spaces, and wrap in parentheses
+    result = "\n".join(lines).replace("\xa0", " ").strip()
+    return f"(\n{result}\n)" if result else ""
+
+
 # Graph Nodes
 # -----------------------------
 
@@ -253,7 +296,7 @@ def format_message(state: PostState) -> PostState:
         if job:
             package_lpa = job.package / 100000
             package_info = f"{package_lpa:.2f} LPA"
-            package_breakdown = f"({job.package_info})" if job.package_info else ""
+            package_breakdown = format_html_breakdown(job.package_info)
         else:
             extracted_package = data.get("package")
             package_info = str(extracted_package) if extracted_package else None
@@ -273,7 +316,7 @@ def format_message(state: PostState) -> PostState:
             )
             msg_parts.append(f"\n**Hiring Process:**\n{hiring_flow_list}")
         if package_info:
-            msg_parts.append(f"**CTC:** {package_info} {package_breakdown}\n")
+            msg_parts.append(f"\n**CTC:** {package_info} {package_breakdown}")
 
     elif cat == "job posting":
         if job:
@@ -282,7 +325,7 @@ def format_message(state: PostState) -> PostState:
             role = job.job_profile
             package_lpa = job.package / 100000
             package_info = f"{package_lpa:.2f} LPA"
-            package_breakdown = f"({job.package_info})" if job.package_info else ""
+            package_breakdown = format_html_breakdown(job.package_info)
             deadline = (
                 datetime.fromtimestamp(job.deadline / 1000).strftime(
                     "%B %d, %Y, %I:%M %p"
@@ -367,20 +410,14 @@ app = workflow.compile()
 
 
 if __name__ == "__main__":
-    notices_path = os.path.join(
-        os.getcwd(),
-        "data",
-        "structured_notices.json",
-    )
+    # Assume data files are in a 'data' subdirectory relative to the script
+    data_dir = os.path.join(os.path.dirname(__file__), "data")
+
+    notices_path = os.path.join(data_dir, "structured_notices.json")
     with open(notices_path, "r") as f:
         notices_data = json.load(f)
 
-    jobs_path = os.path.join(
-        os.getcwd(),
-        "data",
-        "structured_job_listings.json",
-    )
-
+    jobs_path = os.path.join(data_dir, "structured_job_listings.json")
     with open(jobs_path, "r") as f:
         jobs_data = json.load(f)
 
@@ -391,6 +428,8 @@ if __name__ == "__main__":
             EligibilityMark(**mark) for mark in eligibility_marks_data
         ]
         all_jobs.append(Job(**job_dict))
+
+    final_records: List[Dict[str, Any]] = []
 
     for notice_dict in notices_data:
         notice = Notice(**notice_dict)
@@ -410,3 +449,37 @@ if __name__ == "__main__":
         print("\n--- Formatted Message ---")
         print(result.get("formatted_message"))
         print("=" * 30)
+
+        # Build enriched record for output JSON
+        matched_job = result.get("matched_job")
+        extracted = result.get("extracted", {}) or {}
+        job_company = (
+            matched_job.company if matched_job else extracted.get("company_name")
+        )
+        job_role = matched_job.job_profile if matched_job else extracted.get("role")
+        if matched_job:
+            pkg_lpa = matched_job.package / 100000
+            pkg_str = f"{pkg_lpa:.2f} LPA"
+            pkg_breakdown = format_html_breakdown(matched_job.package_info)
+        else:
+            pkg_val = extracted.get("package")
+            pkg_str = str(pkg_val) if pkg_val is not None else None
+            pkg_breakdown = ""
+
+        enriched: Dict[str, Any] = {
+            **notice_dict,
+            "category": result.get("category"),
+            "matched_job_id": result.get("matched_job_id"),
+            "job_company": job_company,
+            "job_role": job_role,
+            "package": pkg_str,
+            "package_breakdown": pkg_breakdown,
+            "formatted_message": result.get("formatted_message"),
+        }
+        final_records.append(enriched)
+
+    # Write final results to data/final_notices.json
+    final_out_path = os.path.join(data_dir, "final_notices.json")
+    with open(final_out_path, "w") as f:
+        json.dump(final_records, f, ensure_ascii=False, indent=4)
+    print(f"\nSaved enriched notices to: {final_out_path}")

@@ -8,7 +8,7 @@ import os
 load_dotenv()
 
 
-class LoginResponse(BaseModel):
+class User(BaseModel):
     userId: int
     username: str
     name: str
@@ -24,7 +24,16 @@ class LoginResponse(BaseModel):
     enableMfa: bool
 
 
-def login(email: str | None, password: str | None) -> LoginResponse:
+class Notice(BaseModel):
+    id: str
+    title: str
+    content: str
+    author: str
+    updatedAt: int
+    createdAt: int
+
+
+def login(email: str | None, password: str | None) -> User:
     if not email or not password:
         raise ValueError(
             "Email and password must be provided",
@@ -63,58 +72,87 @@ def login(email: str | None, password: str | None) -> LoginResponse:
         headers=headers,
         data=payload,
     )
-    return LoginResponse(**response.json())
+    return User(**response.json())
 
 
-def get_notices(user: LoginResponse) -> list[dict]:
-    if not user or not user.uuid or not user.sessionKey:
+def get_notices(users: User | list[User]) -> list[Notice]:
+    if isinstance(users, User):
+        users = [users]
+
+    if any(not user or not user.uuid or not user.sessionKey for user in users):
         raise ValueError(
             "User must be logged in to fetch notices",
         )
 
-    url = f"https://app.joinsuperset.com/tnpsuite-core/students/{user.uuid}/notices"
+    final_notices = []
+    for user in users:
+        url = f"https://app.joinsuperset.com/tnpsuite-core/students/{user.uuid}/notices"
 
-    params = {
-        "page": 0,
-        "size": 1000,
-        "_loader_": "false",
-    }
+        params = {
+            "page": 0,
+            "size": 1000,
+            "_loader_": "false",
+        }
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:141.0) Gecko/20100101 Firefox/141.0",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate, br, zstd",
-        "Referer": "https://app.joinsuperset.com/students",
-        "Authorization": f"Custom {user.sessionKey}",
-        "x-requester-client": "webapp",
-        "x-superset-tenant-id": "jaypee_in_in_it_16",
-        "x-superset-tenant-type": "STUDENT",
-        "DNT": "1",
-        "Sec-GPC": "1",
-        "Connection": "keep-alive",
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
-        "TE": "trailers",
-    }
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:141.0) Gecko/20100101 Firefox/141.0",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Referer": "https://app.joinsuperset.com/students",
+            "Authorization": f"Custom {user.sessionKey}",
+            "x-requester-client": "webapp",
+            "x-superset-tenant-id": "jaypee_in_in_it_16",
+            "x-superset-tenant-type": "STUDENT",
+            "DNT": "1",
+            "Sec-GPC": "1",
+            "Connection": "keep-alive",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "TE": "trailers",
+        }
 
-    response = requests.get(
-        url,
-        headers=headers,
-        params=params,
-    )
+        response = requests.get(
+            url,
+            headers=headers,
+            params=params,
+        )
 
-    notices = response.json()
+        notices = response.json()
+
+        if not final_notices:
+            final_notices.extend(notices)
+        else:
+            for notice in notices:
+                if notice["identifier"] not in [n["identifier"] for n in final_notices]:
+                    final_notices.append(notice)
+
     notices_sorted = sorted(
-        notices,
+        final_notices,
         key=lambda x: x.get("lastModifiedOn", 0),
         reverse=True,
     )
-    return notices_sorted
+
+    structured_notices = []
+    for notice in notices_sorted:
+        tmp = {}
+        tmp["id"] = notice.get("identifier")
+        tmp["title"] = notice.get("title", "Notice")
+        tmp["content"] = notice.get("content", "")
+        tmp["author"] = notice.get("lastModifiedUserName", "")
+        tmp["updatedAt"] = (
+            time
+            if (time := notice.get("lastModifiedOn"))
+            else notice.get("publishedAt")
+        )
+        tmp["createdAt"] = notice.get("publishedAt")
+        structured_notices.append(Notice(**tmp))
+
+    return structured_notices
 
 
-def get_job_details(user: LoginResponse, job_id: str) -> dict:
+def get_job_details(user: User, job_id: str) -> dict:
     if not user or not user.uuid or not user.sessionKey:
         raise ValueError(
             "User must be logged in to fetch job details",
@@ -158,75 +196,102 @@ def get_job_details(user: LoginResponse, job_id: str) -> dict:
     return response.json()
 
 
-def get_job_listings(user: LoginResponse) -> list[dict]:
-    if not user or not user.uuid or not user.sessionKey:
+def get_job_listings(users: User | list[User]) -> list[dict]:
+    if isinstance(users, User):
+        users = [users]
+
+    if not users or not all(user.uuid and user.sessionKey for user in users):
         raise ValueError(
             "User must be logged in to fetch job listings",
         )
 
-    url = (
-        f"https://app.joinsuperset.com/tnpsuite-core/students/{user.uuid}/job_profiles"
-    )
+    all_job_listings = []
 
-    params = {
-        "_loader_": "false",
-    }
+    for user in users:
+        url = f"https://app.joinsuperset.com/tnpsuite-core/students/{user.uuid}/job_profiles"
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:141.0) Gecko/20100101 Firefox/141.0",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate, br, zstd",
-        "Referer": "https://app.joinsuperset.com/students/jobprofiles",
-        "Authorization": f"Custom {user.sessionKey}",
-        "x-requester-client": "webapp",
-        "x-superset-tenant-id": "jaypee_in_in_it_16",
-        "x-superset-tenant-type": "STUDENT",
-        "DNT": "1",
-        "Sec-GPC": "1",
-        "Connection": "keep-alive",
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-origin",
-        "TE": "trailers",
-    }
+        params = {
+            "_loader_": "false",
+        }
 
-    response = requests.get(
-        url,
-        headers=headers,
-        params=params,
-    )
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:141.0) Gecko/20100101 Firefox/141.0",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Referer": "https://app.joinsuperset.com/students/jobprofiles",
+            "Authorization": f"Custom {user.sessionKey}",
+            "x-requester-client": "webapp",
+            "x-superset-tenant-id": "jaypee_in_in_it_16",
+            "x-superset-tenant-type": "STUDENT",
+            "DNT": "1",
+            "Sec-GPC": "1",
+            "Connection": "keep-alive",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "TE": "trailers",
+        }
 
-    job_listings = response.json()
+        response = requests.get(
+            url,
+            headers=headers,
+            params=params,
+        )
+
+        job_listings = response.json()
+
+        if job_listings:
+            all_job_listings.extend(job_listings)
+        else:
+            for job in job_listings:
+                if job["jobProfileIdentifier"] not in [
+                    j["jobProfileIdentifier"] for j in all_job_listings
+                ]:
+                    all_job_listings.append(job)
+
     job_listings_sorted = sorted(
-        job_listings,
+        all_job_listings,
         key=lambda x: x.get("createdAt", 0),
         reverse=True,
     )
+
     for job in job_listings_sorted:
         job_id = job.get("jobProfileIdentifier")
         if job_id:
             job["jobDetails"] = get_job_details(user, job_id)
+
     return job_listings_sorted
 
 
 def main():
-    email = os.getenv("EMAIL")
-    password = os.getenv("ENCRYPTION_PASSWORD")
-    response = login(email, password)
-    print(f"Logged in as {response.name} ({response.username})")
+    cse_email = os.getenv("CSE_EMAIL")
+    cse_password = os.getenv("CSE_ENCRYPTION_PASSWORD")
+    cse_user = login(cse_email, cse_password)
+    print(f"Logged in as {cse_user.name} ({cse_user.username})")
+
+    ece_email = os.getenv("ECE_EMAIL")
+    ece_password = os.getenv("ECE_ENCRYPTION_PASSWORD")
+    ece_user = login(ece_email, ece_password)
+    print(f"Logged in as {ece_user.name} ({ece_user.username})")
 
     os.makedirs("data", exist_ok=True)
 
-    notices = get_notices(response)
-    with open("data/notices.json", "w") as f:
-        json.dump(notices, f, indent=4)
+    notices = get_notices([cse_user, ece_user])
+    # with open("data/notices.json", "w") as f:
+    for notice in notices:
+        print(
+            json.dumps(
+                notice.model_dump(),
+                indent=4,
+            )
+        )
     print("Notices saved to data/notices.json")
 
-    job_listings = get_job_listings(response)
-    with open("data/job_listings.json", "w") as f:
-        json.dump(job_listings, f, indent=4)
-    print("Job listings saved to data/job_listings.json")
+    # job_listings = get_job_listings([cse_user, ece_user])
+    # with open("data/job_listings.json", "w") as f:
+    #     json.dump(job_listings, f, indent=4)
+    # print("Job listings saved to data/job_listings.json")
 
 
 if __name__ == "__main__":

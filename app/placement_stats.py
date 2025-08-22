@@ -30,11 +30,12 @@ class Student(BaseModel):
     enrollment_number: Optional[str] = None
     email: Optional[str] = None
     role: Optional[str] = None
+    package: Optional[float] = None
 
 
 class RolePackage(BaseModel):
     role: str
-    packages: List[str]
+    package: Optional[float] = None
     package_details: Optional[str] = None
 
 
@@ -51,7 +52,7 @@ class PlacementOffer(BaseModel):
 
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash-lite",
+    model="gemini-2.5-pro",
     temperature=0,
     google_api_key=GOOGLE_API_KEY,
 )
@@ -67,8 +68,8 @@ prompt = ChatPromptTemplate.from_template(
       "roles": [
         {{
           "role": "string",
-          "packages": ["array of package amounts/details as strings"],
-          "package_details": "string containing detailed breakdown (optional)"
+          "package": "numeric CTC value as float (in LPA) - null if not applicable",
+          "package_details": "string containing detailed breakdown including base salary, stipend, bonuses, benefits, etc. (optional)"
         }}
       ],
       "job_location": ["list of strings"] (optional),
@@ -78,12 +79,39 @@ prompt = ChatPromptTemplate.from_template(
           "name": "string",
           "enrollment_number": "string (optional)",
           "email": "string (optional)",
-          "role": "string (optional)"
+          "role": "string - assign role from available roles, if only one role exists use that",
+          "package": "numeric CTC value as float (in LPA) - specific to this student if mentioned"
         }}
       ],
       "number_of_offers": "integer (count of students_selected)",
       "additional_info": "string containing any other relevant details (optional)"
     }}
+
+    IMPORTANT PACKAGE AND STIPEND EXTRACTION RULES:
+    
+    1. PACKAGE ASSIGNMENT:
+       - Associate each student with their specific role if mentioned
+       - If only one role exists, assign that role to all students
+       - Extract CTC as single float value (not array)
+       - Convert all amounts to LPA (Lakhs Per Annum)
+    
+    2. STIPEND HANDLING:
+       - For INTERNSHIP-ONLY offers: Include stipend in package (multiply monthly by 12)
+       - For FULL-TIME offers (including conditional/PPO): Show only final CTC, put stipend details in package_details
+       - For CONDITIONAL full-time offers: Show the guaranteed CTC amount, ignore stipends
+       - For PPO (Pre-Placement Offers): Show only final CTC
+    
+    3. PACKAGE RANGE HANDLING:
+       - If package is mentioned as a range (e.g., "8-12 LPA"), use the LOWEST value (8.0)
+       - If multiple packages for same role, use the lowest value
+       - Examples: "8-12 LPA" → 8.0, "10-15 lakhs" → 10.0
+    
+    4. CONVERSION EXAMPLES:
+       - "10 LPA CTC + 50k monthly stipend" (full-time) → package: 10.0, package_details: "10 LPA CTC + 50k monthly stipend during training"
+       - "25k monthly stipend" (internship only) → package: 3.0, package_details: "25k monthly stipend (internship)"
+       - "8-12 LPA based on performance" → package: 8.0, package_details: "8-12 LPA based on performance"
+       - "Conditional offer: 15 LPA after completion" → package: 15.0
+       - "12 lakhs per annum" → package: 12.0
 
     Return only the raw JSON object, without any surrounding text, explanations, or markdown.
 
@@ -286,8 +314,8 @@ def robust_extract_info(state: GraphState) -> GraphState:
               "roles": [
                 {{
                   "role": "string",
-                  "packages": ["array of package amounts/details as strings"],
-                  "package_details": "string containing detailed breakdown (optional)"
+                  "package": "numeric CTC value as float (in LPA) - null if not applicable",
+                  "package_details": "string containing detailed breakdown including base salary, stipend, bonuses, benefits, etc. (optional)"
                 }}
               ],
               "job_location": ["list of strings"] (optional),
@@ -297,12 +325,21 @@ def robust_extract_info(state: GraphState) -> GraphState:
                   "name": "string",
                   "enrollment_number": "string (optional)",
                   "email": "string (optional)",
-                  "role": "string (optional)"
+                  "role": "string - assign role from available roles, if only one role exists use that",
+                  "package": "numeric CTC value as float (in LPA) - specific to this student if mentioned"
                 }}
               ],
               "number_of_offers": "integer (count of students_selected)",
               "additional_info": "string containing any other relevant details (optional)"
             }}
+            
+            PACKAGE EXTRACTION RULES:
+            - For INTERNSHIP-ONLY: Include stipend as package (monthly × 12)
+            - For FULL-TIME/PPO/CONDITIONAL: Show only final CTC, put stipend in package_details
+            - For PACKAGE RANGES: Use the LOWEST value (e.g., "8-12 LPA" → 8.0)
+            - Assign roles to students (if one role, assign to all)
+            - Convert all amounts to LPA format
+            - Conditional offers: Extract the guaranteed CTC amount
             
             Return ONLY the JSON object, no other text.
             """
@@ -324,8 +361,8 @@ def robust_extract_info(state: GraphState) -> GraphState:
               "roles": [
                 {{
                   "role": "string",
-                  "packages": ["array of package amounts/details as strings"],
-                  "package_details": "string containing detailed breakdown (optional)"
+                  "package": "numeric CTC value as float (in LPA) - null if not applicable",
+                  "package_details": "string containing detailed breakdown including base salary, stipend, bonuses, benefits, etc. (optional)"
                 }}
               ],
               "job_location": ["list of strings"] (optional),
@@ -335,12 +372,21 @@ def robust_extract_info(state: GraphState) -> GraphState:
                   "name": "string",
                   "enrollment_number": "string (optional)",
                   "email": "string (optional)",
-                  "role": "string (optional)"
+                  "role": "string - assign role from available roles, if only one role exists use that",
+                  "package": "numeric CTC value as float (in LPA) - specific to this student if mentioned"
                 }}
               ],
               "number_of_offers": "integer (count of students_selected)",
               "additional_info": "string containing any other relevant details (optional)"
             }}
+            
+            PACKAGE EXTRACTION RULES:
+            - For INTERNSHIP-ONLY: Include stipend as package (monthly × 12)
+            - For FULL-TIME/PPO/CONDITIONAL: Show only final CTC, put stipend in package_details  
+            - For PACKAGE RANGES: Use the LOWEST value (e.g., "8-12 LPA" → 8.0)
+            - Assign roles to students (if one role, assign to all)
+            - Convert all amounts to LPA format
+            - Conditional offers: Extract the guaranteed CTC amount
             
             Return ONLY the JSON object, no other text.
             """
@@ -435,6 +481,23 @@ def validate_and_enhance(state: GraphState) -> GraphState:
     # Check for role information
     if not offer.roles or len(offer.roles) == 0:
         validation_issues.append("No role information found")
+    else:
+        # Auto-assign roles to students if missing
+        if len(offer.roles) == 1:
+            default_role = offer.roles[0].role
+            default_package = offer.roles[0].package
+
+            for student in offer.students_selected:
+                if not student.role:
+                    student.role = default_role
+                    print(f"Assigned role '{default_role}' to student {student.name}")
+
+                # Assign package if student doesn't have one and role has one
+                if not student.package and default_package:
+                    student.package = default_package
+                    print(
+                        f"Assigned package {default_package} LPA to student {student.name}"
+                    )
 
     if validation_issues:
         print(f"Validation issues found: {validation_issues}")
@@ -470,7 +533,40 @@ def enhanced_display_results(state: GraphState) -> GraphState:
             if value is not None:
                 formatted_key = key.replace("_", " ").title()
                 if isinstance(value, list) and len(value) > 0:
-                    print(f"- {formatted_key+':':<25} {json.dumps(value, indent=2)}")
+                    # Special formatting for roles and students
+                    if key == "roles":
+                        roles_str = ""
+                        for role in value:
+                            roles_str += f"\n    Role: {role.get('role', 'N/A')}\n"
+                            package = role.get("package")
+                            if package is not None:
+                                roles_str += f"    Package: {package} LPA\n"
+                            if role.get("package_details"):
+                                roles_str += (
+                                    f"    Details: {role.get('package_details')}\n"
+                                )
+                        print(f"- {formatted_key+':':<25}{roles_str}")
+                    elif key == "students_selected":
+                        students_str = ""
+                        for student in value:
+                            students_str += (
+                                f"\n    Name: {student.get('name', 'N/A')}\n"
+                            )
+                            if student.get("enrollment_number"):
+                                students_str += f"    Enrollment: {student.get('enrollment_number')}\n"
+                            if student.get("role"):
+                                students_str += f"    Role: {student.get('role')}\n"
+                            if student.get("package"):
+                                students_str += (
+                                    f"    Package: {student.get('package')} LPA\n"
+                                )
+                            if student.get("email"):
+                                students_str += f"    Email: {student.get('email')}\n"
+                        print(f"- {formatted_key+':':<25}{students_str}")
+                    else:
+                        print(
+                            f"- {formatted_key+':':<25} {json.dumps(value, indent=2)}"
+                        )
                 elif not isinstance(value, list):
                     print(f"- {formatted_key+':':<25} {value}")
 

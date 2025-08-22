@@ -227,7 +227,7 @@ def structure_job_listing(job: dict) -> Job:
         1: "High",
         2: "Middle",
         3: "Offer is more than 4.6 lacs",
-        4: "six months internship",
+        4: "Internship",
     }
     tmp = {}
     tmp["id"] = job.get("jobProfileIdentifier")
@@ -317,7 +317,7 @@ def structure_job_listing(job: dict) -> Job:
     return Job(**tmp)
 
 
-def get_job_listings(users: User | list[User]) -> list[Job]:
+def get_job_listings(users: User | list[User], limit: int | None = None) -> list[Job]:
     if isinstance(users, User):
         users = [users]
 
@@ -377,6 +377,9 @@ def get_job_listings(users: User | list[User]) -> list[Job]:
         reverse=True,
     )
 
+    if limit is not None:
+        job_listings_sorted = job_listings_sorted[:limit]
+
     for job in job_listings_sorted:
         job_id = job.get("jobProfileIdentifier")
         if job_id:
@@ -388,6 +391,59 @@ def get_job_listings(users: User | list[User]) -> list[Job]:
         formated_job_listings.append(structure_job_listing(job))
 
     return formated_job_listings
+
+
+def update_notices(users: User | list[User], notices: list[Notice]) -> list[Notice]:
+    if isinstance(users, User):
+        users = [users]
+
+    if any(not user or not user.uuid or not user.sessionKey for user in users):
+        raise ValueError(
+            "User must be logged in to fetch notices",
+        )
+
+    new_notices = get_notices(users, 20)
+
+    for notice in new_notices:
+        if notice not in notices:
+            notices.append(notice)
+
+    notices_sorted = sorted(
+        notices,
+        key=lambda x: x.createdAt,
+        reverse=True,
+    )
+
+    return notices_sorted
+
+
+def update_job_listings(users: User | list[User], job_listings: list[Job]) -> list[Job]:
+    if isinstance(users, User):
+        users = [users]
+
+    if any(not user or not user.uuid or not user.sessionKey for user in users):
+        raise ValueError(
+            "User must be logged in to update job listings",
+        )
+
+    new_job_listings = get_job_listings(users, limit=20)
+
+    for job in new_job_listings:
+        if job not in job_listings:
+            job_listings.append(job)
+
+    job_listings_sorted = sorted(
+        job_listings,
+        key=lambda x: (
+            getattr(x, "createdAt", 0)
+            if hasattr(x, "createdAt")
+            and isinstance(getattr(x, "createdAt", None), (int, float))
+            else 0
+        ),
+        reverse=True,
+    )
+
+    return job_listings_sorted
 
 
 def main():

@@ -12,16 +12,19 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, END
 
-# --- Environment Variable Setup ---
+
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 PLCAMENT_EMAIL = os.getenv("PLCAMENT_EMAIL")
 PLCAMENT_APP_PASSWORD = os.getenv("PLCAMENT_APP_PASSWORD")
 
-OUTPUT_FILE = "./data/placement_offers.json"
+OUTPUT_FILE = os.path.join(
+    os.getcwd(),
+    "data",
+    "placement_offers.json",
+)
 
 
-# ---------------- Pydantic Schema for Data Validation ----------------
 class Student(BaseModel):
     name: str
     enrollment_number: Optional[str] = None
@@ -47,7 +50,6 @@ class PlacementOffer(BaseModel):
     email_sender: Optional[str] = None
 
 
-# ---------------- LangChain LLM Setup ----------------
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.0-flash-lite",
     temperature=0,
@@ -93,7 +95,6 @@ prompt = ChatPromptTemplate.from_template(
 )
 
 
-# ---------------- LangGraph Workflow State and Nodes ----------------
 class GraphState(TypedDict):
     email: Dict[str, str]
     is_relevant: Optional[bool]
@@ -361,29 +362,29 @@ def robust_extract_info(state: GraphState) -> GraphState:
 
         # Check if empty response (for low-confidence emails)
         if not data or len(data) == 0:
-            print("⚠️ LLM determined this is not a placement offer.")
+            print("LLM determined this is not a placement offer.")
             return {**state, "extracted_offer": None, "validation_errors": None}
 
         offer = PlacementOffer(**data)
         offer.email_subject = email_data["subject"]
         offer.email_sender = email_data["sender"]
 
-        print("✅ Information extracted and validated successfully.")
+        print("Information extracted and validated successfully.")
         return {**state, "extracted_offer": offer, "validation_errors": None}
 
     except ValidationError as e:
         error_messages = [str(err) for err in e.errors()]
-        print(f"❌ Validation Error: {error_messages}")
+        print(f"Validation Error: {error_messages}")
 
         if retry_count < max_retries:
-            print(f"🔄 Retrying extraction (attempt {retry_count + 1}/{max_retries})")
+            print(f"Retrying extraction (attempt {retry_count + 1}/{max_retries})")
             return {
                 **state,
                 "validation_errors": error_messages,
                 "retry_count": retry_count + 1,
             }
         else:
-            print(f"❌ Max retries reached. Extraction failed.")
+            print(f"Max retries reached. Extraction failed.")
             return {
                 **state,
                 "extracted_offer": None,
@@ -392,10 +393,10 @@ def robust_extract_info(state: GraphState) -> GraphState:
 
     except json.JSONDecodeError as e:
         error_msg = f"JSON parsing failed: {str(e)}"
-        print(f"❌ {error_msg}")
+        print(f"{error_msg}")
 
         if retry_count < max_retries:
-            print(f"🔄 Retrying extraction (attempt {retry_count + 1}/{max_retries})")
+            print(f"Retrying extraction (attempt {retry_count + 1}/{max_retries})")
             return {
                 **state,
                 "validation_errors": [error_msg],
@@ -410,7 +411,7 @@ def validate_and_enhance(state: GraphState) -> GraphState:
     offer = state.get("extracted_offer")
 
     if not offer:
-        print("⚠️ No offer to validate - skipping validation step.")
+        print("No offer to validate - skipping validation step.")
         return {**state, "validation_errors": None}
 
     # Additional validation and enhancement logic
@@ -427,7 +428,7 @@ def validate_and_enhance(state: GraphState) -> GraphState:
     # Validate number consistency
     if offer.number_of_offers != len(offer.students_selected):
         print(
-            f"⚠️ Adjusting number_of_offers from {offer.number_of_offers} to {len(offer.students_selected)}"
+            f"Adjusting number_of_offers from {offer.number_of_offers} to {len(offer.students_selected)}"
         )
         offer.number_of_offers = len(offer.students_selected)
 
@@ -436,10 +437,10 @@ def validate_and_enhance(state: GraphState) -> GraphState:
         validation_issues.append("No role information found")
 
     if validation_issues:
-        print(f"⚠️ Validation issues found: {validation_issues}")
+        print(f"Validation issues found: {validation_issues}")
         return {**state, "validation_errors": validation_issues}
 
-    print("✅ Validation passed successfully.")
+    print("Validation passed successfully.")
     return {**state, "validation_errors": None}
 
 
@@ -454,16 +455,16 @@ def enhanced_display_results(state: GraphState) -> GraphState:
     print("    PLACEMENT EXTRACTION RESULTS")
     print("=" * 60)
 
-    print(f"📊 Classification Confidence: {confidence:.2f}")
-    print(f"🔍 Classification Reason: {classification_reason}")
+    print(f"Classification Confidence: {confidence:.2f}")
+    print(f"Classification Reason: {classification_reason}")
 
     if validation_errors:
-        print(f"⚠️  Validation Issues: {'; '.join(validation_errors)}")
+        print(f"Validation Issues: {'; '.join(validation_errors)}")
 
     if not offer:
-        print("❌ No valid placement information could be extracted.")
+        print("No valid placement information could be extracted.")
     else:
-        print("✅ Successfully extracted placement offer:")
+        print("Successfully extracted placement offer:")
         offer_dict = offer.model_dump()
         for key, value in offer_dict.items():
             if value is not None:
@@ -512,7 +513,7 @@ def decide_to_extract(state: GraphState) -> str:
         return "extract_info"
     else:
         print(
-            f"⏭️ Skipping extraction - Relevant: {is_relevant}, Confidence: {confidence:.2f}"
+            f"Skipping extraction - Relevant: {is_relevant}, Confidence: {confidence:.2f}"
         )
         return "display_results"
 
@@ -597,27 +598,77 @@ def fetch_unread_emails():
         raise Exception(f"Failed to fetch emails: {e}")
 
 
-def save_to_json(data, filename=OUTPUT_FILE):
+def save_to_json(data, filename=None):
+    """
+    Append placement offers to JSON file with proper error handling and deduplication
+    """
+    if filename is None:
+        filename = OUTPUT_FILE
+
+    # Ensure the directory exists
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+
+    # Load existing data
+    existing = []
     if os.path.exists(filename):
-        with open(filename, "r") as f:
-            existing = json.load(f)
-    else:
-        existing = []
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+                if not isinstance(existing, list):
+                    existing = []
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: Could not read existing file {filename}: {e}")
+            # Create backup of corrupted file
+            backup_file = (
+                f"{filename}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            )
+            try:
+                os.rename(filename, backup_file)
+                print(f"Corrupted file backed up to: {backup_file}")
+            except:
+                pass
+            existing = []
 
-    existing.extend(data)
+    # Simple deduplication based on email subject and sender
+    existing_keys = set()
+    for item in existing:
+        if isinstance(item, dict):
+            key = f"{item.get('email_subject', '')}__{item.get('email_sender', '')}"
+            existing_keys.add(key)
 
-    with open(filename, "w") as f:
-        json.dump(existing, f, indent=2)
+    # Add new data, avoiding duplicates
+    new_items_added = 0
+    for item in data:
+        if isinstance(item, dict):
+            key = f"{item.get('email_subject', '')}__{item.get('email_sender', '')}"
+            if key not in existing_keys:
+                existing.append(item)
+                existing_keys.add(key)
+                new_items_added += 1
+            else:
+                print(
+                    f"Skipping duplicate offer: {item.get('email_subject', 'Unknown')}"
+                )
+
+    # Save updated data
+    try:
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(existing, f, indent=2, ensure_ascii=False)
+        print(f"Successfully saved {new_items_added} new offers to {filename}")
+        print(f"Total offers in file: {len(existing)}")
+    except IOError as e:
+        print(f"Error saving to file {filename}: {e}")
+        raise
 
 
 # ---------------- Run Enhanced Pipeline ----------------
 if __name__ == "__main__":
-    print("📩 Fetching unread emails...")
+    print("Fetching unread emails...")
     unread_emails = fetch_unread_emails()
 
     extracted_offers = []
     for email_data in unread_emails:
-        print(f"\n🚀 Processing email: {email_data['subject']}")
+        print(f"\nProcessing email: {email_data['subject']}")
 
         # Initialize complete GraphState with all required fields
         state: GraphState = {
@@ -635,26 +686,26 @@ if __name__ == "__main__":
         if result.get("extracted_offer"):
             extracted_offers.append(result["extracted_offer"].model_dump())
             print(
-                f"✅ Successfully processed email from {email_data.get('sender', 'Unknown')}"
+                f"Successfully processed email from {email_data.get('sender', 'Unknown')}"
             )
         else:
             print(
-                f"⚠️ No valid offer extracted from email: {email_data.get('subject', 'Unknown')}"
+                f"No valid offer extracted from email: {email_data.get('subject', 'Unknown')}"
             )
 
     if extracted_offers:
+        print(f"\nSaving {len(extracted_offers)} new offers to file...")
+        print(f"Output file: {OUTPUT_FILE}")
         save_to_json(extracted_offers)
-        print(
-            f"🎉 Successfully saved {len(extracted_offers)} placement offers to {OUTPUT_FILE}"
-        )
-        print(f"📈 Processing complete! Total emails processed: {len(unread_emails)}")
+        print(f"Processing complete! Total emails processed: {len(unread_emails)}")
     else:
-        print("⚠️ No valid placement offers were extracted from any emails.")
-        print(f"📊 Total emails processed: {len(unread_emails)}")
+        print("No valid placement offers were extracted from any emails.")
+        print(f"Total emails processed: {len(unread_emails)}")
 
-    print("\n🔍 Summary:")
+    print("\nSummary:")
     print(f"   • Emails fetched: {len(unread_emails)}")
     print(f"   • Valid offers extracted: {len(extracted_offers)}")
+    print(f"   • Output file: {OUTPUT_FILE}")
     print(
         f"   • Success rate: {(len(extracted_offers)/len(unread_emails)*100):.1f}%"
         if unread_emails

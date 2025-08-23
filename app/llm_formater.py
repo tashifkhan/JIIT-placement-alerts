@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 from typing import Required, TypedDict
 from bs4 import BeautifulSoup
 from bs4.element import Tag
@@ -7,10 +7,16 @@ from dotenv import load_dotenv
 import os
 import json
 from datetime import datetime
-from pydantic import BaseModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, END
+from pydantic import BaseModel
+
+
+"""
+LLM-based formatter for notices using LangGraph and Gemini.
+Models (Job, Notice, EligibilityMark) are imported from main.py to keep types unified.
+"""
 
 
 class EligibilityMark(BaseModel):
@@ -52,9 +58,6 @@ load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 
-"""LLM-based formatter for notices using LangGraph and Gemini."""
-
-
 # state - LangGraph
 class PostState(TypedDict, total=False):
     # inputs
@@ -76,7 +79,7 @@ class NoticeFormatter:
     def __init__(
         self,
         google_api_key: Optional[str] = None,
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-2.0-flash-lite",
         temperature: float = 0,
     ):
         self.llm = ChatGoogleGenerativeAI(
@@ -400,8 +403,8 @@ class NoticeFormatter:
         return workflow.compile()
 
     # -------- public API ---------
-    def format_notice(self, notice: Notice, jobs: List[Job]) -> Dict[str, Any]:
-        inputs = {"notice": notice, "jobs": jobs}
+    def format_notice(self, notice: Notice, jobs: Sequence[Job]) -> Dict[str, Any]:
+        inputs = {"notice": notice, "jobs": list(jobs)}
         result: PostState = self.app.invoke(inputs)  # type: ignore
         matched_job = result.get("matched_job")
         extracted = result.get("extracted", {}) or {}
@@ -436,8 +439,8 @@ class NoticeFormatter:
 
     def format_many(
         self,
-        notices: List[Notice],
-        jobs: List[Job],
+        notices: Sequence[Notice],
+        jobs: Sequence[Job],
     ) -> List[Dict[str, Any]]:
         final_records: List[Dict[str, Any]] = []
         for notice in notices:

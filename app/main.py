@@ -153,11 +153,8 @@ class SupersetClient:
             tmp["title"] = notice.get("title", "Notice")
             tmp["content"] = notice.get("content", "")
             tmp["author"] = notice.get("lastModifiedByUserName", "")
-            tmp["updatedAt"] = (
-                (last := notice.get("lastModifiedOn"))
-                if last
-                else notice.get("publishedAt")
-            )
+            last = notice.get("lastModifiedOn")
+            tmp["updatedAt"] = last if last else notice.get("publishedAt")
             tmp["createdAt"] = notice.get("publishedAt")
             structured_notices.append(Notice(**tmp))
 

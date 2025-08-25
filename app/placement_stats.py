@@ -11,6 +11,7 @@ from pydantic import BaseModel, ValidationError
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, END
+from database import MongoDBManager
 
 
 load_dotenv()
@@ -52,7 +53,7 @@ class PlacementOffer(BaseModel):
 
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-pro",
+    model="gemini-2.5-flash",
     temperature=0,
     google_api_key=GOOGLE_API_KEY,
 )
@@ -789,10 +790,27 @@ if __name__ == "__main__":
                 f"No valid offer extracted from email: {email_data.get('subject', 'Unknown')}"
             )
 
+    # Initialize DB manager (fallback to JSON file if DB unavailable)
+    db_manager = None
+    try:
+        db_manager = MongoDBManager()
+    except Exception as e:
+        print(f"Warning: Could not initialize MongoDBManager, falling back to JSON file. Error: {e}")
+
     if extracted_offers:
-        print(f"\nSaving {len(extracted_offers)} new offers to file...")
-        print(f"Output file: {OUTPUT_FILE}")
-        save_to_json(extracted_offers)
+        print(f"\nSaving {len(extracted_offers)} new offers...")
+        if db_manager:
+            try:
+                result = db_manager.save_placement_offers(extracted_offers)
+                print(f"Database save result: {result}")
+            except Exception as e:
+                print(f"Error saving offers to DB: {e}\nFalling back to JSON file.")
+                save_to_json(extracted_offers)
+        else:
+            # fallback
+            print(f"Output file: {OUTPUT_FILE}")
+            save_to_json(extracted_offers)
+
         print(f"Processing complete! Total emails processed: {len(unread_emails)}")
     else:
         print("No valid placement offers were extracted from any emails.")

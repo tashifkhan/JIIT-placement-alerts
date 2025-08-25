@@ -758,8 +758,7 @@ def save_to_json(data, filename=None):
         raise
 
 
-# ---------------- Run Enhanced Pipeline ----------------
-if __name__ == "__main__":
+def update_placement_records() -> None:
     print("Fetching unread emails...")
     unread_emails = fetch_unread_emails()
 
@@ -825,3 +824,7 @@ if __name__ == "__main__":
         if unread_emails
         else "0%"
     )
+
+# ---------------- Run Enhanced Pipeline ----------------
+if __name__ == "__main__":
+    update_placement_records()

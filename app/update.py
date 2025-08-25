@@ -5,7 +5,7 @@ import requests
 from dotenv import load_dotenv
 from pprint import pprint
 
-from main import SupersetClient, User, Notice, Job
+from scrapper import SupersetClient, User, Notice, Job
 from llm_formater import NoticeFormatter
 from database import MongoDBManager
 

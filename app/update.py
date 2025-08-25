@@ -8,6 +8,7 @@ from pprint import pprint
 from scrapper import SupersetClient, User, Notice, Job
 from llm_formater import NoticeFormatter
 from database import MongoDBManager
+from placement_stats import update_placement_records
 
 
 load_dotenv()
@@ -145,6 +146,9 @@ def run_update() -> None:
             pprint(f"Error structuring/upserting job: {e}")
 
     print(f"Structured jobs - inserted: {inserted_jobs}, updated: {updated_jobs}")
+
+    # placement updating
+    update_placement_records()
 
 
 if __name__ == "__main__":

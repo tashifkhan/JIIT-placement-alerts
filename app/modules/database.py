@@ -33,7 +33,10 @@ class MongoDBManager:
             self.client = MongoClient(self.connection_string)
             self.db = self.client["SupersetPlacement"]
             self.collection = self.db["Posts"]
-            self.users_collection = self.db["Users"]  # Initialize users collection
+            self.notices_collection = self.db["Notices"]
+            self.jobs_collection = self.db["Jobs"]
+            self.placement_offers_collection = self.db["PlacementOffers"]
+            self.users_collection = self.db["Users"]
 
             # Test the connection
             self.client.admin.command("ping")
@@ -75,6 +78,124 @@ class MongoDBManager:
         content_hash = hashlib.sha256(exact_content.encode("utf-8")).hexdigest()
         safe_print(f"Created hash for content: {content_hash[:16]}...")
         return content_hash
+
+    # ----- Notices and Jobs helpers (align with new architecture) -----
+    def notice_exists(self, notice_id: str) -> bool:
+        """Check if a notice with given id exists in the Notices collection."""
+        if not notice_id:
+            return False
+        try:
+            return self.notices_collection.find_one({"id": notice_id}) is not None
+        
+        except Exception as e:
+            safe_print(f"Error checking notice existence: {e}")
+            return False
+
+    def save_notice(self, notice: dict) -> tuple[bool, str]:
+        """Insert a notice dict into Notices collection if id not present.
+
+        Returns (True, inserted_id) on insert, (False, reason) otherwise.
+        """
+        try:
+            nid = notice.get("id") if isinstance(notice, dict) else None
+            if not nid:
+                return False, "Missing notice id"
+
+            if self.notice_exists(nid):
+                return False, "Notice already exists"
+
+            doc = {
+                **notice,
+                "saved_at": datetime.utcnow(),
+            }
+            res = self.notices_collection.insert_one(doc)
+            safe_print(f"Saved notice {nid} -> {res.inserted_id}")
+            return True, str(res.inserted_id)
+
+        except Exception as e:
+            safe_print(f"Error saving notice: {e}")
+            return False, str(e)
+
+    def get_notice_by_id(self, notice_id: str) -> dict | None:
+        try:
+            return self.notices_collection.find_one({"id": notice_id})
+        
+        except Exception as e:
+            safe_print(f"Error fetching notice {notice_id}: {e}")
+            return None
+
+
+    def structured_job_exists(self, structured_id: str) -> bool:
+        if not structured_id:
+            return False
+        
+        try:
+            return self.jobs_collection.find_one({"id": structured_id}) is not None
+        
+        except Exception as e:
+            safe_print(f"Error checking structured job existence: {e}")
+            return False
+
+    def upsert_structured_job(self, structured_job: dict) -> tuple[bool, str]:
+        try:
+            sid = structured_job.get("id") if isinstance(structured_job, dict) else None
+            if not sid:
+                return False, "Missing structured job id"
+
+            existing = self.jobs_collection.find_one({"id": sid})
+            if existing:
+                updated = {
+                    **existing,
+                    **structured_job,
+                    "updated_at": datetime.utcnow(),
+                }
+                self.jobs_collection.replace_one({"_id": existing["_id"]}, updated)
+                safe_print(f"Updated structured job {sid}")
+                return True, "updated"
+
+            doc = {**structured_job, "saved_at": datetime.utcnow()}
+            res = self.jobs_collection.insert_one(doc)
+            safe_print(f"Inserted structured job {sid} -> {res.inserted_id}")
+            return True, str(res.inserted_id)
+
+        except Exception as e:
+            safe_print(f"Error upserting structured job: {e}")
+            return False, str(e)
+
+
+    def save_placement_offers(self, offers: list[dict]) -> dict:
+        """Save a list of placement offers (deduplicated by subject+sender) into PlacementOffers collection.
+
+        Returns stats: {'inserted': n, 'skipped': m}
+        """
+        inserted = 0
+        skipped = 0
+        try:
+            for offer in offers:
+                if not isinstance(offer, dict):
+                    continue
+                key = f"{offer.get('email_subject','')}__{offer.get('email_sender','')}"
+                exists = self.placement_offers_collection.find_one(
+                    {
+                        "email_subject": offer.get("email_subject"),
+                        "email_sender": offer.get("email_sender"),
+                    }
+                )
+                if exists:
+                    skipped += 1
+                    continue
+                doc = {**offer, "saved_at": datetime.utcnow()}
+                self.placement_offers_collection.insert_one(doc)
+                inserted += 1
+
+            safe_print(
+                f"Saved {inserted} new placement offers, skipped {skipped} duplicates"
+            )
+            return {"inserted": inserted, "skipped": skipped}
+
+        except Exception as e:
+            safe_print(f"Error saving placement offers: {e}")
+            return {"error": str(e)}
 
     def post_exists(self, content_hash, content=None):
         """Check if a post with this exact hash already exists (no fuzzy matching)"""

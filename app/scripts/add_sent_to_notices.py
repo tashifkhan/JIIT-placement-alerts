@@ -19,8 +19,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from modules.database import MongoDBManager
-from modules.config import safe_print
+from app.database import MongoDBManager
+from app.config import safe_print
 
 
 def main(dry_run: bool = False):

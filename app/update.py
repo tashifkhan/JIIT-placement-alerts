@@ -7,6 +7,7 @@ from pprint import pprint
 
 from main import SupersetClient, User, Notice, Job
 from llm_formater import NoticeFormatter
+from database import MongoDBManager
 
 
 load_dotenv()
@@ -14,6 +15,7 @@ load_dotenv()
 
 def run_update() -> None:
     client = SupersetClient()
+    db = MongoDBManager()
 
     # Login multiple users (CSE, ECE)
     cse_email = os.getenv("CSE_EMAIL")
@@ -27,47 +29,35 @@ def run_update() -> None:
     users: List[User] = [cse_user, ece_user]
 
     # Fetch data for notices
-    notices: List[Notice] = client.get_notices(users, num_posts=30)
+    notices: List[Notice] = client.get_notices(users, num_posts=10)
+    pprint(notices)
     jobs: List[Job] = client.get_job_listings(users, limit=20)
 
     # Format using LLM pipeline
     formatter = NoticeFormatter()
     enriched = formatter.format_many(notices, jobs)
 
-    # Save enriched notices (append only new by notice id)
-    data_dir = os.path.join(os.path.dirname(__file__), "data")
-    os.makedirs(data_dir, exist_ok=True)
-    final_out_path = os.path.join(data_dir, "final_notices.json")
+    # Persist enriched notices into DB (save only new by notice id)
+    inserted_notices = 0
+    for rec in enriched:
+        if not isinstance(rec, dict):
+            continue
+        success, info = db.save_notice(rec)
+        
+        if success:
+            inserted_notices += 1
+        else:
+            # ignore already exists and log other errors
+            if info and "already exists" in str(info).lower():
+                pass
+            else:
+                pprint(f"Notice save error: {info}")
 
-    existing: List[dict] = []
-    if os.path.exists(final_out_path):
-        try:
-            with open(final_out_path, "r") as f:
-                existing = json.load(f) or []
-                if not isinstance(existing, list):
-                    existing = []
-        except Exception:
-            existing = []
+    if inserted_notices:
+        print(f"Inserted {inserted_notices} new notices into DB")
+    else:
+        print("No new notices to insert into DB.")
 
-    existing_ids = {item.get("id") for item in existing if isinstance(item, dict)}
-    new_records = [
-        rec
-        for rec in enriched
-        if isinstance(rec, dict) and rec.get("id") not in existing_ids
-    ]
-
-    if not new_records:
-        print("No new notices to append. File unchanged.")
-        print(f"Path: {final_out_path}")
-        return
-
-    merged = existing + new_records
-    with open(final_out_path, "w") as f:
-        json.dump(merged, f, ensure_ascii=False, indent=4)
-
-    print(f"Appended {len(new_records)} new notices. Saved to: {final_out_path}")
-
-    # ----- Also update job_listings.json (raw) and structured_job_listings.json -----
     base_url = f"{client.BASE_URL}"
 
     def _common_headers() -> dict:
@@ -134,72 +124,27 @@ def run_update() -> None:
         det_resp.raise_for_status()
         j["jobDetails"] = det_resp.json()
 
-    # Update data/job_listings.json (append only new by jobProfileIdentifier)
-    job_listings_path = os.path.join(data_dir, "job_listings.json")
-    existing_raw: List[dict] = []
-    if os.path.exists(job_listings_path):
+    # Convert deduped raw jobs into structured jobs and upsert into DB
+    inserted_jobs = 0
+    updated_jobs = 0
+    for raw in dedup_raw_jobs:
         try:
-            with open(job_listings_path, "r") as f:
-                loaded = json.load(f)
-                if isinstance(loaded, list):
-                    existing_raw = loaded
-        except Exception:
-            existing_raw = []
+            job_model: Job = client.structure_job_listing(raw)
+            structured = job_model.model_dump()
+            pprint(f"Structured job: {job_model.job_profile} ({job_model.id})")
+            success, info = db.upsert_structured_job(structured)
+            if success:
+                if info == "updated":
+                    updated_jobs += 1
+                else:
+                    inserted_jobs += 1
+            else:
+                pprint(f"Failed to upsert structured job {structured.get('id')}: {info}")
 
-    existing_raw_ids = {
-        it.get("jobProfileIdentifier") for it in existing_raw if isinstance(it, dict)
-    }
-    new_raw_records = [
-        it
-        for it in dedup_raw_jobs
-        if it.get("jobProfileIdentifier") not in existing_raw_ids
-    ]
-    if new_raw_records:
-        merged_raw = existing_raw + new_raw_records
-        with open(job_listings_path, "w") as f:
-            json.dump(merged_raw, f, ensure_ascii=False, indent=4)
-        print(
-            f"Appended {len(new_raw_records)} new raw jobs. Saved to: {job_listings_path}"
-        )
-    else:
-        print("No new raw jobs to append. job_listings.json unchanged.")
+        except Exception as e:
+            pprint(f"Error structuring/upserting job: {e}")
 
-    # Build structured entries from newly added raw ones
-    new_structured_jobs: List[Dict[str, Any]] = []
-    for raw in new_raw_records:
-        job_model: Job = client.structure_job_listing(raw)
-        pprint(f"Structured job: {job_model.job_profile} ({job_model.id})")
-        new_structured_jobs.append(job_model.model_dump())
-
-    # Update data/structured_job_listings.json (append only new by structured id)
-    structured_path = os.path.join(data_dir, "structured_job_listings.json")
-    existing_structured: List[dict] = []
-    if os.path.exists(structured_path):
-        try:
-            with open(structured_path, "r") as f:
-                loaded = json.load(f)
-                if isinstance(loaded, list):
-                    existing_structured = loaded
-        except Exception:
-            existing_structured = []
-
-    existing_struct_ids = {
-        it.get("id") for it in existing_structured if isinstance(it, dict)
-    }
-    new_structured_records = [
-        it for it in new_structured_jobs if it.get("id") not in existing_struct_ids
-    ]
-    if new_structured_records:
-        merged_struct = existing_structured + new_structured_records
-        with open(structured_path, "w") as f:
-            json.dump(merged_struct, f, ensure_ascii=False, indent=4)
-        print(
-            f"Appended {len(new_structured_records)} new structured jobs. Saved to: {structured_path}"
-        )
-    else:
-        print(
-            "No new structured jobs to append. structured_job_listings.json unchanged."
-        )
+    print(f"Structured jobs - inserted: {inserted_jobs}, updated: {updated_jobs}")
 
 
 if __name__ == "__main__":

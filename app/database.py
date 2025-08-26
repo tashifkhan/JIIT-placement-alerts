@@ -261,7 +261,15 @@ class MongoDBManager:
     def get_all_offers(self, limit=100):
         """Get all offers with optional limit"""
         try:
-            cursor = self.offers_collection.find().sort("created_at", -1).limit(limit)
+            coll = getattr(self, "placement_offers_collection", None) or getattr(
+                self, "offers_collection", None
+            )
+            # Avoid truth-value testing of pymongo Collection objects
+            if coll is None:
+                safe_print("Offers collection not initialized")
+                return []
+
+            cursor = coll.find().sort("created_at", -1).limit(limit)
             return list(cursor)
 
         except Exception as e:
@@ -498,7 +506,7 @@ class MongoDBManager:
         Function is defensive: returns empty dict on error or if collection not initialized.
         """
         try:
-            if not getattr(self, "notices_collection", None):
+            if getattr(self, "notices_collection", None) is None:
                 safe_print("Notices collection not initialized")
                 return {}
 
@@ -610,14 +618,7 @@ class MongoDBManager:
         Returns a dict with overall stats and per-company stats.
         """
         try:
-            coll = getattr(self, "placement_offers_collection", None) or getattr(
-                self, "offers_collection", None
-            )
-            if not coll:
-                safe_print("Placement collection not initialized")
-                return {}
-
-            docs = list(coll.find())
+            docs = list(self.placement_offers_collection.find())
 
             # Helper to coerce package values to float when possible
             def to_float(val):

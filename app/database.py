@@ -5,7 +5,7 @@ import logging
 from pymongo import MongoClient
 from datetime import datetime
 import hashlib
-from .config import safe_print
+from config import safe_print
 
 
 load_dotenv()

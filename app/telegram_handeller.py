@@ -1200,7 +1200,7 @@ class TelegramBot:
             f"<b>Jaypee Tools:</b>\n"
             f"1. <a href='https://jiit-placement-updates.tashif.codes'>Placement Updates</a>\n"
             f"2. <a href='https://jiit-timetable.tashif.codes'>Timetable</a>\n"
-            f"3. <a href='https://sophos-auto-login.tashif.codes'>Wifi (Sophos) Auto Login</a>\n"
+            f"3. <a href='https://sophos-autologin.tashif.codes'>Wifi (Sophos) Auto Login</a>\n"
             f"4. <a href='https://jportal.tashif.codes'>JPortal</a>"
         )
         try:

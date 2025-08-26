@@ -1141,10 +1141,15 @@ class TelegramBot:
             safe_print(f"Error in send_new_posts_to_all_users: {e}")
             return False
 
-    def web_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def web_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle the /web command"""
         safe_print("Web command received")
-        context.bot.send_message(chat_id=update.effective_chat.id, text="https://jiit-placement-updates.tashif.codes\nhttps://jiit-timetable.tashif.codes\nhttps://jportal.tashif.codes")
+        try:
+            await update.message.reply_text(
+                "https://jiit-placement-updates.tashif.codes\nhttps://jiit-timetable.tashif.codes\nhttps://jportal.tashif.codes"
+            )
+        except Exception as e:
+            safe_print(f"Error in web_command: {e}")
 
     def start_bot_server(self):
         """Start the bot server to handle user interactions"""

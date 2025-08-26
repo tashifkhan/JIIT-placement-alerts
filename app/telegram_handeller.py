@@ -726,6 +726,9 @@ class TelegramBot:
         # Convert code blocks (though Telegram has limited support)
         text = re.sub(r"`(.*?)`", r"<code>\1</code>", text)
 
+        # Convert bold markers **...** to italic (as requested)
+        text = re.sub(r"\*(.*?)\*", r"<i>\1</i>", text)
+
         return text
 
     def get_database_stats(self):
@@ -1055,6 +1058,46 @@ class TelegramBot:
                             f"Skipping notice with empty formatted message: {notice.get('title','No Title')[:50]}..."
                         )
                         continue
+
+                    # Post-process formatted string to improve readability and standardize fields
+                    if formatted is None:
+                        formatted = ""
+
+                    # Normalize CLASS_X -> 10th and CLASS_XII -> 12th
+                    # e.g. "CLASS_X Marks: 60.0 CGPA or equivalent" -> "10th: 60.0% (or equivalent)"
+                    formatted = re.sub(
+                        r"CLASS[_\s]*X(?:\s*Marks)?\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*CGPA(?:\s*or equivalent)?",
+                        r"10th: \1%",
+                        formatted,
+                        flags=re.IGNORECASE,
+                    )
+                    formatted = re.sub(
+                        r"CLASS[_\s]*XII(?:\s*Marks)?\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*CGPA(?:\s*or equivalent)?",
+                        r"12th: \1%",
+                        formatted,
+                        flags=re.IGNORECASE,
+                    )
+
+                    # UG marks -> "UG - Current CGPA requirement: x.y"
+                    formatted = re.sub(
+                        r"UG(?:\s*Marks)?\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*CGPA(?:\s*or equivalent)?",
+                        r"Current CGPA requirement: \1",
+                        formatted,
+                        flags=re.IGNORECASE,
+                    )
+
+                    # Replace detailed CTC / Salary Package Details block with a concise Package Description
+                    # If a CTC line is present (optionally followed by a parenthetical description),
+                    # keep the CTC on one line, add two newlines, then add a Package Description block.
+                    formatted = re.sub(
+                        r"(?:\n|^)\s*(CTC\s*:\s*([0-9]+(?:\.[0-9]+)?\s*(?:LPA|lpa|Lakh|lakh|Lakhs|lakhs)?))(?:\s*\(.*?\))?(?:\n|$)",
+                        r"\n\1\n\nPackage Description:\nCTC: \2\n",
+                        formatted,
+                        flags=re.IGNORECASE,
+                    )
+
+                    # Ensure spacing: convert multiple blank lines to a maximum of two, strip leading/trailing whitespace
+                    formatted = re.sub(r"\n{3,}", "\n\n", formatted).strip()
 
                     # Use HTML send to preserve formatting where possible
                     html_message = self.convert_markdown_to_html(formatted)

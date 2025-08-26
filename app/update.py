@@ -30,7 +30,7 @@ def run_update() -> None:
     users: List[User] = [cse_user, ece_user]
 
     # Fetch data for notices
-    notices: List[Notice] = client.get_notices(users, num_posts=10)
+    notices: List[Notice] = [notice for notice in client.get_notices(users, num_posts=20) if not db.notice_exists(notice.id)]
     pprint(notices)
     jobs: List[Job] = client.get_job_listings(users, limit=20)
 

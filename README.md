@@ -1,12 +1,13 @@
-# SuperSet Telegram Notification Bot
+# JIIT Placements SuperSet Telegram Notification Bot
 
-A bot that scrapes job postings from the SuperSet placement portal, saves them to MongoDB, enhances their formatting, and broadcasts them to all registered Telegram users. Eliminates the need to check the portal again and again.
+A bot that scrapes job postings from the JIIT's SuperSet placement portal, saves them to MongoDB, enhances their formatting, and broadcasts them to all registered Telegram users. Eliminates the need to check the portal again and again.
 
 ## Try the Live Bot
 
 **The bot is already running and fully functional!** You can start using it immediately:
 
 **[Start using SuperSet Notification Bot](https://t.me/SupersetNotificationBot)**
+**Live Website:** [JIIT Placement Updates](https://jiit-placement-updates.tashif.codes)
 
 Simply open the link above, send `/start` to register, and you'll automatically receive job posting notifications from SuperSet. No setup required on your end!
 
@@ -27,6 +28,8 @@ Simply open the link above, send `/start` to register, and you'll automatically 
 - `/start` - Register for job posting notifications
 - `/stop` - Unsubscribe from notifications
 - `/status` - Check your subscription status
+- `/stats` - Gives you placement Statistics
+- `/web` - Gives you the links of all the JIIT Tools
 
 **Live Bot:** [https://t.me/SupersetNotificationBot](https://t.me/SupersetNotificationBot)
 

@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from pprint import pprint
 
 from scrapper import SupersetClient, User, Notice, Job
-from llm_formater import NoticeFormatter
+from notice_formater import NoticeFormatter
 from database import MongoDBManager
 from placement_stats import update_placement_records
 

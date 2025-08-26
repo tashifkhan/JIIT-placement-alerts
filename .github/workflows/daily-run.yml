@@ -49,15 +49,13 @@ jobs:
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: cd app
-        run: |
-          cd app
-
       - name: Install dependencies
+        working-directory: app
         run: |
           uv sync
 
       - name: Run main script
+        working-directory: app
         run: |
           uv run python main.py
         env:

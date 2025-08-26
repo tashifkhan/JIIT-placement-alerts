@@ -1196,10 +1196,15 @@ class TelegramBot:
     async def web_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle the /web command"""
         safe_print("Web command received")
+        text = (
+            f"<b>Jaypee Tools:</b>\n"
+            f"1. <a href='https://jiit-placement-updates.tashif.codes'>Placement Updates</a>\n"
+            f"2. <a href='https://jiit-timetable.tashif.codes'>Timetable</a>\n"
+            f"3. <a href='https://sophos-auto-login.tashif.codes'>Wifi (Sophos) Auto Login</a>\n"
+            f"4. <a href='https://jportal.tashif.codes'>JPortal</a>"
+        )
         try:
-            await update.message.reply_text(
-                "https://jiit-placement-updates.tashif.codes\nhttps://jiit-timetable.tashif.codes\nhttps://jportal.tashif.codes"
-            )
+            await update.message.reply_text(text, parse_mode="HTML")
         except Exception as e:
             safe_print(f"Error in web_command: {e}")
 

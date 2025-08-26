@@ -710,24 +710,76 @@ class TelegramBot:
 
     def convert_markdown_to_html(self, text):
         """Convert markdown to HTML for Telegram"""
+        if not text:
+            return ""
+
+        # ---- Normalize numeric fields first ----
+        # CLASS_X or CLASS X marks -> 10th: number%
+        text = re.sub(
+            r"CLASS[_\s]*X(?:\s*Marks)?\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*CGPA(?:\s*or equivalent)?",
+            r"10th: \1%",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        # CLASS_XII or CLASS XII marks -> 12th: number%
+        text = re.sub(
+            r"CLASS[_\s]*XII(?:\s*Marks)?\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*CGPA(?:\s*or equivalent)?",
+            r"12th: \1%",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        # UG Marks -> Current CGPA: number
+        text = re.sub(
+            r"UG(?:\s*Marks)?\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*CGPA(?:\s*or equivalent)?",
+            r"Current CGPA: \1",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        # If CTC is followed by a parenthetical block, pull that block into Package Description
+        # e.g. CTC: 7.00 LPA ( ...multiline content... )
+        text = re.sub(
+            r"(?:\n|^)\s*(CTC\s*:\s*([0-9]+(?:\.[0-9]+)?\s*(?:LPA|lpa|Lakh|lakh|Lakhs|lakhs)?))\s*\(\s*(.*?)\s*\)\s*(?:\n|$)",
+            r"\n\1\n\nPackage Description:\nCTC: \2\n\3\n",
+            text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+
+        # Fallback: if CTC line exists (without a parenthetical block), convert to Package Description
+        text = re.sub(
+            r"(?:\n|^)\s*(CTC\s*:\s*([0-9]+(?:\.[0-9]+)?\s*(?:LPA|lpa|Lakh|lakh|Lakhs|lakhs)?))(?:\s*\(.*?\))?(?:\n|$)",
+            r"\n\1\n\nPackage Description:\nCTC: \2\n",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+        # Add an extra blank line after Deadline lines for readability
+        # (ensures a visual separation before following sections)
+        text = re.sub(r"(?m)^(.*Deadline:.*)$", r"\1\n", text)
+
         # Convert headers to bold
         text = re.sub(r"^##\s+(.*?)$", r"<b>\1</b>", text, flags=re.MULTILINE)
         text = re.sub(r"^###\s+(.*?)$", r"<b>\1</b>", text, flags=re.MULTILINE)
 
-        # Convert bold text
+        # Convert bold text **...** -> <b>...</b>
         text = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", text)
 
-        # Convert italic text
+        # Convert italic text _..._ -> <i>...</i>
         text = re.sub(r"_(.*?)_", r"<i>\1</i>", text)
 
-        # Convert blockquotes
+        # Convert blockquotes > ... -> italic
         text = re.sub(r"^>\s+(.*?)$", r"<i>\1</i>", text, flags=re.MULTILINE)
 
-        # Convert code blocks (though Telegram has limited support)
+        # Convert inline code `...` -> <code>...</code>
         text = re.sub(r"`(.*?)`", r"<code>\1</code>", text)
 
-        # Convert bold markers **...** to italic (as requested)
-        text = re.sub(r"\*(.*?)\*", r"<i>\1</i>", text)
+        # Convert single *...* (italic) to <i>...</i> but avoid touching already converted **...**
+        text = re.sub(r"(?<!\*)\*(?!\*)(.*?)\*(?!\*)", r"<i>\1</i>", text)
+
+        # Collapse excessive blank lines to maximum two, trim edges
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
 
         return text
 

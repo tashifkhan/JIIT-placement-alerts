@@ -79,7 +79,7 @@ class NoticeFormatter:
     def __init__(
         self,
         google_api_key: Optional[str] = None,
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-2.0-flash-lite",
         temperature: float = 0,
     ):
         self.llm = ChatGoogleGenerativeAI(

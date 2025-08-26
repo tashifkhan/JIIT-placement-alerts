@@ -28,6 +28,7 @@ import schedule
 import time
 import threading
 from main import main as run_main_process
+import subprocess
 
 
 def setup_logging(daemon_mode=False):
@@ -244,42 +245,51 @@ class BotServer:
         self.scheduled_job()
 
 
-def create_daemon():
-    """Create a daemon process"""
-    try:
-        # First fork
-        pid = os.fork()
-        if pid > 0:
-            # Parent process, exit
-            sys.exit(0)
-    except OSError as e:
-        sys.stderr.write(f"Fork #1 failed: {e}\n")
-        sys.exit(1)
+def _run_server_child(daemon_mode: bool):
+    """Entry point for the spawned child process.
 
-    # Decouple from parent environment
-    os.chdir("/")
-    os.setsid()
-    os.umask(0)
+    This runs in a fresh process created with the 'spawn' start method which
+    avoids fork-related deadlocks when the parent is multi-threaded.
+    """
+    # Configure logging for the child process (daemon mode controls handlers)
+    setup_logging(daemon_mode=daemon_mode)
 
-    # Second fork
-    try:
-        pid = os.fork()
-        if pid > 0:
-            # Parent process, exit
-            sys.exit(0)
-    except OSError as e:
-        sys.stderr.write(f"Fork #2 failed: {e}\n")
-        sys.exit(1)
+    bot_server = BotServer(daemon_mode=daemon_mode)
+    bot_server.start_bot_and_scheduler()
 
-    # Redirect standard file descriptors to /dev/null
-    sys.stdout.flush()
-    sys.stderr.flush()
-    si = open(os.devnull, "r")
-    so = open(os.devnull, "a+")
-    se = open(os.devnull, "a+")
-    os.dup2(si.fileno(), sys.stdin.fileno())
-    os.dup2(so.fileno(), sys.stdout.fileno())
-    os.dup2(se.fileno(), sys.stderr.fileno())
+
+def spawn_daemon_process():
+    """Spawn a detached child process using subprocess.
+
+    Uses start_new_session=True to detach from the controlling terminal and
+    redirects std streams to /dev/null. Sets an environment marker so the
+    child won't re-spawn itself.
+    """
+    python = sys.executable or "python3"
+    script = os.path.abspath(__file__)
+
+    # Build args: preserve -u for unbuffered output if present, pass --daemon flag
+    args = [python, script, "--daemon"]
+
+    # Prepare environment for child: mark it as the daemon child
+    env = os.environ.copy()
+    env["SUPERSET_DAEMON_CHILD"] = "1"
+
+    # Redirect std streams to /dev/null so child detaches cleanly
+    devnull = open(os.devnull, "r+")
+
+    p = subprocess.Popen(
+        args,
+        env=env,
+        stdin=devnull,
+        stdout=devnull,
+        stderr=devnull,
+        start_new_session=True,
+        close_fds=True,
+    )
+
+    print(f"Daemon process started with pid={p.pid}")
+    sys.exit(0)
 
 
 def main():
@@ -323,7 +333,13 @@ def main():
 
     # Setup daemon mode if requested
     if args.daemon:
-        create_daemon()
+        # If we're already the spawned daemon child, continue running normally.
+        if os.environ.get("SUPERSET_DAEMON_CHILD") == "1":
+            # Child: proceed to normal initialization below
+            pass
+        else:
+            # Parent: spawn a detached daemon child and exit
+            spawn_daemon_process()
 
     # Setup logging
     logger = setup_logging(daemon_mode=args.daemon)

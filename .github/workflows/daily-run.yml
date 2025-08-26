@@ -1,0 +1,73 @@
+name: SuperSet Placement Notifications
+
+on:
+  schedule:
+    # Every hour from 9:00 AM to 6:00 PM IST (09:00–18:00)
+    - cron: "30 3 * * *" # 09:00 IST
+    - cron: "30 4 * * *" # 10:00 IST
+    - cron: "30 5 * * *" # 11:00 IST
+    - cron: "30 6 * * *" # 12:00 IST
+    - cron: "30 7 * * *" # 13:00 IST
+    - cron: "30 8 * * *" # 14:00 IST
+    - cron: "30 9 * * *" # 15:00 IST
+    - cron: "30 10 * * *" # 16:00 IST
+    - cron: "30 11 * * *" # 17:00 IST
+    - cron: "30 12 * * *" # 18:00 IST
+
+    # 12:00 AM IST (midnight)
+    - cron: "30 18 * * *"
+
+    # 8:30 PM IST
+    - cron: "0 15 * * *"
+
+jobs:
+  run-notification-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Cache uv dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            .venv
+            uv.lock
+            .uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('**/uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: cd app
+        run: |
+          cd app
+
+      - name: Install dependencies
+        run: |
+          uv sync
+
+      - name: Run main script
+        run: |
+          uv run python main.py
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MONGO_CONNECTION_STR: ${{ secrets.MONGO_CONNECTION_STR }}
+          CSE_EMAIL: ${{ secrets.CSE_EMAIL }}
+          CSE_ENCRYPTION_PASSWORD: ${{ secrets.CSE_ENCRYPTION_PASSWORD }}
+          ECE_EMAIL: ${{ secrets.ECE_EMAIL }}
+          ECE_ENCRYPTION_PASSWORD: ${{ secrets.ECE_ENCRYPTION_PASSWORD }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          PLCAMENT_EMAIL: ${{ secrets.PLCAMENT_EMAIL }}
+          PLCAMENT_APP_PASSWORD: ${{ secrets.PLCAMENT_APP_PASSWORD }}

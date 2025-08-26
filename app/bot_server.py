@@ -23,7 +23,7 @@ import logging
 import argparse
 from datetime import datetime
 import pytz
-from modules.telegram import TelegramBot
+from telegram_handeller import TelegramBot
 import schedule
 import time
 import threading

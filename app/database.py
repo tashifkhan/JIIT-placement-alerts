@@ -485,6 +485,51 @@ class MongoDBManager:
         except Exception as e:
             safe_print(f"Error deactivating user: {e}")
             return False
+        
+    def get_notice_stats(self):
+        """Return basic statistics about the Notices collection.
+
+        Keys returned:
+         - total_posts: total documents in Notices
+         - sent_to_telegram: documents with sent_to_telegram == True
+         - pending_to_send: documents where sent_to_telegram != True
+         - post_types: list of dicts [{'_id': <type>, 'count': <n>}, ...] grouped by 'type' field
+
+        Function is defensive: returns empty dict on error or if collection not initialized.
+        """
+        try:
+            if not getattr(self, "notices_collection", None):
+                safe_print("Notices collection not initialized")
+                return {}
+
+            total_posts = self.notices_collection.count_documents({})
+            sent_to_telegram = self.notices_collection.count_documents(
+                {"sent_to_telegram": True}
+            )
+            pending_to_send = self.notices_collection.count_documents(
+                {"sent_to_telegram": {"$ne": True}}
+            )
+
+            # Aggregate post types grouped by 'type' field (fallbacks handled by pipeline)
+            try:
+                pipeline = [
+                    {"$group": {"_id": {"$ifNull": ["$type", "unknown"]}, "count": {"$sum": 1}}},
+                    {"$sort": {"count": -1}},
+                ]
+                post_types = list(self.notices_collection.aggregate(pipeline))
+            except Exception:
+                post_types = []
+
+            return {
+                "total_posts": int(total_posts),
+                "sent_to_telegram": int(sent_to_telegram),
+                "pending_to_send": int(pending_to_send),
+                "post_types": post_types,
+            }
+
+        except Exception as e:
+            safe_print(f"Error getting notice stats: {e}")
+            return {"error": str(e)}
 
     def get_users_stats(self):
         """Get user statistics"""

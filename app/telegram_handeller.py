@@ -64,6 +64,9 @@ class TelegramBot:
             welcome_text += "/stop - Stop receiving notifications\n"
             welcome_text += "/status - Check your subscription status\n"
             welcome_text += "/stats - Get Placement Statistics\n"
+            welcome_text += "/web - Get JIIT Suite Links\n\n"
+
+            welcome_text += "PWA at https://jiit-placement-updates.tashif.codes"
 
         else:
             if "already exists and is active" in message:
@@ -1095,6 +1098,11 @@ class TelegramBot:
             safe_print(f"Error in send_new_posts_to_all_users: {e}")
             return False
 
+    def web_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the /web command"""
+        safe_print("Web command received")
+        context.bot.send_message(chat_id=update.effective_chat.id, text="https://jiit-placement-updates.tashif.codes\nhttps://jiit-timetable.tashif.codes\nhttps://jportal.tashif.codes")
+
     def start_bot_server(self):
         """Start the bot server to handle user interactions"""
         try:
@@ -1113,6 +1121,7 @@ class TelegramBot:
             application.add_handler(CommandHandler("boo", self.boo_command))
             application.add_handler(CommandHandler("fu", self.scrapyyy_command))
             application.add_handler(CommandHandler("logs", self.logs_command))
+            application.add_handler(CommandHandler("web", self.web_command))
 
             safe_print("Bot server starting...")
             application.run_polling(drop_pending_updates=True)

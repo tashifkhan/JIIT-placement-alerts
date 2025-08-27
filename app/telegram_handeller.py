@@ -46,44 +46,56 @@ class TelegramBot:
             first_name=user.first_name,
             last_name=user.last_name,
         )
+        welcome_text = []
 
         if success:
             if "reactivated" in message.lower():
-                welcome_text = f"Welcome back {user.first_name}! 👋\n\n"
-                welcome_text += "Your subscription has been reactivated!\n"
-                welcome_text += (
+                welcome_text.append(
+                    f"Welcome back {user.first_name}! 👋\n\n"
+                    "Your subscription has been reactivated!\n"
                     "You'll now receive job posting updates automatically.\n\n"
                 )
             else:
-                welcome_text = f"Hello {user.first_name}! 👋\n\n"
-                welcome_text += "Welcome to SuperSet Placement Notifications Bot!\n"
-                welcome_text += "You'll receive job posting updates automatically.\n\n"
+                welcome_text.append(
+                    f"Hello {user.first_name}! 👋\n\n"
+                    "Welcome to SuperSet Placement Notifications Bot!\n"
+                    "You'll receive job posting updates automatically.\n\n"
+                )
 
-            welcome_text += "Commands:\n"
-            welcome_text += "/start - Register for notifications\n"
-            welcome_text += "/stop - Stop receiving notifications\n"
-            welcome_text += "/status - Check your subscription status\n"
-            welcome_text += "/stats - Get Placement Statistics\n"
-            welcome_text += "/web - Get JIIT Suite Links\n\n"
+            welcome_text.append(
+                "<b>Commands:</b>\n"
+                "  /start - Register for notifications\n"
+                "  /stop - Stop receiving notifications\n"
+                "  /status - Check your subscription status\n"
+                "  /stats - Get Placement Statistics\n"
+                "  /web - Get JIIT Suite Links\n\n"
+            )
 
-            welcome_text += "PWA at https://jiit-placement-updates.tashif.codes"
+            welcome_text.append(
+                "<i>btw...</i>\n"
+                "here are some links you might wanna look at -\n"
+                f"1. <a href='https://jiit-placement-updates.tashif.codes'>Placement Updates PWA</a>\n"
+                f"2. <a href='https://jiit-timetable.tashif.codes'>Timetable</a>\n"
+                f"3. <a href='https://sophos-autologin.tashif.codes'>Wifi (Sophos) Auto Login</a>\n"
+                f"4. <a href='https://jportal.tashif.codes'>JPortal</a>"
+            )
 
         else:
             if "already exists and is active" in message:
-                welcome_text = f"Hi {user.first_name}! 👋\n\n"
-                welcome_text += "You're already registered and active for SuperSet placement notifications.\n"
-                welcome_text += (
+                welcome_text.append(
+                    f"Hi {user.first_name}! 👋\n\n"
+                    "You're already registered and active for SuperSet placement notifications.\n"
                     "You'll continue receiving job posting updates automatically.\n\n"
                 )
                 welcome_text += "Use /status to check your subscription details."
             else:
-                welcome_text = f"Hello {user.first_name}! 👋\n\n"
-                welcome_text += (
+                welcome_text.append(
+                    f"Hello {user.first_name}! 👋\n\n"
                     "There was an issue with your registration. Please try again.\n"
                 )
-                welcome_text += f"Error: {message}"
+                welcome_text.append(f"Error: {message}")
 
-        await update.message.reply_text(welcome_text)
+        await update.message.reply_text("".join(welcome_text), parse_mode="HTML",)
         safe_print(f"User {user.id} (@{user.username}) started the bot - {message}")
 
     async def stop_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

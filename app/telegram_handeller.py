@@ -725,48 +725,6 @@ class TelegramBot:
         if not text:
             return ""
 
-        # ---- Normalize numeric fields first ----
-        # CLASS_X or CLASS X marks -> 10th: number%
-        text = re.sub(
-            r"CLASS[_\s]*X(?:\s*Marks)?\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*CGPA(?:\s*or equivalent)?",
-            r"10th: \1%",
-            text,
-            flags=re.IGNORECASE,
-        )
-
-        # CLASS_XII or CLASS XII marks -> 12th: number%
-        text = re.sub(
-            r"CLASS[_\s]*XII(?:\s*Marks)?\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*CGPA(?:\s*or equivalent)?",
-            r"12th: \1%",
-            text,
-            flags=re.IGNORECASE,
-        )
-
-        # UG Marks -> Current CGPA: number
-        text = re.sub(
-            r"UG(?:\s*Marks)?\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*CGPA(?:\s*or equivalent)?",
-            r"Current CGPA: \1",
-            text,
-            flags=re.IGNORECASE,
-        )
-
-        # If CTC is followed by a parenthetical block, pull that block into Package Description
-        # e.g. CTC: 7.00 LPA ( ...multiline content... )
-        text = re.sub(
-            r"(?:\n|^)\s*(CTC\s*:\s*([0-9]+(?:\.[0-9]+)?\s*(?:LPA|lpa|Lakh|lakh|Lakhs|lakhs)?))\s*\(\s*(.*?)\s*\)\s*(?:\n|$)",
-            r"\n\1\n\nPackage Description:\nCTC: \2\n\3\n",
-            text,
-            flags=re.IGNORECASE | re.DOTALL,
-        )
-
-        # Fallback: if CTC line exists (without a parenthetical block), convert to Package Description
-        text = re.sub(
-            r"(?:\n|^)\s*(CTC\s*:\s*([0-9]+(?:\.[0-9]+)?\s*(?:LPA|lpa|Lakh|lakh|Lakhs|lakhs)?))(?:\s*\(.*?\))?(?:\n|$)",
-            r"\n\1\n\nPackage Description:\nCTC: \2\n",
-            text,
-            flags=re.IGNORECASE,
-        )
-
         # Add an extra blank line after Deadline lines for readability
         # (ensures a visual separation before following sections)
         text = re.sub(r"(?m)^(.*Deadline:.*)$", r"\1\n", text)
@@ -1135,12 +1093,15 @@ class TelegramBot:
                         formatted,
                         flags=re.IGNORECASE,
                     )
+                    formatted = formatted.replace("CLASS_X Marks:", "10th Marks:")
+
                     formatted = re.sub(
                         r"CLASS[_\s]*XII(?:\s*Marks)?\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*CGPA(?:\s*or equivalent)?",
                         r"12th: \1%",
                         formatted,
                         flags=re.IGNORECASE,
                     )
+                    formatted = formatted.replace("CLASS_XII Marks:", "12th Marks:")
 
                     # UG marks -> "UG - Current CGPA requirement: x.y"
                     formatted = re.sub(
@@ -1149,6 +1110,11 @@ class TelegramBot:
                         formatted,
                         flags=re.IGNORECASE,
                     )
+                    formatted = formatted.replace("UG Marks:", "Current CGPA requirement: ")
+
+
+                    formatted = formatted.replace("CGPA or equivalent", "")
+
 
                     # Replace detailed CTC / Salary Package Details block with a concise Package Description
                     # If a CTC line is present (optionally followed by a parenthetical description),

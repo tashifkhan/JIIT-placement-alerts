@@ -442,6 +442,7 @@ class TelegramBot:
                         except Exception:
                             pass
             return 0
+        
         except Exception:
             return 0
 
@@ -480,6 +481,7 @@ class TelegramBot:
                         f"⚠️  Partial send: {chunks_sent}/{len(chunks)} chunks sent"
                     )
                 return success
+            
             else:
                 # Single message, send normally
                 return self._send_single_message(message, parse_mode)

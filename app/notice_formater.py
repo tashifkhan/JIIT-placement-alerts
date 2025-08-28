@@ -310,6 +310,7 @@ class NoticeFormatter:
                 msg_parts.append(f"**Total Shortlisted:** {total_shortlisted}")
                 msg_parts.append("Congratulations to the following students:")
                 msg_parts.append(student_list)
+                msg_parts.append("\n")
 
             if job and job.hiring_flow:
                 hiring_flow_list = "\n".join(

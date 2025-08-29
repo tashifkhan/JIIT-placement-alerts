@@ -131,6 +131,14 @@ def run_update() -> None:
     for raw in dedup_raw_jobs:
         try:
             job_model: Job = client.structure_job_listing(raw)
+            
+            # Fetch document URLs for each document
+            job_id = raw.get("jobProfileIdentifier")
+            if job_id and job_model.documents:
+                for doc in job_model.documents:
+                    if doc.identifier:
+                        doc.url = client.get_document_url(detail_user, job_id, doc.identifier)
+            
             structured = job_model.model_dump()
             pprint(f"Structured job: {job_model.job_profile} ({job_model.id})")
             success, info = db.upsert_structured_job(structured)

@@ -328,6 +328,8 @@ class SupersetClient:
             raise ValueError("User must be logged in to fetch job listings")
 
         all_job_listings: List[dict] = []
+        seen_job_ids = set()
+        
         for u in users:
             url = f"{self.BASE_URL}/students/{u.uuid}/job_profiles"
             params = {"_loader_": "false"}
@@ -344,14 +346,12 @@ class SupersetClient:
             response.raise_for_status()
             job_listings = response.json()
 
-            if job_listings:
-                all_job_listings.extend(job_listings)
-            else:
-                for job in job_listings:
-                    if job["jobProfileIdentifier"] not in [
-                        j["jobProfileIdentifier"] for j in all_job_listings
-                    ]:
-                        all_job_listings.append(job)
+            # Deduplicate by jobProfileIdentifier using set for O(1) lookups
+            for job in job_listings:
+                job_id = job.get("jobProfileIdentifier")
+                if job_id and job_id not in seen_job_ids:
+                    seen_job_ids.add(job_id)
+                    all_job_listings.append(job)
 
         job_listings_sorted = sorted(
             all_job_listings, key=lambda x: x.get("createdAt", 0), reverse=True
@@ -404,9 +404,11 @@ class SupersetClient:
             raise ValueError("User must be logged in to update job listings")
 
         new_job_listings = self.get_job_listings(users, limit=20)
+        existing_job_ids = {job.id for job in job_listings}
         for job in new_job_listings:
-            if job not in job_listings:
+            if job.id not in existing_job_ids:
                 job_listings.append(job)
+                existing_job_ids.add(job.id)
         job_listings_sorted = sorted(
             job_listings,
             key=lambda x: (

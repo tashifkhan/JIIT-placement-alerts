@@ -187,6 +187,31 @@ class SupersetClient:
         response.raise_for_status()
         return response.json()
 
+    def get_document_url(self, user: User, job_id: str, document_id: str) -> Optional[str]:
+        """Fetch the URL for a specific document"""
+        if not user or not user.uuid or not user.sessionKey:
+            raise ValueError("User must be logged in to fetch document URLs")
+        if not job_id or not document_id:
+            raise ValueError("Job ID and document ID must be provided")
+
+        url = f"{self.BASE_URL}/students/{user.uuid}/job_profiles/{job_id}/documents/{document_id}/url"
+        headers = {
+            **self._common_headers(),
+            "Authorization": f"Custom {user.sessionKey}",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+        }
+        
+        try:
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            result = response.json()
+            return result.get("url")
+        except Exception as e:
+            print(f"Error fetching document URL for {document_id}: {e}")
+            return None
+
     @staticmethod
     def structure_job_listing(job: dict) -> Job:
         category_mapping = {
@@ -218,6 +243,7 @@ class SupersetClient:
         tmp["package_info"] = ""
         tmp["required_skills"] = []
         tmp["hiring_flow"] = []
+        tmp["documents"] = []
 
         if job_details:
             for ganda_deatils in job_details.get("eligibilityCheckResult", {}).get(

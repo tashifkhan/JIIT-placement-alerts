@@ -59,86 +59,11 @@ def run_update() -> None:
     else:
         print("No new notices to insert into DB.")
 
-    base_url = f"{client.BASE_URL}"
-
-    def _common_headers() -> dict:
-        return {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:141.0) Gecko/20100101 Firefox/141.0",
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "en-US,en;q=0.5",
-            "Accept-Encoding": "gzip, deflate, br, zstd",
-            "x-requester-client": "webapp",
-            "x-superset-tenant-id": client.tenant_id,
-            "x-superset-tenant-type": client.tenant_type,
-            "DNT": "1",
-            "Sec-GPC": "1",
-            "Connection": "keep-alive",
-        }
-
-    # Fetch raw job listings
-    raw_jobs: List[Dict[str, Any]] = []
-    for u in users:
-        url = f"{base_url}/students/{u.uuid}/job_profiles"
-        params = {"_loader_": "false"}
-        headers = {
-            **_common_headers(),
-            "Referer": "https://app.joinsuperset.com/students/jobprofiles",
-            "Authorization": f"Custom {u.sessionKey}",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "TE": "trailers",
-        }
-        resp = requests.get(url, headers=headers, params=params)
-        resp.raise_for_status()
-        lst = resp.json()
-        if lst:
-            raw_jobs.extend(lst)
-
-    # Deduplicate by jobProfileIdentifier while preserving order (latest first)
-    raw_jobs_sorted = sorted(
-        raw_jobs, key=lambda x: x.get("createdAt", 0), reverse=True
-    )
-    seen_ids = set()
-    dedup_raw_jobs: List[Dict[str, Any]] = []
-    for j in raw_jobs_sorted:
-        jid = j.get("jobProfileIdentifier")
-        if jid and jid not in seen_ids:
-            seen_ids.add(jid)
-            dedup_raw_jobs.append(j)
-
-    # Add jobDetails using the first user
-    detail_user = users[0]
-    for j in dedup_raw_jobs:
-        jid = j.get("jobProfileIdentifier")
-        if not jid:
-            continue
-        det_url = f"{base_url}/students/{detail_user.uuid}/job_profiles/{jid}"
-        det_headers = {
-            **_common_headers(),
-            "Referer": "https://app.joinsuperset.com/students/jobprofiles",
-            "Authorization": f"Custom {detail_user.sessionKey}",
-        }
-        det_resp = requests.get(
-            det_url, headers=det_headers, params={"_loader_": "false"}
-        )
-        det_resp.raise_for_status()
-        j["jobDetails"] = det_resp.json()
-
-    # Convert deduped raw jobs into structured jobs and upsert into DB
+    # Process jobs and upsert into DB - using the jobs already fetched above
     inserted_jobs = 0
     updated_jobs = 0
-    for raw in dedup_raw_jobs:
+    for job_model in jobs:
         try:
-            job_model: Job = client.structure_job_listing(raw)
-            
-            # Fetch document URLs for each document
-            job_id = raw.get("jobProfileIdentifier")
-            if job_id and job_model.documents:
-                for doc in job_model.documents:
-                    if doc.identifier:
-                        doc.url = client.get_document_url(detail_user, job_id, doc.identifier)
-            
             structured = job_model.model_dump()
             pprint(f"Structured job: {job_model.job_profile} ({job_model.id})")
             success, info = db.upsert_structured_job(structured)

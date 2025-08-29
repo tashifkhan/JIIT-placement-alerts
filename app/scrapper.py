@@ -307,7 +307,7 @@ class SupersetClient:
             tmp["placement_type"] = job_details.get("positionType", "")
 
             # Process documents
-            documents = job_details.get("documents", [])
+            documents = job_details.get("jobProfile", []).get("documents", [])
             for doc in documents:
                 if doc.get("name") and doc.get("identifier"):
                     tmp["documents"].append({

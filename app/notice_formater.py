@@ -6,7 +6,8 @@ from rapidfuzz import fuzz, process
 from dotenv import load_dotenv
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, END
@@ -104,6 +105,24 @@ class NoticeFormatter:
                     parts.append(str(p["text"]))
             return "\n".join(parts)
         return str(content)
+
+    @staticmethod
+    def _format_ms_epoch_to_ist(ms: Optional[int], fmt: str = "%B %d, %Y at %I:%M %p") -> str:
+        """Convert milliseconds epoch to a formatted string in Asia/Kolkata (IST).
+
+        Returns 'Not specified' if input is falsy.
+        """
+        if not ms:
+            return "Not specified"
+        try:
+            # timestamps in the codebase are milliseconds
+            ts = float(ms) / 1000.0
+            # build aware datetime from UTC then convert to Asia/Kolkata
+            dt_utc = datetime.fromtimestamp(ts, tz=timezone.utc)
+            ist = dt_utc.astimezone(ZoneInfo("Asia/Kolkata"))
+            return ist.strftime(fmt)
+        except Exception:
+            return "Not specified"
 
     @staticmethod
     def format_html_breakdown(html_content: Optional[str]) -> str:
@@ -271,9 +290,7 @@ class NoticeFormatter:
         job_location = state.get("job_location") or (job.location if job else None)
         notice: Notice = state["notice"]
 
-        post_date = datetime.fromtimestamp(notice.updatedAt / 1000).strftime(
-            "%B %d, %Y at %I:%M %p"
-        )
+        post_date = self._format_ms_epoch_to_ist(notice.updatedAt)
         title = notice.title
         msg_parts = [f"**{title}**\n"]
 
@@ -328,13 +345,7 @@ class NoticeFormatter:
                 package_lpa = job.package / 100000
                 package_info = f"{package_lpa:.2f} LPA"
                 package_breakdown = self.format_html_breakdown(job.package_info)
-                deadline = (
-                    datetime.fromtimestamp(job.deadline / 1000).strftime(
-                        "%B %d, %Y, %I:%M %p"
-                    )
-                    if job.deadline
-                    else "Not specified"
-                )
+                deadline = self._format_ms_epoch_to_ist(job.deadline, fmt="%B %d, %Y, %I:%M %p")
 
                 eligibility_list = [
                     f"- **Courses:** \n{'\n'.join(job.eligibility_courses)}"
@@ -357,7 +368,27 @@ class NoticeFormatter:
                 job_location = None
                 package_info = data.get("package", "Not specified")
                 package_breakdown = ""
-                deadline = data.get("deadline", "Not specified")
+                # Normalize extracted deadline (could be ms epoch, numeric string, ISO string, or human text)
+                raw_deadline = data.get("deadline")
+                if raw_deadline is None:
+                    deadline = "Not specified"
+                else:
+                    # try numeric
+                    try:
+                        # numeric values likely represent milliseconds
+                        num = float(raw_deadline)
+                        deadline = self._format_ms_epoch_to_ist(int(num), fmt="%B %d, %Y, %I:%M %p")
+                    except Exception:
+                        # try ISO parse or fall back to the raw string
+                        try:
+                            dt = datetime.fromisoformat(str(raw_deadline))
+                            if dt.tzinfo is None:
+                                dt = dt.replace(tzinfo=timezone.utc)
+                            deadline = dt.astimezone(ZoneInfo("Asia/Kolkata")).strftime(
+                                "%B %d, %Y, %I:%M %p"
+                            )
+                        except Exception:
+                            deadline = str(raw_deadline)
                 eligibility_str = ""
                 hiring_flow_str = ""
 
@@ -380,7 +411,15 @@ class NoticeFormatter:
             msg_parts.append(f"**🔔 {cat.capitalize()}**\n")
             msg_parts.append(message_content.replace(title, "").strip())
             if data.get("deadline"):
-                msg_parts.append(f"\n⚠️ **Deadline:** {data.get('deadline')}")
+                # try to represent extracted deadline in IST when possible
+                raw_d = data.get("deadline")
+                try:
+                    num = float(raw_d)
+                    d_str = self._format_ms_epoch_to_ist(int(num), fmt="%B %d, %Y, %I:%M %p")
+                except Exception:
+                    # fallback to raw string
+                    d_str = str(raw_d)
+                msg_parts.append(f"\n⚠️ **Deadline:** {d_str}")
 
         msg_parts.append(f"*Posted by*: {notice.author} \n*On:* {post_date}")
         state["formatted_message"] = "\n".join(msg_parts)

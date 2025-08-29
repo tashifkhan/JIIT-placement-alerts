@@ -306,6 +306,16 @@ class SupersetClient:
 
             tmp["placement_type"] = job_details.get("positionType", "")
 
+            # Process documents
+            documents = job_details.get("documents", [])
+            for doc in documents:
+                if doc.get("name") and doc.get("identifier"):
+                    tmp["documents"].append({
+                        "name": doc.get("name"),
+                        "identifier": doc.get("identifier"),
+                        "url": None  # URL will be fetched separately
+                    })
+
         return Job(**tmp)
 
     def get_job_listings(
@@ -358,7 +368,16 @@ class SupersetClient:
 
         formatted_job_listings: List[Job] = []
         for job in job_listings_sorted:
-            formatted_job_listings.append(self.structure_job_listing(job))
+            structured_job = self.structure_job_listing(job)
+            
+            # Fetch document URLs for each document
+            job_id = job.get("jobProfileIdentifier")
+            if job_id and structured_job.documents:
+                for doc in structured_job.documents:
+                    if doc.identifier:
+                        doc.url = self.get_document_url(detail_user, job_id, doc.identifier)
+            
+            formatted_job_listings.append(structured_job)
         return formatted_job_listings
 
     def update_notices(

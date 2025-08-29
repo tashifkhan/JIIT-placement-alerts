@@ -403,6 +403,11 @@ class NoticeFormatter:
             if hiring_flow_str:
                 msg_parts.append(hiring_flow_str)
             msg_parts.append(f"\n⚠️ **Deadline:** {deadline}")
+            # Append detailed job description link when a related job is matched
+            job_id_for_link = job.id if job else state.get("matched_job_id")
+            if job_id_for_link:
+                details_url = f"http://jiit-placement-updates.tashif.codes/jobs/{job_id_for_link}"
+                msg_parts.append(f"\n\n🔗 Detailed JD: {details_url}")
 
         else:
             message_content = data.get(

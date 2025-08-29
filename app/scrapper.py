@@ -39,6 +39,12 @@ class EligibilityMark(BaseModel):
     criteria: float
 
 
+class Document(BaseModel):
+    name: str
+    identifier: str
+    url: Optional[str] = None
+
+
 class Job(BaseModel):
     id: str
     job_profile: str
@@ -58,6 +64,7 @@ class Job(BaseModel):
     required_skills: List[str]
     hiring_flow: List[str]
     placement_type: Optional[str] = None
+    documents: List[Document] = []
 
 
 class SupersetClient:

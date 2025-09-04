@@ -107,7 +107,9 @@ class NoticeFormatter:
         return str(content)
 
     @staticmethod
-    def _format_ms_epoch_to_ist(ms: Optional[int], fmt: str = "%B %d, %Y at %I:%M %p") -> str:
+    def _format_ms_epoch_to_ist(
+        ms: Optional[int], fmt: str = "%B %d, %Y at %I:%M %p %Z"
+    ) -> str:
         """Convert milliseconds epoch to a formatted string in Asia/Kolkata (IST).
 
         Returns 'Not specified' if input is falsy.
@@ -345,7 +347,10 @@ class NoticeFormatter:
                 package_lpa = job.package / 100000
                 package_info = f"{package_lpa:.2f} LPA"
                 package_breakdown = self.format_html_breakdown(job.package_info)
-                deadline = self._format_ms_epoch_to_ist(job.deadline, fmt="%B %d, %Y, %I:%M %p")
+                # show deadline in Asia/Kolkata with timezone label (IST)
+                deadline = self._format_ms_epoch_to_ist(
+                    job.deadline, fmt="%B %d, %Y, %I:%M %p %Z"
+                )
 
                 eligibility_list = [
                     f"- **Courses:** \n{'\n'.join(job.eligibility_courses)}"
@@ -376,16 +381,20 @@ class NoticeFormatter:
                     # try numeric
                     try:
                         # numeric values likely represent milliseconds
-                        num = float(raw_deadline)
-                        deadline = self._format_ms_epoch_to_ist(int(num), fmt="%B %d, %Y, %I:%M %p")
+                        num = float(str(raw_deadline))
+                        # numeric values likely represent milliseconds; format in IST with timezone
+                        deadline = self._format_ms_epoch_to_ist(
+                            int(num), fmt="%B %d, %Y, %I:%M %p %Z"
+                        )
                     except Exception:
                         # try ISO parse or fall back to the raw string
                         try:
                             dt = datetime.fromisoformat(str(raw_deadline))
                             if dt.tzinfo is None:
                                 dt = dt.replace(tzinfo=timezone.utc)
+                            # ensure timezone label appears (IST)
                             deadline = dt.astimezone(ZoneInfo("Asia/Kolkata")).strftime(
-                                "%B %d, %Y, %I:%M %p"
+                                "%B %d, %Y, %I:%M %p %Z"
                             )
                         except Exception:
                             deadline = str(raw_deadline)
@@ -406,7 +415,9 @@ class NoticeFormatter:
             # Append detailed job description link when a related job is matched
             job_id_for_link = job.id if job else state.get("matched_job_id")
             if job_id_for_link:
-                details_url = f"http://jiit-placement-updates.tashif.codes/jobs/{job_id_for_link}"
+                details_url = (
+                    f"http://jiit-placement-updates.tashif.codes/jobs/{job_id_for_link}"
+                )
                 msg_parts.append(f"\n\n🔗 Detailed JD: {details_url}")
 
         else:
@@ -419,8 +430,10 @@ class NoticeFormatter:
                 # try to represent extracted deadline in IST when possible
                 raw_d = data.get("deadline")
                 try:
-                    num = float(raw_d)
-                    d_str = self._format_ms_epoch_to_ist(int(num), fmt="%B %d, %Y, %I:%M %p")
+                    num = float(str(raw_d))
+                    d_str = self._format_ms_epoch_to_ist(
+                        int(num), fmt="%B %d, %Y, %I:%M %p %Z"
+                    )
                 except Exception:
                     # fallback to raw string
                     d_str = str(raw_d)

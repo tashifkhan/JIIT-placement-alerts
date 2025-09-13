@@ -41,6 +41,7 @@ class Job(BaseModel):
     location: str
     package: float
     package_info: str
+    annum_months: Optional[str]
     required_skills: List[str]
     hiring_flow: List[str]
     placement_type: Optional[str] = None
@@ -148,6 +149,35 @@ class NoticeFormatter:
                 cleaned.append(ln)
                 blank = False
         return "\n".join(cleaned).strip()
+
+    @staticmethod
+    def _format_package(amount: Any, annum_months: Optional[str] = None) -> str:
+        """Format a numeric package amount into a human friendly string.
+
+        - If amount >= 100000, represent as lakhs with one decimal and use
+          'LPM' when annum_months starts with 'M' (monthly) else 'LPA'.
+        - Otherwise, show rupee with thousand separators.
+        """
+        if amount is None:
+            return "Not specified"
+
+        try:
+            amt = float(amount)
+
+        except Exception:
+            return str(amount)
+
+        is_monthly = False
+        if isinstance(annum_months, str) and annum_months.strip():
+            is_monthly = annum_months.strip().lower().startswith("m")
+
+        if amt >= 100000:
+            suffix = "LPM" if is_monthly else "LPA"
+            return f"₹{(amt / 100000):.1f} {suffix}"
+        # show with separators; preserve cents when needed
+        if amt.is_integer():
+            return f"₹{int(amt):,}"
+        return f"₹{amt:,.2f}"
 
     @staticmethod
     def format_html_breakdown(html_content: Optional[str]) -> str:
@@ -362,8 +392,7 @@ class NoticeFormatter:
             package_info: Optional[str]
             package_breakdown: str
             if job:
-                package_lpa = job.package / 100000
-                package_info = f"{package_lpa:.2f} LPA"
+                package_info = self._format_package(job.package, job.annum_months)
                 package_breakdown = self.format_html_breakdown(job.package_info)
             else:
                 extracted_package = data.get("package")
@@ -504,8 +533,7 @@ class NoticeFormatter:
                 company_name = job.company
                 role = job.job_profile
                 job_location = job.location
-                package_lpa = job.package / 100000
-                package_info = f"{package_lpa:.2f} LPA"
+                package_info = self._format_package(job.package, job.annum_months)
                 package_breakdown = self.format_html_breakdown(job.package_info)
                 # show deadline in Asia/Kolkata with timezone label (IST)
                 deadline = self._format_ms_epoch_to_ist(
@@ -635,7 +663,9 @@ class NoticeFormatter:
         )
         if matched_job:
             pkg_lpa = matched_job.package / 100000
-            pkg_str = f"{pkg_lpa:.2f} LPA"
+            pkg_str = self._format_package(
+                matched_job.package, matched_job.annum_months
+            )
             pkg_breakdown = self.format_html_breakdown(matched_job.package_info)
         else:
             pkg_val = extracted.get("package")

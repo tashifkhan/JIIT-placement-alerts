@@ -41,11 +41,11 @@ def run_update() -> dict:
         if not db.notice_exists(notice.id)
     ]
     pprint(notices)
-    jobs: List[Job] = client.get_job_listings(users, limit=20)
+    jobs: List[Job] = client.get_job_listings(users, limit=10)
 
     # Format using LLM pipeline
     formatter = NoticeFormatter()
-    enriched = formatter.format_many(notices, jobs)
+    enriched = formatter.format_many(notices, jobs)  # type: ignore
 
     # Track step success flags
     notices_success = False

@@ -60,6 +60,7 @@ class Job(BaseModel):
     job_description: str
     location: str
     package: float
+    annum_months: Optional[str]
     package_info: str
     required_skills: List[str]
     hiring_flow: List[str]
@@ -187,7 +188,9 @@ class SupersetClient:
         response.raise_for_status()
         return response.json()
 
-    def get_document_url(self, user: User, job_id: str, document_id: str) -> Optional[str]:
+    def get_document_url(
+        self, user: User, job_id: str, document_id: str
+    ) -> Optional[str]:
         """Fetch the URL for a specific document"""
         if not user or not user.uuid or not user.sessionKey:
             raise ValueError("User must be logged in to fetch document URLs")
@@ -202,12 +205,13 @@ class SupersetClient:
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-origin",
         }
-        
+
         try:
             response = requests.get(url, headers=headers)
             response.raise_for_status()
             result = response.json()
             return result.get("url")
+
         except Exception as e:
             print(f"Error fetching document URL for {document_id}: {e}")
             return None
@@ -286,8 +290,17 @@ class SupersetClient:
                     tmp["location"] = more_details.get("location")
                 if more_details.get("package"):
                     tmp["package"] = more_details.get("package")
+                    if tmp["package"] is None or tmp["package"] <= 0:
+                        if more_details.get("ctcMin"):
+                            tmp["package"] = more_details.get("ctcMin")
+                        elif more_details.get("ctcMax"):
+                            tmp["package"] = more_details.get("ctcMax")
+                        else:
+                            tmp["package"] = 0
                 if more_details.get("ctcAdditionalInfo"):
                     tmp["package_info"] = more_details.get("ctcAdditionalInfo")
+                if more_details.get("ctcInterval"):
+                    tmp["annum_months"] = more_details.get("ctcInterval")
                 if more_details.get("requiredSkills"):
                     tmp["required_skills"].extend(more_details.get("requiredSkills"))
                 if more_details.get("stages"):
@@ -310,11 +323,13 @@ class SupersetClient:
             documents = job_details.get("jobProfile", []).get("documents", [])
             for doc in documents:
                 if doc.get("name") and doc.get("identifier"):
-                    tmp["documents"].append({
-                        "name": doc.get("name"),
-                        "identifier": doc.get("identifier"),
-                        "url": None  # URL will be fetched separately
-                    })
+                    tmp["documents"].append(
+                        {
+                            "name": doc.get("name"),
+                            "identifier": doc.get("identifier"),
+                            "url": None,  # URL will be fetched separately
+                        }
+                    )
 
         return Job(**tmp)
 
@@ -329,7 +344,7 @@ class SupersetClient:
 
         all_job_listings: List[dict] = []
         seen_job_ids = set()
-        
+
         for u in users:
             url = f"{self.BASE_URL}/students/{u.uuid}/job_profiles"
             params = {"_loader_": "false"}
@@ -369,14 +384,16 @@ class SupersetClient:
         formatted_job_listings: List[Job] = []
         for job in job_listings_sorted:
             structured_job = self.structure_job_listing(job)
-            
+
             # Fetch document URLs for each document
             job_id = job.get("jobProfileIdentifier")
             if job_id and structured_job.documents:
                 for doc in structured_job.documents:
                     if doc.identifier:
-                        doc.url = self.get_document_url(detail_user, job_id, doc.identifier)
-            
+                        doc.url = self.get_document_url(
+                            detail_user, job_id, doc.identifier
+                        )
+
             formatted_job_listings.append(structured_job)
         return formatted_job_listings
 

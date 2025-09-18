@@ -60,67 +60,71 @@ llm = ChatGoogleGenerativeAI(
 
 prompt = ChatPromptTemplate.from_template(
     """
-    You are an expert assistant specializing in extracting structured data from placement offer emails.
-    Analyze the email content and extract the information in a JSON format that strictly matches the schema below.
+        You are an expert assistant specializing in extracting structured data from placement offer emails.
+        Analyze the email content and extract the information in a JSON format that strictly matches the schema below.
 
-    Schema:
-    {{
-      "company": "string",
-      "roles": [
+        PRIVACY RULES (STRICT):
+        - Do NOT include email headers or sender information in any extracted field (e.g., do not copy lines like "From:", "Sender:", "Forwarded message", "Fwd:").
+        - Ignore any forwarding/quoted email headers and do NOT mention that the email was forwarded.
+        - Only extract offer-related content. If headers appear in the body, exclude them from "additional_info" as well.
+
+        Schema:
         {{
-          "role": "string",
-          "package": "numeric CTC value as float (in LPA) - null if not applicable",
-          "package_details": "string containing detailed breakdown including base salary, stipend, bonuses, benefits, etc. (optional)"
+            "company": "string",
+            "roles": [
+                {{
+                    "role": "string",
+                    "package": "numeric CTC value as float (in LPA) - null if not applicable",
+                    "package_details": "string containing detailed breakdown including base salary, stipend, bonuses, benefits, etc. (optional)"
+                }}
+            ],
+            "job_location": ["list of strings"] (optional),
+            "joining_date": "string in YYYY-MM-DD format (optional)",
+            "students_selected": [
+                {{
+                    "name": "string",
+                    "enrollment_number": "string (optional)",
+                    "email": "string (optional)",
+                    "role": "string - assign role from available roles, if only one role exists use that",
+                    "package": "numeric CTC value as float (in LPA) - specific to this student if mentioned"
+                }}
+            ],
+            "number_of_offers": "integer (count of students_selected)",
+            "additional_info": "string containing any other relevant details (optional)"
         }}
-      ],
-      "job_location": ["list of strings"] (optional),
-      "joining_date": "string in YYYY-MM-DD format (optional)",
-      "students_selected": [
-        {{
-          "name": "string",
-          "enrollment_number": "string (optional)",
-          "email": "string (optional)",
-          "role": "string - assign role from available roles, if only one role exists use that",
-          "package": "numeric CTC value as float (in LPA) - specific to this student if mentioned"
-        }}
-      ],
-      "number_of_offers": "integer (count of students_selected)",
-      "additional_info": "string containing any other relevant details (optional)"
-    }}
 
-    IMPORTANT PACKAGE AND STIPEND EXTRACTION RULES:
+        IMPORTANT PACKAGE AND STIPEND EXTRACTION RULES:
     
-    1. PACKAGE ASSIGNMENT:
-       - Associate each student with their specific role if mentioned
-       - If only one role exists, assign that role to all students
-       - Extract CTC as single float value (not array)
-       - Convert all amounts to LPA (Lakhs Per Annum)
+        1. PACKAGE ASSIGNMENT:
+             - Associate each student with their specific role if mentioned
+             - If only one role exists, assign that role to all students
+             - Extract CTC as single float value (not array)
+             - Convert all amounts to LPA (Lakhs Per Annum)
     
-    2. STIPEND HANDLING:
-       - For INTERNSHIP-ONLY offers: Include stipend in package (multiply monthly by 12)
-       - For FULL-TIME offers (including conditional/PPO): Show only final CTC, put stipend details in package_details
-       - For CONDITIONAL full-time offers: Show the guaranteed CTC amount, ignore stipends
-       - For PPO (Pre-Placement Offers): Show only final CTC
+        2. STIPEND HANDLING:
+             - For INTERNSHIP-ONLY offers: Include stipend in package (multiply monthly by 12)
+             - For FULL-TIME offers (including conditional/PPO): Show only final CTC, put stipend details in package_details
+             - For CONDITIONAL full-time offers: Show the guaranteed CTC amount, ignore stipends
+             - For PPO (Pre-Placement Offers): Show only final CTC
     
-    3. PACKAGE RANGE HANDLING:
-       - If package is mentioned as a range (e.g., "8-12 LPA"), use the LOWEST value (8.0)
-       - If multiple packages for same role, use the lowest value
-       - Examples: "8-12 LPA" → 8.0, "10-15 lakhs" → 10.0
+        3. PACKAGE RANGE HANDLING:
+             - If package is mentioned as a range (e.g., "8-12 LPA"), use the LOWEST value (8.0)
+             - If multiple packages for same role, use the lowest value
+             - Examples: "8-12 LPA" → 8.0, "10-15 lakhs" → 10.0
     
-    4. CONVERSION EXAMPLES:
-       - "10 LPA CTC + 50k monthly stipend" (full-time) → package: 10.0, package_details: "10 LPA CTC + 50k monthly stipend during training"
-       - "25k monthly stipend" (internship only) → package: 3.0, package_details: "25k monthly stipend (internship)"
-       - "8-12 LPA based on performance" → package: 8.0, package_details: "8-12 LPA based on performance"
-       - "Conditional offer: 15 LPA after completion" → package: 15.0
-       - "12 lakhs per annum" → package: 12.0
+        4. CONVERSION EXAMPLES:
+             - "10 LPA CTC + 50k monthly stipend" (full-time) → package: 10.0, package_details: "10 LPA CTC + 50k monthly stipend during training"
+             - "25k monthly stipend" (internship only) → package: 3.0, package_details: "25k monthly stipend (internship)"
+             - "8-12 LPA based on performance" → package: 8.0, package_details: "8-12 LPA based on performance"
+             - "Conditional offer: 15 LPA after completion" → package: 15.0
+             - "12 lakhs per annum" → package: 12.0
 
-    Return only the raw JSON object, without any surrounding text, explanations, or markdown.
+        Return only the raw JSON object, without any surrounding text, explanations, or markdown.
 
-    Email Content to analyze:
-    Subject: {subject}
-    From: {sender}
-    Body: {body}
-    """
+        Email Content to analyze:
+        Subject: {subject}
+        Body: {body}
+        """
 )
 
 
@@ -193,12 +197,15 @@ def intelligent_classify_email(state: GraphState) -> GraphState:
     email_data = state["email"]
 
     # Combine all text for analysis
+    sanitized_body_for_analysis = _strip_headers_and_forwarded_markers(
+        email_data.get("body", "")
+    )
     full_text = (
         email_data.get("sender", "").lower()
         + " "
         + email_data.get("subject", "").lower()
         + " "
-        + email_data.get("body", "").lower()
+        + sanitized_body_for_analysis.lower()
     )
 
     # Calculate keyword scores
@@ -303,10 +310,10 @@ def robust_extract_info(state: GraphState) -> GraphState:
         extraction_prompt = ChatPromptTemplate.from_template(
             """
             You are analyzing a HIGH-CONFIDENCE placement offer email. Extract ALL details meticulously.
+            PRIVACY RULES (STRICT): Never include or mention email headers or sender information. Ignore lines like "From:", "Sender:", "Forwarded message", "Fwd:", "FW:" and do not state that the email was forwarded.
             
             Email Content:
             Subject: {subject}
-            From: {sender}
             Body: {body}
             
             Extract information in this exact JSON format:
@@ -350,10 +357,10 @@ def robust_extract_info(state: GraphState) -> GraphState:
             """
             You are analyzing a potential placement email. Be conservative but thorough.
             If this doesn't appear to be a genuine placement offer, return an empty JSON object: {{}}.
+            PRIVACY RULES (STRICT): Never include or mention email headers or sender information. Ignore lines like "From:", "Sender:", "Forwarded message", "Fwd:", "FW:" and do not state that the email was forwarded.
             
             Email Content:
             Subject: {subject}
-            From: {sender}
             Body: {body}
             
             If this IS a placement offer, extract information in this JSON format:
@@ -399,8 +406,8 @@ def robust_extract_info(state: GraphState) -> GraphState:
         response = chain.invoke(
             {
                 "subject": email_data["subject"],
-                "sender": email_data["sender"],
-                "body": email_data["body"],
+                # Pre-strip headers/forward markers from body before sending to LLM
+                "body": _strip_headers_and_forwarded_markers(email_data["body"]),
             }
         )
 
@@ -413,8 +420,10 @@ def robust_extract_info(state: GraphState) -> GraphState:
             return {**state, "extracted_offer": None, "validation_errors": None}
 
         offer = PlacementOffer(**data)
+        # Attach original email metadata for internal deduplication only.
+        # Privacy rule: this metadata must never be included in user-facing fields.
         offer.email_subject = email_data["subject"]
-        offer.email_sender = email_data["sender"]
+        offer.email_sender = email_data.get("sender")
 
         print("Information extracted and validated successfully.")
         return {**state, "extracted_offer": offer, "validation_errors": None}
@@ -575,6 +584,106 @@ def enhanced_display_results(state: GraphState) -> GraphState:
     return state
 
 
+# ---------------- Privacy Sanitization ----------------
+def _strip_headers_and_forwarded_markers(text: str) -> str:
+    """Remove lines that look like email headers or forwarded markers and redact obvious sender mentions.
+
+    PRIVACY RULE (GLOBAL):
+    - This application must never disclose the sender of an email or whether an email was forwarded in any user-facing content.
+    - The LLM prompts explicitly instruct to ignore such content, and this sanitizer enforces the rule post-extraction.
+
+    This function removes common patterns like:
+      - From:, Sender:, Sent:, To:, Cc:, Subject: (when appearing as quoted headers in body)
+      - Forwarded message, Begin forwarded message, Fwd:, FW:
+      - Lines like: "On <date>, <name> <email@...> wrote:"
+    """
+    if not text:
+        return text
+
+    # Remove entire header-like lines
+    header_patterns = [
+        r"^\s*(From|Sender|Sent|To|Cc|Subject)\s*:.*$",
+        r"^\s*(Fwd|FW)\s*:.*$",
+        r"^\s*(Begin forwarded message|Forwarded message).*$",
+        r"^\s*On .+ wrote:\s*$",
+    ]
+
+    lines = text.splitlines()
+    cleaned_lines: List[str] = []
+    for ln in lines:
+        if any(re.search(pat, ln, flags=re.IGNORECASE) for pat in header_patterns):
+            continue
+        cleaned_lines.append(ln)
+
+    cleaned = "\n".join(cleaned_lines)
+
+    # Also remove inline "via" sender mentions like "via Gmail" or "via <service>"
+    cleaned = re.sub(r"\bvia\s+[^\s\n]+", "", cleaned, flags=re.IGNORECASE)
+
+    # Redact explicit phrases stating it's forwarded
+    cleaned = re.sub(r"\bforward(ed)?(\s+message)?\b", "", cleaned, flags=re.IGNORECASE)
+
+    return cleaned.strip()
+
+
+def sanitize_offer_for_privacy(state: GraphState) -> GraphState:
+    """Sanitize extracted offer fields to ensure no sender or forwarded information is present.
+
+    - Scrubs additional_info and role package_details.
+    - Does not alter internal fields used for deduplication (email_subject/email_sender).
+    - Adds a note to state if sanitization occurred.
+    """
+    offer = state.get("extracted_offer")
+    if not offer:
+        return state
+
+    changed = False
+
+    # Sanitize additional_info
+    if offer.additional_info:
+        cleaned = _strip_headers_and_forwarded_markers(offer.additional_info)
+        if cleaned != offer.additional_info:
+            offer.additional_info = cleaned
+            changed = True
+
+    # Sanitize role package_details
+    if offer.roles:
+        for rp in offer.roles:
+            if rp.package_details:
+                cleaned = _strip_headers_and_forwarded_markers(rp.package_details)
+                if cleaned != rp.package_details:
+                    rp.package_details = cleaned
+                    changed = True
+
+    # Sanitize job_location strings just in case
+    if offer.job_location:
+        new_loc = []
+        for loc in offer.job_location:
+            cleaned = _strip_headers_and_forwarded_markers(loc)
+            new_loc.append(cleaned)
+            if cleaned != loc:
+                changed = True
+        offer.job_location = new_loc
+
+    if changed:
+        print("Privacy sanitization applied to extracted offer.")
+    return {**state, "extracted_offer": offer}
+
+
+# ---- Local quick check for privacy sanitizer (dev aid) ----
+def _dev_quick_sanitize_check() -> None:
+    sample_text = (
+        "Begin forwarded message:\n"
+        "From: John Doe <john@example.com>\n"
+        "Subject: Congrats!\n\n"
+        "Offer details: 10 LPA full-time. Contact via HR portal."
+    )
+    cleaned = _strip_headers_and_forwarded_markers(sample_text)
+    assert "From:" not in cleaned and "forwarded" not in cleaned.lower()
+    # print result for manual verification when called directly
+    print("Sanitizer sample output:\n", cleaned)
+
+
 def should_retry_extraction(state: GraphState) -> str:
     """Conditional edge to determine if extraction should be retried"""
     validation_errors = state.get("validation_errors", [])
@@ -622,6 +731,7 @@ workflow = StateGraph(GraphState)
 workflow.add_node("classify", intelligent_classify_email)
 workflow.add_node("extract_info", robust_extract_info)
 workflow.add_node("validate_and_enhance", validate_and_enhance)
+workflow.add_node("sanitize_privacy", sanitize_offer_for_privacy)
 workflow.add_node("display_results", enhanced_display_results)
 
 # Set entry point
@@ -630,7 +740,8 @@ workflow.set_entry_point("classify")
 # Add conditional edges
 workflow.add_conditional_edges("classify", decide_to_extract)
 workflow.add_conditional_edges("extract_info", should_retry_extraction)
-workflow.add_edge("validate_and_enhance", "display_results")
+workflow.add_edge("validate_and_enhance", "sanitize_privacy")
+workflow.add_edge("sanitize_privacy", "display_results")
 workflow.add_edge("display_results", END)
 
 # Compile the workflow
@@ -781,9 +892,7 @@ def update_placement_records() -> None:
 
         if result.get("extracted_offer"):
             extracted_offers.append(result["extracted_offer"].model_dump())
-            print(
-                f"Successfully processed email from {email_data.get('sender', 'Unknown')}"
-            )
+            print("Successfully processed one email into an offer.")
         else:
             print(
                 f"No valid offer extracted from email: {email_data.get('subject', 'Unknown')}"

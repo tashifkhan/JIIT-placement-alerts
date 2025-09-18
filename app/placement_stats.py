@@ -794,7 +794,9 @@ def update_placement_records() -> None:
     try:
         db_manager = MongoDBManager()
     except Exception as e:
-        print(f"Warning: Could not initialize MongoDBManager, falling back to JSON file. Error: {e}")
+        print(
+            f"Warning: Could not initialize MongoDBManager, falling back to JSON file. Error: {e}"
+        )
 
     if extracted_offers:
         print(f"\nSaving {len(extracted_offers)} new offers...")
@@ -824,6 +826,7 @@ def update_placement_records() -> None:
         if unread_emails
         else "0%"
     )
+
 
 # ---------------- Run Enhanced Pipeline ----------------
 if __name__ == "__main__":

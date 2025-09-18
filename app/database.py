@@ -15,19 +15,19 @@ class MongoDBManager:
     def __init__(self):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.connection_string = os.getenv("MONGO_CONNECTION_STR")
-        
+
         # declaring the connector
         self.client = None
-        
+
         # declaring the DB
         self.db = None
-        
+
         # declaring the tables
         self.notices_collection = None
         self.jobs_collection = None
         self.placement_offers_collection = None
         self.users_collection = None
-        
+
         self.logger.info("Initializing MongoDBManager")
         self.connect()
 
@@ -59,18 +59,16 @@ class MongoDBManager:
             safe_print(error_msg)
             raise
 
-
     def notice_exists(self, notice_id: str) -> bool:
         """Check if a notice with given id exists in the Notices collection."""
         if not notice_id:
             return False
         try:
             return self.notices_collection.find_one({"id": notice_id}) is not None
-        
+
         except Exception as e:
             safe_print(f"Error checking notice existence: {e}")
             return False
-    
 
     def save_notice(self, notice: dict) -> tuple[bool, str]:
         """Insert a notice dict into Notices collection if id not present.
@@ -101,19 +99,18 @@ class MongoDBManager:
     def get_notice_by_id(self, notice_id: str) -> dict | None:
         try:
             return self.notices_collection.find_one({"id": notice_id})
-        
+
         except Exception as e:
             safe_print(f"Error fetching notice {notice_id}: {e}")
             return None
 
-
     def structured_job_exists(self, structured_id: str) -> bool:
         if not structured_id:
             return False
-        
+
         try:
             return self.jobs_collection.find_one({"id": structured_id}) is not None
-        
+
         except Exception as e:
             safe_print(f"Error checking structured job existence: {e}")
             return False
@@ -144,7 +141,6 @@ class MongoDBManager:
             safe_print(f"Error upserting structured job: {e}")
             return False, str(e)
 
-
     def save_placement_offers(self, offers: list[dict]) -> dict:
         """Save a list of placement offers (deduplicated by subject+sender) into PlacementOffers collection.
 
@@ -153,6 +149,13 @@ class MongoDBManager:
         inserted = 0
         skipped = 0
         try:
+            # Defensive checks for initialized collections
+            if getattr(self, "placement_offers_collection", None) is None:
+                safe_print("Placement offers collection not initialized")
+                return {"error": "Placement offers collection not initialized"}
+            if getattr(self, "notices_collection", None) is None:
+                safe_print("Notices collection not initialized; will save offers only")
+
             for offer in offers:
                 if not isinstance(offer, dict):
                     continue
@@ -166,9 +169,103 @@ class MongoDBManager:
                 if exists:
                     skipped += 1
                     continue
+                # Save placement offer
                 doc = {**offer, "saved_at": datetime.utcnow()}
-                self.placement_offers_collection.insert_one(doc)
+                offer_res = self.placement_offers_collection.insert_one(doc)
                 inserted += 1
+
+                # Also create a corresponding placement notice for Telegram
+                try:
+                    if getattr(self, "notices_collection", None) is None:
+                        # Skip creating notices if collection isn't available
+                        continue
+                    # Generate a unique notice id
+                    ts = datetime.utcnow().timestamp()
+                    company = (offer.get("company") or "").strip()
+                    safe_company = company.replace(" ", "_") or "unknown_company"
+                    notice_id = f"placement_{safe_company}_{int(ts)}"
+
+                    # Build a detailed summary
+                    roles_data = offer.get("roles") or []
+                    role_names = [r.get("role") for r in roles_data if r.get("role")]
+                    students = offer.get("students_selected") or []
+
+                    # Build role -> package map (light formatting)
+                    role_pkg: dict[str, str | None] = {}
+                    for r in roles_data:
+                        rname = r.get("role")
+                        if not rname:
+                            continue
+                        pkg = r.get("package")
+                        pkg_str: str | None
+                        try:
+                            if pkg is None:
+                                pkg_str = None
+                            else:
+                                p = float(pkg)
+                                # Assume >= 100000 means INR amount; convert to LPA
+                                if p >= 100000:
+                                    pkg_str = f"{p/100000:.1f} LPA"
+                                else:
+                                    # already looks like LPA figure
+                                    pkg_str = f"{p:g} LPA"
+                        except Exception:
+                            pkg_str = str(pkg) if pkg is not None else None
+                        role_pkg[rname] = pkg_str
+
+                    # Count students per role; if students lack role and only one role exists, assign that bucket
+                    role_counts: dict[str, int] = {}
+                    default_role = role_names[0] if len(role_names) == 1 else None
+                    for s in students:
+                        rname = s.get("role") or default_role or "Unspecified"
+                        role_counts[rname] = role_counts.get(rname, 0) + 1
+
+                    total_count = len(students)
+
+                    # Breakdown lines
+                    lines: list[str] = []
+                    listed = set()
+                    for rname in role_names:
+                        cnt = role_counts.get(rname, 0)
+                        if cnt <= 0:
+                            continue
+                        pkg_str = role_pkg.get(rname)
+                        suffix = f" — {pkg_str}" if pkg_str else ""
+                        lines.append(
+                            f"- {rname}: {cnt} offer{'s' if cnt!=1 else ''}{suffix}"
+                        )
+                        listed.add(rname)
+                    for rname, cnt in role_counts.items():
+                        if rname in listed:
+                            continue
+                        lines.append(f"- {rname}: {cnt} offer{'s' if cnt!=1 else ''}")
+
+                    breakdown = "\n".join(lines)
+
+                    summary = f"{total_count} student{'s' if total_count!=1 else ''} have been placed at {company or 'the company'}."
+                    if breakdown:
+                        summary += f"\n\nPositions:\n{breakdown}"
+                    summary += "\n\nCongratulations to all selected!"
+
+                    notice_doc = {
+                        "id": notice_id,
+                        "title": f"Placement Update: {company}",
+                        "content": summary,
+                        "author": "PlacementBot",
+                        "type": "placement_update",
+                        "source": "PlacementOffers",
+                        "placement_offer_ref": str(offer_res.inserted_id),
+                        # Provide a ready-to-send formatted message to bypass LLM formatting
+                        "formatted_message": summary,
+                        # timestamps in ms
+                        "createdAt": int(ts * 1000),
+                        "updatedAt": int(ts * 1000),
+                        "sent_to_telegram": False,
+                    }
+                    self.notices_collection.insert_one(notice_doc)
+                    safe_print(f"Inserted placement notice {notice_id}")
+                except Exception as e:
+                    safe_print(f"Error inserting placement notice: {e}")
 
             safe_print(
                 f"Saved {inserted} new placement offers, skipped {skipped} duplicates"
@@ -179,14 +276,16 @@ class MongoDBManager:
             safe_print(f"Error saving placement offers: {e}")
             return {"error": str(e)}
 
-    
     def get_unsent_notices(self):
-        """Get all posts that haven't been sent to Telegram yet, sorted by oldest first (chronological order)"""
+        """Get all notices not yet sent to Telegram, sorted by oldest first (chronological order)."""
         try:
+            if getattr(self, "notices_collection", None) is None:
+                safe_print("Notices collection not initialized")
+                return []
             query = {"sent_to_telegram": {"$ne": True}}
 
-            # Sort by created_at in ascending order (1) to send oldest messages first (chronological order)
-            cursor = self.notices_collection.find(query).sort("created_at", -1)
+            # Sort by createdAt ascending (1) to send oldest messages first
+            cursor = self.notices_collection.find(query).sort("createdAt", 1)
             posts = list(cursor)
 
             unsent_posts = []
@@ -247,7 +346,7 @@ class MongoDBManager:
         except Exception as e:
             safe_print(f"Error getting all notices: {e}")
             return []
-        
+
     def get_all_jobs(self, limit=300):
         """Get all jobs with optional limit"""
         try:
@@ -257,7 +356,7 @@ class MongoDBManager:
         except Exception as e:
             safe_print(f"Error getting all jobs: {e}")
             return []
-        
+
     def get_all_offers(self, limit=100):
         """Get all offers with optional limit"""
         try:
@@ -275,7 +374,6 @@ class MongoDBManager:
         except Exception as e:
             safe_print(f"Error getting all offers: {e}")
             return []
-
 
     def clean_duplicate_notices(self, dry_run=True):
         """Find and optionally remove duplicate notices based on the 'id' field (keep earliest by createdAt)"""
@@ -318,17 +416,19 @@ class MongoDBManager:
 
                 # Sort by createdAt or created_at, fallback to 0 so earliest (smallest) comes first
                 posts.sort(
-                    key=lambda x: x.get("createdAt")
-                    if x.get("createdAt") is not None
-                    else x.get("created_at", 0)
+                    key=lambda x: (
+                        x.get("createdAt")
+                        if x.get("createdAt") is not None
+                        else x.get("created_at", 0)
+                    )
                 )
                 post_to_keep = posts[0]
                 posts_to_delete = posts[1:]
 
+                safe_print(f"  📝 Duplicate id: {dup_group['_id']} ({count} documents)")
                 safe_print(
-                    f"  📝 Duplicate id: {dup_group['_id']} ({count} documents)"
+                    f"     Keeping: {post_to_keep.get('title','No Title')[:50]}..."
                 )
-                safe_print(f"     Keeping: {post_to_keep.get('title','No Title')[:50]}...")
 
                 for post in posts_to_delete:
                     safe_print(
@@ -338,7 +438,9 @@ class MongoDBManager:
 
             removed_count = 0
             if not dry_run and posts_to_remove:
-                result = self.notices_collection.delete_many({"_id": {"$in": posts_to_remove}})
+                result = self.notices_collection.delete_many(
+                    {"_id": {"$in": posts_to_remove}}
+                )
                 removed_count = result.deleted_count
                 safe_print(f"✅ Removed {removed_count} duplicate notices")
 
@@ -409,7 +511,6 @@ class MongoDBManager:
             safe_print(f"❌ Error cleaning duplicate posts: {e}")
             return {"error": str(e)}
 
-
     # User Management Methods
     def add_user(self, user_id, username=None, first_name=None, last_name=None):
         """Add a new user to the database or reactivate existing user"""
@@ -463,7 +564,7 @@ class MongoDBManager:
         try:
             users = list(self.users_collection.find({"is_active": True}))
             return users
-        
+
         except Exception as e:
             safe_print(f"Error getting users: {e}")
             return []
@@ -493,7 +594,7 @@ class MongoDBManager:
         except Exception as e:
             safe_print(f"Error deactivating user: {e}")
             return False
-        
+
     def get_notice_stats(self):
         """Return basic statistics about the Notices collection.
 
@@ -521,7 +622,12 @@ class MongoDBManager:
             # Aggregate post types grouped by 'type' field (fallbacks handled by pipeline)
             try:
                 pipeline = [
-                    {"$group": {"_id": {"$ifNull": ["$type", "unknown"]}, "count": {"$sum": 1}}},
+                    {
+                        "$group": {
+                            "_id": {"$ifNull": ["$type", "unknown"]},
+                            "count": {"$sum": 1},
+                        }
+                    },
                     {"$sort": {"count": -1}},
                 ]
                 post_types = list(self.notices_collection.aggregate(pipeline))
@@ -609,8 +715,8 @@ class MongoDBManager:
 
         except Exception as e:
             safe_print(f"Error fixing user activation status: {e}")
-            return 0    
-        
+            return 0
+
     # placement stats
     def get_placement_stats(self):
         """Compute placement statistics from PlacementOffers collection.
@@ -626,7 +732,7 @@ class MongoDBManager:
                     if val is None:
                         return None
                     return float(val)
-                
+
                 except Exception:
                     return None
 
@@ -651,13 +757,13 @@ class MongoDBManager:
                 viable = [v for v in viable if v is not None]
                 if len(viable) == 1:
                     return viable[0]
-                
+
                 if len(viable) > 1:
                     return max(viable)
 
                 return None
 
-            placements = docs 
+            placements = docs
 
             total_students_placed = 0
             all_packages = []
@@ -707,7 +813,9 @@ class MongoDBManager:
                 median_package = sorted_packages[len(sorted_packages) // 2]
 
             highest_package = max(all_packages) if all_packages else 0.0
-            unique_companies = len({(p.get("company") or "Unknown") for p in placements})
+            unique_companies = len(
+                {(p.get("company") or "Unknown") for p in placements}
+            )
 
             # finalize company stats (compute avg and convert profiles to list)
             for comp, stats in company_stats.items():

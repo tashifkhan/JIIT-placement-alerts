@@ -16,7 +16,6 @@ from telegram.ext import (
 from notice_formater import NoticeFormatter, Notice as LLMNotice, Job as LLMJob
 
 
-
 dotenv.load_dotenv()
 
 
@@ -30,7 +29,6 @@ class TelegramBot:
             Bot(token=self.TELEGRAM_BOT_TOKEN) if self.TELEGRAM_BOT_TOKEN else None
         )
         self.logger.info("TelegramBot initialized")
-
 
     # Bot Command Handlers
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -95,7 +93,10 @@ class TelegramBot:
                 )
                 welcome_text.append(f"Error: {message}")
 
-        await update.message.reply_text("".join(welcome_text), parse_mode="HTML",)
+        await update.message.reply_text(
+            "".join(welcome_text),
+            parse_mode="HTML",
+        )
         safe_print(f"User {user.id} (@{user.username}) started the bot - {message}")
 
     async def stop_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -145,7 +146,6 @@ class TelegramBot:
         await update.message.reply_text(text)
         safe_print(f"Status response sent to user {user.id}")
 
-    
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /stats command (admin only)"""
         user = update.effective_user
@@ -156,12 +156,11 @@ class TelegramBot:
 
             if not stats or "error" in stats:
                 msg = "❌ Unable to compute placement statistics."
-                
+
                 if isinstance(stats, dict) and stats.get("error"):
                     msg += f" Error: {stats.get('error')}"
-                
+
                 await update.message.reply_text(msg)
-                
 
             text = "📊 Placement Statistics:\n\n"
             text += f"Placements processed: {stats.get('placements_count', 0)}\n"
@@ -170,7 +169,6 @@ class TelegramBot:
             text += f"Median package: {stats.get('median_package', 0.0):.2f} LPA\n"
             text += f"Highest package: {stats.get('highest_package', 0.0):.2f} LPA\n"
             text += f"Unique companies: {stats.get('unique_companies', 0)}\n\n"
-            
 
             await update.message.reply_text(text)
             safe_print(f"{user.id} (@{user.username}) requested placement stats")
@@ -179,7 +177,6 @@ class TelegramBot:
             error_msg = f"Error getting placement statistics: {e}"
             await update.message.reply_text(f"❌ {error_msg}")
             safe_print(error_msg)
-
 
     async def users_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /users command (admin only)"""
@@ -221,7 +218,6 @@ class TelegramBot:
             error_msg = f"Error getting user list: {e}"
             await update.message.reply_text(f"❌ {error_msg}")
             safe_print(error_msg)
-
 
     async def boo_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /boo command (admin only) for broadcasting messages"""
@@ -308,7 +304,9 @@ class TelegramBot:
             safe_print(error_msg)
 
     async def scrapyyy_command(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
     ):
         """Handle /scrapyyy command (admin only): run main.py workflow"""
         user = update.effective_user
@@ -322,7 +320,7 @@ class TelegramBot:
             return
 
         await update.message.reply_text("⏳ Running main workflow (main.py)...")
-        
+
         try:
             # call main.py's main to refresh data (scraping)
             from main import main as run_main_process
@@ -330,7 +328,7 @@ class TelegramBot:
             # main() here is the scraper/orchestrator; try calling with daemon_mode
             try:
                 result = run_main_process(daemon_mode=True)
-            
+
             except TypeError:
                 # fallback to calling without args
                 result = run_main_process()
@@ -343,7 +341,7 @@ class TelegramBot:
                 await update.message.reply_text(
                     f"⚠️ main.py workflow completed with issues (exit code: {result})"
                 )
-        
+
         except Exception as e:
             await update.message.reply_text(f"❌ Error running main.py workflow: {e}")
 
@@ -442,7 +440,7 @@ class TelegramBot:
                         except Exception:
                             pass
             return 0
-        
+
         except Exception:
             return 0
 
@@ -481,7 +479,7 @@ class TelegramBot:
                         f"⚠️  Partial send: {chunks_sent}/{len(chunks)} chunks sent"
                     )
                 return success
-            
+
             else:
                 # Single message, send normally
                 return self._send_single_message(message, parse_mode)
@@ -995,9 +993,10 @@ class TelegramBot:
         """Send new posts to all registered users instead of just one chat"""
         try:
             # Use Notices collection now. Fetch all notices where sent_to_telegram != True
+            # Fetch unsent notices and sort ascending by createdAt so older notices are sent first
             cursor = self.db_manager.notices_collection.find(
                 {"sent_to_telegram": {"$ne": True}}
-            ).sort("createdAt", -1)
+            ).sort("createdAt", 1)
             unsent_notices = list(cursor)
 
             if not unsent_notices:
@@ -1032,14 +1031,20 @@ class TelegramBot:
                     if not formatted:
                         # Convert DB notice dict to LLM Notice model
                         try:
-                            llm_notice = LLMNotice(**{
-                                "id": notice.get("id"),
-                                "title": notice.get("title", ""),
-                                "content": notice.get("content", ""),
-                                "author": notice.get("author", ""),
-                                "updatedAt": self._ts_to_int(notice.get("updatedAt")),
-                                "createdAt": self._ts_to_int(notice.get("createdAt")),
-                            })
+                            llm_notice = LLMNotice(
+                                **{
+                                    "id": notice.get("id"),
+                                    "title": notice.get("title", ""),
+                                    "content": notice.get("content", ""),
+                                    "author": notice.get("author", ""),
+                                    "updatedAt": self._ts_to_int(
+                                        notice.get("updatedAt")
+                                    ),
+                                    "createdAt": self._ts_to_int(
+                                        notice.get("createdAt")
+                                    ),
+                                }
+                            )
                         except Exception:
                             # Fallback minimal mapping
                             llm_notice = LLMNotice(
@@ -1112,11 +1117,11 @@ class TelegramBot:
                         formatted,
                         flags=re.IGNORECASE,
                     )
-                    formatted = formatted.replace("UG Marks:", "Current CGPA requirement: ")
-
+                    formatted = formatted.replace(
+                        "UG Marks:", "Current CGPA requirement: "
+                    )
 
                     formatted = formatted.replace("CGPA or equivalent", "")
-
 
                     # Replace detailed CTC / Salary Package Details block with a concise Package Description
                     # If a CTC line is present (optionally followed by a parenthetical description),
@@ -1138,7 +1143,10 @@ class TelegramBot:
                         # Mark notice as sent in Notices collection
                         try:
                             self.db_manager.notices_collection.update_one(
-                                {"_id": notice["_id"], "sent_to_telegram": {"$ne": True}},
+                                {
+                                    "_id": notice["_id"],
+                                    "sent_to_telegram": {"$ne": True},
+                                },
                                 {
                                     "$set": {
                                         "sent_to_telegram": True,
@@ -1162,7 +1170,9 @@ class TelegramBot:
                     time.sleep(1)
 
                 except Exception as e:
-                    safe_print(f"Exception while sending notice {notice.get('id')}: {e}")
+                    safe_print(
+                        f"Exception while sending notice {notice.get('id')}: {e}"
+                    )
 
             safe_print(
                 f"Broadcast summary: {successful_notices}/{len(unsent_notices)} notices sent successfully"

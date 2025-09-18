@@ -77,7 +77,11 @@ def main(daemon_mode=False):
     )
 
     success_count = sum(
-        [1 if notices_done else 0, 1 if jobs_done else 0, 1 if placements_done else 0]
+        [
+            1 if notices_done else 0,
+            1 if jobs_done else 0,
+            1 if placements_done else 0,
+        ]
     )
     # Add telegram step as a separate final step
     total_steps += 1

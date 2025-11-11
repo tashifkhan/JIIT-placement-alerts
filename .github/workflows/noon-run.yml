@@ -1,0 +1,57 @@
+name: Official Placement Scrapping
+
+on:
+  schedule:
+    # 12:00 PM IST (06:30 UTC)
+    - cron: "30 6 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  run-notification-bot-noon:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Cache uv dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            .venv
+            uv.lock
+            .uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('**/uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        working-directory: app
+        run: |
+          uv sync
+
+      - name: Run offical scrapping script
+        working-directory: app
+        run: |
+          uv run official_placement.py
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MONGO_CONNECTION_STR: ${{ secrets.MONGO_CONNECTION_STR }}
+          CSE_EMAIL: ${{ secrets.CSE_EMAIL }}
+          CSE_ENCRYPTION_PASSWORD: ${{ secrets.CSE_ENCRYPTION_PASSWORD }}
+          ECE_EMAIL: ${{ secrets.ECE_EMAIL }}
+          ECE_ENCRYPTION_PASSWORD: ${{ secrets.ECE_ENCRYPTION_PASSWORD }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          PLCAMENT_EMAIL: ${{ secrets.PLCAMENT_EMAIL }}
+          PLCAMENT_APP_PASSWORD: ${{ secrets.PLCAMENT_APP_PASSWORD }}

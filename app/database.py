@@ -276,6 +276,28 @@ class MongoDBManager:
             safe_print(f"Error saving placement offers: {e}")
             return {"error": str(e)}
 
+    def save_official_placement_data(self, data: dict) -> None:
+        """
+        Saves the extracted official placement data to MongoDB.
+        Uses update_one with upsert=True to always store the latest data under a fixed ID.
+        """
+        try:
+            collection = self.db["OfficialPlacementData"]
+            data["_id"] = "latest_jiit_placement_data"
+            result = collection.update_one(
+                {"_id": "latest_jiit_placement_data"}, {"$set": data}, upsert=True
+            )
+            if result.upserted_id:
+                safe_print(
+                    f"New official placement document inserted with ID: {result.upserted_id}"
+                )
+            else:
+                safe_print(
+                    f"Official placement document updated (Matched: {result.matched_count}, Modified: {result.modified_count})."
+                )
+        except Exception as e:
+            safe_print(f"Error saving official placement data: {e}")
+
     def get_unsent_notices(self):
         """Get all notices not yet sent to Telegram, sorted by oldest first (chronological order)."""
         try:

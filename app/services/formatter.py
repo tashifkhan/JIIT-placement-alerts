@@ -81,7 +81,7 @@ class NoticeFormatter:
     def __init__(
         self,
         google_api_key: Optional[str] = None,
-        model: str = "gemini-2.5-flash-lite",
+        model: str = "gemini-flash-latest",
         temperature: float = 0,
     ):
         self.llm = ChatGoogleGenerativeAI(
@@ -251,25 +251,63 @@ class NoticeFormatter:
             [
                 (
                     "system",
-                    "You are a strict single-label classifier. Read the notice and output ONLY one lowercase label from this set (no punctuation, no extra words):\n"
-                    "update, shortlisting, announcement, hackathon, webinar, job posting\n\n"
-                    "Definitions / decision guide:\n"
-                    "- update: Minor operational / procedural info, timetable shifts, portal status, brief changes with no list of selected students and not primarily event-focused. especially for ongoing placement / job drives.\n"
-                    "- shortlisting: Contains a list (or table) of selected / shortlisted candidate names, rolls, or enrollments for a role, round, or company.\n"
-                    "- announcement: General broad notice to all students (holiday, policy, generic info) that is not a job posting, not a shortlist, and not clearly an event (webinar/hackathon).\n"
-                    "- hackathon: Describes a hackathon / coding competition (often includes theme, duration, prizes, team size).\n"
-                    "- webinar: Describes an online/offline seminar / session with a speaker, topic, time (learning / informational session).\n"
-                    "- job posting: Describes an opportunity to apply for a job/internship/placement including company + role (and often CTC, eligibility, deadline).\n\n"
-                    "Tie-break rules:\n"
-                    "1. If it has a shortlist table/list of names -> shortlisting.\n"
-                    "2. If it is clearly a job opportunity with application instructions -> job posting (even if called announcement).\n"
-                    "3. If it invites to a hackathon competition -> hackathon.\n"
-                    "4. If it invites to a talk/session/seminar -> webinar.\n"
-                    "5. If it is a generic info broadcast with broad audience and no action list -> announcement.\n"
-                    "6. Minor status/info changes -> update.\n\n"
-                    "Respond with ONLY the label (e.g., job posting).",
+                    "You are a strict single-label text classifier. Your only task is to read the provided notice text and output exactly one label from the allowed label set. You must output only the lowercase label itself, with no punctuation, no explanations, no extra words, and no formatting. If the text is ambiguous, follow the tie-break rules below. Never invent a label that is not in the allowed set.\n\n"
+                    "ALLOWED LABEL SET\n"
+                    "update\n"
+                    "shortlisting\n"
+                    "announcement\n"
+                    "hackathon\n"
+                    "webinar\n"
+                    "job posting\n\n"
+                    "DEFINITIONS AND DECISION GUIDELINES\n"
+                    "Your task is to determine which single category best describes the notice. Use the following definitions to decide:\n\n"
+                    "1. update\n"
+                    "   - Use this label for minor operational or procedural information.\n"
+                    "   - Examples include: timetable adjustments, portal opening/closing, slight changes in process, scheduling shifts, or status updates for ongoing placement procedures.\n"
+                    "   - These notices do not contain a list of selected candidates.\n"
+                    "   - They are not event-focused and not job/internship application opportunities.\n\n"
+                    "2. shortlisting\n"
+                    "   - Use this label if the notice contains a list of selected students.\n"
+                    "   - Lists may include names, roll numbers, registration numbers, or tables of shortlisted candidates.\n"
+                    "   - Shortlisting refers to any selection stage: written test, interview round, company shortlist, final list, etc.\n"
+                    "   - The presence of a list immediately overrides all other interpretations.\n\n"
+                    "3. announcement\n"
+                    "   - Use this label for general informational broadcasts that apply broadly to students.\n"
+                    "   - Examples include holiday notices, policy notices, campus-wide information, general guidelines.\n"
+                    "   - The notice does not present an opportunity to apply for anything, does not detail an event, and does not contain selection lists or job-related instructions.\n"
+                    "   - This category is a “general-purpose broadcast” for information only.\n\n"
+                    "4. hackathon\n"
+                    "   - Use this label for notices describing a hackathon or coding/technical competition.\n"
+                    "   - These notices typically include details like the theme, rules, prizes, submission timeline, team size, duration, or participation instructions.\n"
+                    "   - Only use this label when the primary purpose is a competitive hackathon.\n\n"
+                    "5. webinar\n"
+                    "   - Use this label for notices describing an educational or informational session, workshop, seminar, talk, or guest lecture.\n"
+                    "   - These notices generally include speaker details, topic, date, time, venue or meeting link, and learning objectives.\n"
+                    "   - Applies whether the session is online or offline.\n\n"
+                    "6. job posting\n"
+                    "   - Use this label for job, internship, or placement opportunities.\n"
+                    "   - These notices generally include the company name, role(s), eligibility criteria, compensation details, job description, important dates, and application deadlines.\n"
+                    "   - If the notice asks students to apply, register, or submit documents for a role, it qualifies as a job posting even if titled “announcement”.\n\n"
+                    "TIE-BREAK RULES\n"
+                    "Follow these rules when the notice appears to fit more than one category:\n\n"
+                    "1. If the text contains any list of shortlisted candidates (names, rolls, tables), choose: shortlisting.\n"
+                    "2. If the text provides details of a job/internship opportunity with application instructions, choose: job posting (even if the notice calls it an announcement).\n"
+                    "3. If the text invites students to participate in a hackathon competition, choose: hackathon.\n"
+                    "4. If the text invites students to a learning session, workshop, seminar, or talk, choose: webinar.\n"
+                    "5. If the notice is a general informative broadcast without actions, lists, job roles, or events, choose: announcement.\n"
+                    "6. If it is a procedural update, status change, or minor operational info related to an ongoing process, choose: update.\n\n"
+                    "OUTPUT RULES\n"
+                    "- Output only the label.\n"
+                    "- No punctuation.\n"
+                    "- No commentary.\n"
+                    "- No justification.\n"
+                    "- No formatting.\n"
+                    "- Output must be entirely lowercase.",
                 ),
-                ("human", "{raw_text}"),
+                (
+                    "human",
+                    "{raw_text}",
+                ),
             ]
         )
 
@@ -293,7 +331,10 @@ class NoticeFormatter:
                     "system",
                     "You are an expert entity extractor. Your task is to identify and extract any company names mentioned in the text. List them separated by commas. If no company is mentioned, return an empty string.",
                 ),
-                ("human", "Text: {raw_text}"),
+                (
+                    "human",
+                    "Text: {raw_text}",
+                ),
             ]
         )
 
@@ -349,14 +390,99 @@ class NoticeFormatter:
             [
                 (
                     "system",
-                    "You are an information extractor. Based on the category, extract structured details. Your response MUST be a valid JSON object.\n\n"
-                    "- For shortlisting: extract a list of students under the key 'students', each with 'name' and 'enrollment'. Also extract 'company_name' and 'role' if mentioned.\n"
-                    "- For job posting: extract 'company_name', 'role', 'package', and 'deadline'.\n"
-                    "- For webinar: extract 'event_name', 'topic', 'speaker', 'date', 'time', 'venue', 'registration_link', and 'deadline' if present.\n"
-                    "- For hackathon: extract 'event_name', 'theme', 'start_date', 'end_date', 'registration_deadline', 'registration_link', 'prize_pool', 'team_size', and 'venue' if present.\n"
-                    "- For all others: extract relevant details based on the context (e.g., 'message', 'event_name', etc.).",
+                    "You are an information extractor. Your task is to read the provided notice text and extract structured information based strictly on the assigned category. You must return a single valid JSON object. Your output must contain only JSON — no explanations, no comments, no trailing commas, no prose, and no additional text outside the JSON.\n\n"
+                    "GENERAL OUTPUT RULES\n"
+                    "1. The output must be a strictly valid JSON object.\n"
+                    "2. If a field is not present in the notice, include it with a null value unless otherwise specified.\n"
+                    "3. Do not invent information. Extract only what is explicitly stated in the notice.\n"
+                    "4. For fields that must be arrays, return an empty array if no items are found.\n"
+                    "5. Maintain consistent lowercase snake_case keys exactly as specified.\n"
+                    "6. Do not add additional fields beyond what the category requires unless the category is “other”.\n"
+                    "7. For ambiguous text, extract only what is clearly inferable from explicit wording.\n"
+                    "8. Dates, times, URLs, and numbers must appear exactly as written in the notice — do not normalize or rewrite.\n\n"
+                    "CATEGORY-WISE EXTRACTION RULES\n\n"
+                    "1. Category: shortlisting\n"
+                    "   Extract structured details about selected candidates.\n"
+                    "   Required keys:\n"
+                    "   - students: an array of objects, each containing:\n"
+                    "     - name\n"
+                    "     - enrollment\n"
+                    "   - company_name\n"
+                    "   - role\n"
+                    "   Rules:\n"
+                    "   - If a student name is present without an enrollment number, set enrollment to null.\n"
+                    "   - If enrollment is present without a name, set name to null.\n"
+                    "   - If the company name or role is not explicitly mentioned, set them to null.\n"
+                    "   - Preserve the order of names as they appear in the notice.\n\n"
+                    "2. Category: job posting\n"
+                    "   Extract job/internship opportunity details.\n"
+                    "   Required keys:\n"
+                    "   - company_name\n"
+                    "   - role\n"
+                    "   - package\n"
+                    "   - deadline\n"
+                    "   Rules:\n"
+                    '   - If compensation is provided in any form (CTC, stipend, salary), extract it as-is under "package".\n'
+                    "   - If the notice lists multiple roles, extract the primary one or the first listed.\n"
+                    "   - If no deadline is explicitly mentioned, set deadline to null.\n\n"
+                    "3. Category: webinar\n"
+                    "   Extract details about seminars, talks, or sessions.\n"
+                    "   Required keys:\n"
+                    "   - event_name\n"
+                    "   - topic\n"
+                    "   - speaker\n"
+                    "   - date\n"
+                    "   - time\n"
+                    "   - venue\n"
+                    "   - registration_link\n"
+                    "   - deadline\n"
+                    "   Rules:\n"
+                    "   - If the notice does not explicitly name the event, use null for event_name.\n"
+                    "   - If no registration link exists, set registration_link to null.\n"
+                    "   - If there is no deadline, set deadline to null.\n\n"
+                    "4. Category: hackathon\n"
+                    "   Extract details about competitions/hackathons.\n"
+                    "   Required keys:\n"
+                    "   - event_name\n"
+                    "   - theme\n"
+                    "   - start_date\n"
+                    "   - end_date\n"
+                    "   - registration_deadline\n"
+                    "   - registration_link\n"
+                    "   - prize_pool\n"
+                    "   - team_size\n"
+                    "   - venue\n"
+                    "   Rules:\n"
+                    "   - If prize details include multiple categories, combine them exactly as written into a single string.\n"
+                    "   - If team size is expressed as a range or maximum, extract it exactly as provided.\n"
+                    "   - If any field is completely absent, return null for that field.\n\n"
+                    "5. Category: update or announcement or any other category not explicitly defined\n"
+                    "   Extract only contextually relevant information.\n"
+                    "   Required keys:\n"
+                    "   - message\n"
+                    "   - event_name\n"
+                    "   Additional rules:\n"
+                    "   - “message” must contain a concise extraction of the core content or purpose of the notice, using original wording when possible.\n"
+                    "   - If no event or named subject exists, set event_name to null.\n"
+                    "   - Do not fabricate structure for undefined categories.\n\n"
+                    "ERROR-PREVENTION RULES\n"
+                    "- Never output commentary, explanation, or text outside the JSON object.\n"
+                    "- Never guess missing details.\n"
+                    "- Never rephrase critical values (names, dates, links, venues, times).\n"
+                    "- Always ensure JSON brackets and comma placement are syntactically valid.\n\n"
+                    "INPUT FORMAT\n"
+                    "The input will include:\n"
+                    "Category: {category}\n"
+                    "Notice:\n"
+                    "{raw_text}\n\n"
+                    "Your extraction must rely solely on the provided “category” and “raw_text”.\n\n"
+                    "FINAL BEHAVIOR\n"
+                    "Your response must be exactly one valid JSON object with the required fields for the given category and no additional text before or after.",
                 ),
-                ("human", "Category: {category}\n\nNotice:\n{raw_text}"),
+                (
+                    "human",
+                    "Category: {category}\n\n" "Notice:\n{raw_text}",
+                ),
             ]
         )
         chain = extraction_prompt | self.llm

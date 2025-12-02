@@ -474,7 +474,7 @@ class NoticeFormatter:
                         dt = datetime.fromisoformat(str(val))
 
                         if dt.tzinfo is None:
-                            dt = dt.replace(tzinfo=timezone.utc)
+                            dt = dt.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
 
                         return dt.astimezone(ZoneInfo("Asia/Kolkata")).strftime(
                             "%B %d, %Y at %I:%M %p %Z"
@@ -532,7 +532,7 @@ class NoticeFormatter:
                     try:
                         dt = datetime.fromisoformat(str(val))
                         if dt.tzinfo is None:
-                            dt = dt.replace(tzinfo=timezone.utc)
+                            dt = dt.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
 
                         return dt.astimezone(ZoneInfo("Asia/Kolkata")).strftime(
                             "%B %d, %Y at %I:%M %p %Z"
@@ -629,7 +629,7 @@ class NoticeFormatter:
                         try:
                             dt = datetime.fromisoformat(str(raw_deadline))
                             if dt.tzinfo is None:
-                                dt = dt.replace(tzinfo=timezone.utc)
+                                dt = dt.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
                             deadline = dt.astimezone(ZoneInfo("Asia/Kolkata")).strftime(
                                 "%B %d, %Y, %I:%M %p %Z"
                             )

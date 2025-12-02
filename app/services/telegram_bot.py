@@ -5,15 +5,15 @@ import time
 import logging
 import requests
 from datetime import datetime
-from database import MongoDBManager
-from config import safe_print
+from core.database import MongoDBManager
+from core.config import safe_print
 from telegram import Update, Bot
 from telegram.ext import (
     Application,
     CommandHandler,
     ContextTypes,
 )
-from notice_formater import NoticeFormatter, Notice as LLMNotice, Job as LLMJob
+from services.formatter import NoticeFormatter, Notice as LLMNotice, Job as LLMJob
 
 
 dotenv.load_dotenv()

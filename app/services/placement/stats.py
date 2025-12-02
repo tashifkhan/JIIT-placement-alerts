@@ -11,7 +11,7 @@ from pydantic import BaseModel, ValidationError
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, END
-from database import MongoDBManager
+from core.database import MongoDBManager
 
 
 load_dotenv()
@@ -59,7 +59,7 @@ llm = ChatGoogleGenerativeAI(
 )
 
 prompt = ChatPromptTemplate.from_template(
-"""
+    """
 You are an expert assistant specializing in extracting structured data from placement offer emails.
 
 Your task involves a two-phase process:
@@ -334,7 +334,7 @@ def robust_extract_info(state: GraphState) -> GraphState:
 
     if confidence > 0.8:
         extraction_prompt = ChatPromptTemplate.from_template(
-"""
+            """
 You are an expert assistant specializing in extracting structured data from placement offer emails.
 
 Your task involves a two-phase process:
@@ -424,8 +424,8 @@ Return only the raw JSON object, without any surrounding text, explanations, or 
 Email Content to analyze:
 Subject: {subject}
 Body: {body}
-"""        
-)
+"""
+        )
     else:
         extraction_prompt = prompt
 

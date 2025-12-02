@@ -11,9 +11,9 @@ Modules:
 """
 
 import logging
-from update import run_update
-from telegram_handeller import TelegramBot
-from config import set_daemon_mode, safe_print
+from services.updater import run_update
+from services.telegram_bot import TelegramBot
+from core.config import set_daemon_mode, safe_print
 import sys
 
 

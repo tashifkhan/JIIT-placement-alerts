@@ -5,10 +5,10 @@ import requests
 from dotenv import load_dotenv
 from pprint import pprint
 
-from scrapper import SupersetClient, User, Notice, Job
-from notice_formater import NoticeFormatter
-from database import MongoDBManager
-from placement_stats import update_placement_records
+from services.scraper import SupersetClient, User, Notice, Job
+from services.formatter import NoticeFormatter
+from core.database import MongoDBManager
+from services.placement.stats import update_placement_records
 
 
 load_dotenv()

@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup, Tag
 import datetime
 import logging
 from typing import cast
-from database import MongoDBManager
+from core.database import MongoDBManager
 
 logging.basicConfig(
     level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"

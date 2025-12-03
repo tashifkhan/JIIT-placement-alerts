@@ -3,6 +3,8 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 import json
 import os
+import base64
+import rsa
 from typing import List, Optional, Union
 
 
@@ -72,6 +74,10 @@ class SupersetClient:
     """Class-based client for interacting with the SuperSet (TNP Suite) APIs."""
 
     BASE_URL = "https://app.joinsuperset.com/tnpsuite-core"
+    PUBLIC_KEY = """'
+    -----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkPixe73rT2IW04glagN2vgoZoHuOPqa5and6kAmK2ujmCHu6D1auJhE2tXP+yLkpSiYMQucDKmCsWMnW9XlC5K7OSL77TXXcfvTvyZcjObEz6LIBRzs6+FqpFbUO9SJEfh6wIDAQAB
+-----END PUBLIC KEY-----"""
 
     def __init__(
         self, tenant_id: str = "jaypee_in_in_it_16", tenant_type: str = "STUDENT"
@@ -98,7 +104,12 @@ class SupersetClient:
             raise ValueError("Email and password must be provided")
 
         url = f"{self.BASE_URL}/login"
-        payload = json.dumps({"username": email, "password": password})
+
+        pubkey = rsa.PublicKey.load_pkcs1_openssl_pem(self.PUBLIC_KEY.encode())
+        encrypted_pass = rsa.encrypt(password.encode(), pubkey)
+        encrypted_password = base64.b64encode(encrypted_pass).decode()
+
+        payload = json.dumps({"username": email, "password": encrypted_password})
         headers = {
             **self._common_headers(),
             "Referer": "https://app.joinsuperset.com/students/login",

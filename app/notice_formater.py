@@ -351,7 +351,7 @@ class NoticeFormatter:
                     "system",
                     "You are an information extractor. Based on the category, extract structured details. Your response MUST be a valid JSON object.\n\n"
                     "- For shortlisting: extract a list of students under the key 'students', each with 'name' and 'enrollment'. Also extract 'company_name' and 'role' if mentioned.\n"
-                    "- For job posting: extract 'company_name', 'role', 'package', and 'deadline'.\n"
+                    "- For job posting: extract 'company_name', 'role', 'package', 'deadline', 'location', 'hiring_flow' (list of strings), and 'eligibility_criteria' (list of strings).\n"
                     "- For webinar: extract 'event_name', 'topic', 'speaker', 'date', 'time', 'venue', 'registration_link', and 'deadline' if present.\n"
                     "- For hackathon: extract 'event_name', 'theme', 'start_date', 'end_date', 'registration_deadline', 'registration_link', 'prize_pool', 'team_size', and 'venue' if present.\n"
                     "- For all others: extract relevant details based on the context (e.g., 'message', 'event_name', etc.).",
@@ -610,7 +610,7 @@ class NoticeFormatter:
             else:
                 company_name = data.get("company_name", "N/A")
                 role = data.get("role", "N/A")
-                job_location = None
+                job_location = data.get("location", None)
                 package_info = data.get("package", "Not specified")
                 package_breakdown = ""
 
@@ -636,8 +636,21 @@ class NoticeFormatter:
                         except Exception:
                             deadline = str(raw_deadline)
 
-                eligibility_str = ""
-                hiring_flow_str = ""
+                extracted_eligibility = data.get("eligibility_criteria", [])
+                if isinstance(extracted_eligibility, list) and extracted_eligibility:
+                    eligibility_str = "**Eligibility Criteria:**\n" + "\n".join(
+                        [f"- {item}" for item in extracted_eligibility]
+                    )
+                else:
+                    eligibility_str = ""
+
+                extracted_flow = data.get("hiring_flow", [])
+                if isinstance(extracted_flow, list) and extracted_flow:
+                    hiring_flow_str = "**Hiring Flow:**\n" + "\n".join(
+                        [f"{i+1}. {step}" for i, step in enumerate(extracted_flow)]
+                    )
+                else:
+                    hiring_flow_str = ""
 
             msg_parts.append("**📢 Job Posting**")
             msg_parts.append(f"**Company:** {company_name}")

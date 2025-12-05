@@ -59,7 +59,7 @@ llm = ChatGoogleGenerativeAI(
 )
 
 prompt = ChatPromptTemplate.from_template(
-"""
+    """
 You are an expert assistant specializing in extracting structured data from placement offer emails.
 
 Your task involves a two-phase process:
@@ -125,6 +125,7 @@ IMPORTANT PACKAGE AND STIPEND EXTRACTION RULES:
     - If only one role exists in the email, assign that role to all students.
     - Extract CTC as a single float value (not an array).
     - Convert all amounts to LPA (Lakhs Per Annum).
+    - If the backage has a breakdown include the total not the breakdown in the `package` field.
     - **Crucial:** While a package must exist in the email for Phase 1 validation, if a package is expected for a *specific role or student* but cannot be found or accurately quantified, leave the respective `package` field as `null`.
 
 2.  STIPEND HANDLING:
@@ -143,6 +144,7 @@ IMPORTANT PACKAGE AND STIPEND EXTRACTION RULES:
     - "8-12 LPA based on performance" → package: 8.0, package_details: "8-12 LPA based on performance"
     - "Conditional offer: 15 LPA after completion" → package: 15.0
     - "12 lakhs per annum" → package: 12.0
+    - "The package is INR 8.65 Lakhs {5.5 LPA (fixed) + 1.65 lakhs (performance-based pay) + 1.5 lakhs (night shift allowance)}based on performance during the internship and, if converted, to a full-time role and the then prevailing market conditions." → package: 8.65, package_details: "5.5 LPA (fixed) + 1.65 lakhs (performance-based pay) + 1.5 lakhs (night shift allowance)"
 
 Return only the raw JSON object, without any surrounding text, explanations, or markdown.
 
@@ -334,7 +336,7 @@ def robust_extract_info(state: GraphState) -> GraphState:
 
     if confidence > 0.8:
         extraction_prompt = ChatPromptTemplate.from_template(
-"""
+            """
 You are an expert assistant specializing in extracting structured data from placement offer emails.
 
 Your task involves a two-phase process:
@@ -400,6 +402,7 @@ IMPORTANT PACKAGE AND STIPEND EXTRACTION RULES:
     - If only one role exists in the email, assign that role to all students.
     - Extract CTC as a single float value (not an array).
     - Convert all amounts to LPA (Lakhs Per Annum).
+    - If the backage has a breakdown include the total not the breakdown in the `package` field.
     - **Crucial:** While a package must exist in the email for Phase 1 validation, if a package is expected for a *specific role or student* but cannot be found or accurately quantified, leave the respective `package` field as `null`.
 
 2.  STIPEND HANDLING:
@@ -418,14 +421,15 @@ IMPORTANT PACKAGE AND STIPEND EXTRACTION RULES:
     - "8-12 LPA based on performance" → package: 8.0, package_details: "8-12 LPA based on performance"
     - "Conditional offer: 15 LPA after completion" → package: 15.0
     - "12 lakhs per annum" → package: 12.0
+    - "The package is INR 8.65 Lakhs {5.5 LPA (fixed) + 1.65 lakhs (performance-based pay) + 1.5 lakhs (night shift allowance)}based on performance during the internship and, if converted, to a full-time role and the then prevailing market conditions." → package: 8.65, package_details: "5.5 LPA (fixed) + 1.65 lakhs (performance-based pay) + 1.5 lakhs (night shift allowance)"
 
 Return only the raw JSON object, without any surrounding text, explanations, or markdown.
 
 Email Content to analyze:
 Subject: {subject}
 Body: {body}
-"""        
-)
+"""
+        )
     else:
         extraction_prompt = prompt
 

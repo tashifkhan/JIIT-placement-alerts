@@ -421,7 +421,7 @@ IMPORTANT PACKAGE AND STIPEND EXTRACTION RULES:
     - "8-12 LPA based on performance" → package: 8.0, package_details: "8-12 LPA based on performance"
     - "Conditional offer: 15 LPA after completion" → package: 15.0
     - "12 lakhs per annum" → package: 12.0
-    - "The package is INR 8.65 Lakhs {5.5 LPA (fixed) + 1.65 lakhs (performance-based pay) + 1.5 lakhs (night shift allowance)}based on performance during the internship and, if converted, to a full-time role and the then prevailing market conditions." → package: 8.65, package_details: "5.5 LPA (fixed) + 1.65 lakhs (performance-based pay) + 1.5 lakhs (night shift allowance)"
+    - "The package is INR 8.65 Lakhs {{5.5 LPA (fixed) + 1.65 lakhs (performance-based pay) + 1.5 lakhs (night shift allowance)}}based on performance during the internship and, if converted, to a full-time role and the then prevailing market conditions." → package: 8.65, package_details: "5.5 LPA (fixed) + 1.65 lakhs (performance-based pay) + 1.5 lakhs (night shift allowance)"
 
 Return only the raw JSON object, without any surrounding text, explanations, or markdown.
 

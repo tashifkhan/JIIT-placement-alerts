@@ -72,6 +72,7 @@ Your task involves a two-phase process:
     *   **Existence of Package:** The email MUST explicitly mention a quantifiable compensation package (e.g., CTC, stipend, base salary, annual salary, or an equivalent remuneration figure) for at least one role. If NO package details (not even a stipend for an internship) are discernible anywhere in the email content, it is NOT considered a final placement offer. This is a non-negotiable requirement.
     *   **Finality of Offer:** The communication must unequivocally signify a *final selection or offer*. It should NOT be an interim shortlist, a call for interviews, a notification for the next selection round, or a generic informational email. Look for definite offer language such as "final offer," "selected candidates," "placement offer," "congratulations on your selection," "offer letter attached," or terms indicating successful completion of the entire selection process leading to placement.
     *   **Placement Status:** The candidates mentioned (if any) should be explicitly considered *placed* or *offered* a position, not merely shortlisted for further evaluation or pending additional steps.
+    *   **Training/Internship with FTE Conversion:** Explicitly INCLUDE offers that are for a "training program," "internship," or "probationary period" IF AND ONLY IF they clearly state that this leads to a Full-Time Employment (FTE) or final placement offer with a specified package. Treat "shortlisted for training leading to FTE" as a valid placement offer if the final package is known.
 
 3.  **Action Based on Classification:**
     *   **If the email DOES NOT meet ALL of the above "Strict Criteria for a Valid Final Placement Offer":** You MUST immediately return a JSON object with the following structure. Provide a precise `rejection_reason` explaining which criterion was not met. Do NOT proceed to Phase 2 for detailed data extraction.
@@ -144,7 +145,7 @@ IMPORTANT PACKAGE AND STIPEND EXTRACTION RULES:
     - "8-12 LPA based on performance" → package: 8.0, package_details: "8-12 LPA based on performance"
     - "Conditional offer: 15 LPA after completion" → package: 15.0
     - "12 lakhs per annum" → package: 12.0
-    - "The package is INR 8.65 Lakhs {5.5 LPA (fixed) + 1.65 lakhs (performance-based pay) + 1.5 lakhs (night shift allowance)}based on performance during the internship and, if converted, to a full-time role and the then prevailing market conditions." → package: 8.65, package_details: "5.5 LPA (fixed) + 1.65 lakhs (performance-based pay) + 1.5 lakhs (night shift allowance)"
+    - "The package is INR 8.65 Lakhs {{5.5 LPA (fixed) + 1.65 lakhs (performance-based pay) + 1.5 lakhs (night shift allowance)}}based on performance during the internship and, if converted, to a full-time role and the then prevailing market conditions." → package: 8.65, package_details: "5.5 LPA (fixed) + 1.65 lakhs (performance-based pay) + 1.5 lakhs (night shift allowance)"
 
 Return only the raw JSON object, without any surrounding text, explanations, or markdown.
 
@@ -349,6 +350,7 @@ Your task involves a two-phase process:
     *   **Existence of Package:** The email MUST explicitly mention a quantifiable compensation package (e.g., CTC, stipend, base salary, annual salary, or an equivalent remuneration figure) for at least one role. If NO package details (not even a stipend for an internship) are discernible anywhere in the email content, it is NOT considered a final placement offer. This is a non-negotiable requirement.
     *   **Finality of Offer:** The communication must unequivocally signify a *final selection or offer*. It should NOT be an interim shortlist, a call for interviews, a notification for the next selection round, or a generic informational email. Look for definite offer language such as "final offer," "selected candidates," "placement offer," "congratulations on your selection," "offer letter attached," or terms indicating successful completion of the entire selection process leading to placement.
     *   **Placement Status:** The candidates mentioned (if any) should be explicitly considered *placed* or *offered* a position, not merely shortlisted for further evaluation or pending additional steps.
+    *   **Training/Internship with FTE Conversion:** Explicitly INCLUDE offers that are for a "training program," "internship," or "probationary period" IF AND ONLY IF they clearly state that this leads to a Full-Time Employment (FTE) or final placement offer with a specified package. Treat "shortlisted for training leading to FTE" as a valid placement offer if the final package is known.
 
 3.  **Action Based on Classification:**
     *   **If the email DOES NOT meet ALL of the above "Strict Criteria for a Valid Final Placement Offer":** You MUST immediately return a JSON object with the following structure. Provide a precise `rejection_reason` explaining which criterion was not met. Do NOT proceed to Phase 2 for detailed data extraction.

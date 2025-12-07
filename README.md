@@ -11,6 +11,10 @@ A bot that scrapes job postings from the JIIT's SuperSet placement portal, saves
 
 Simply open the link above, send `/start` to register, and you'll automatically receive job posting notifications from SuperSet. No setup required on your end!
 
+## Analytics (before it got "offically" shut)
+![2025-12-08_02 09 51 copy](https://github.com/user-attachments/assets/8d34bd22-b61e-43ab-8e5c-d72b1682b60c)
+
+
 ## Features
 
 - **User Registration**: Users can register via `/start` command to receive notifications

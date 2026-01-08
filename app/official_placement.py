@@ -60,36 +60,51 @@ def get_html_content(url: str, headers: dict) -> str | None:
         return None
 
 
-def extract_placement_pointers(
+def extract_batch_details(
     container_element: Tag, context_label: str = "Unknown"
-) -> list[str]:
+) -> dict:
     """
-    Extracts placement pointers (<li> elements) from a specific container element.
-    `container_element` should be the direct ancestor from which <li> items can be found recursively.
+    Extracts placement pointers (<li> elements) and package distribution table
+    from a specific container element.
     """
-    pointers = []
+    details = {"placement_pointers": [], "package_distribution": []}
 
     logging.debug(
-        f"Searching for <li> elements within container for '{context_label}'. Container HTML (first 200 chars): {str(container_element)[:200]}..."
+        f"Searching for details within container for '{context_label}'. Container HTML (first 200 chars): {str(container_element)[:200]}..."
     )
 
+    # 1. Extract <li> pointers
     list_items = container_element.find_all("li")
-
     if list_items:
         for li in list_items:
             text = li.get_text(strip=True)
             if text:
-                pointers.append(text)
-
+                details["placement_pointers"].append(text)
         logging.debug(
-            f"Extracted {len(pointers)} pointers from container for '{context_label}'."
-        )
-    else:
-        logging.warning(
-            f"No <li> elements found within the container for '{context_label}'."
+            f"Extracted {len(details['placement_pointers'])} pointers from container for '{context_label}'."
         )
 
-    return pointers
+    # 2. Extract Table (Distribution of Packages)
+    table = container_element.find("table")
+    if table:
+        rows = table.find_all("tr")
+        # Skipping header rows (0: Main title, 1: Category/Avg/Median)
+        if len(rows) > 2:
+            for row in rows[2:]:
+                cols = row.find_all(["td", "th"])
+                if len(cols) >= 3:
+                    details["package_distribution"].append(
+                        {
+                            "category": cols[0].get_text(strip=True),
+                            "average": cols[1].get_text(strip=True),
+                            "median": cols[2].get_text(strip=True),
+                        }
+                    )
+            logging.debug(
+                f"Extracted {len(details['package_distribution'])} distribution entries for '{context_label}'."
+            )
+
+    return details
 
 
 def parse_all_batches_data(html_content: str) -> dict | None:
@@ -153,17 +168,20 @@ def parse_all_batches_data(html_content: str) -> dict | None:
         for img in recruiter_logo_div.find_all("img"):
             src = cast(Tag, img).get("src")
             alt = cast(Tag, img).get("alt")
+
             if (
                 src
                 and isinstance(src, str)
                 and not (src.startswith("http://") or src.startswith("https://"))
             ):
                 src = TARGET_URL.rstrip("/") + "/" + src.lstrip("/")
+
             full_placement_data["recruiter_logos"].append({"src": src, "alt": alt})
 
         logging.info(
             f"Extracted {len(full_placement_data['recruiter_logos'])} recruiter logos."
         )
+
     else:
         logging.warning("Recruiter logos div ('training-placement-logo') not found.")
 
@@ -227,13 +245,15 @@ def parse_all_batches_data(html_content: str) -> dict | None:
                 f"Found 'div.scroll_sec.mCustomScrollbar' as potential container for {current_batch_name}."
             )
 
-            batch_info["placement_pointers"] = extract_placement_pointers(
+            batch_details = extract_batch_details(
                 cast(Tag, pointers_container), context_label
             )
+            batch_info.update(batch_details)
 
             logging.info(
                 f"Extracted data for batch: {current_batch_name} (Active: {is_active}) "
-                f"with {len(batch_info['placement_pointers'])} pointers."
+                f"with {len(batch_info['placement_pointers'])} pointers and "
+                f"{len(batch_info['package_distribution'])} distribution entries."
             )
 
         else:

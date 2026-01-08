@@ -397,21 +397,46 @@ class MongoDBManager:
     def save_official_placement_data(self, data: dict) -> None:
         """
         Saves the extracted official placement data to MongoDB.
-        Uses update_one with upsert=True to always store the latest data under a fixed ID.
+        Computes a hash of the content (excluding timestamp and _id).
+        If the hash differs from the latest stored document, inserts a new document.
+        Otherwise, updates the existing document.
         """
         try:
+            import json
+            import hashlib
+
             collection = self.db["OfficialPlacementData"]
-            data["_id"] = "latest_jiit_placement_data"
-            result = collection.update_one(
-                {"_id": "latest_jiit_placement_data"}, {"$set": data}, upsert=True
-            )
-            if result.upserted_id:
+
+            # Create a copy for hashing, excluding volatile fields
+            data_for_hash = {
+                k: v
+                for k, v in data.items()
+                if k not in ("scrape_timestamp", "_id", "content_hash")
+            }
+            content_hash = hashlib.sha256(
+                json.dumps(data_for_hash, sort_keys=True, ensure_ascii=False).encode(
+                    "utf-8"
+                )
+            ).hexdigest()
+
+            # Check for the latest document by scrape_timestamp
+            latest_doc = collection.find_one(sort=[("scrape_timestamp", -1)])
+
+            if latest_doc and latest_doc.get("content_hash") == content_hash:
+                # No change, update timestamp on existing doc
+                collection.update_one(
+                    {"_id": latest_doc["_id"]},
+                    {"$set": {"scrape_timestamp": data.get("scrape_timestamp")}},
+                )
                 safe_print(
-                    f"New official placement document inserted with ID: {result.upserted_id}"
+                    f"Official placement data unchanged (hash: {content_hash[:12]}...). Updated timestamp."
                 )
             else:
+                # New content, insert a new document
+                data["content_hash"] = content_hash
+                result = collection.insert_one(data)
                 safe_print(
-                    f"Official placement document updated (Matched: {result.matched_count}, Modified: {result.modified_count})."
+                    f"New official placement data inserted (hash: {content_hash[:12]}...). ID: {result.inserted_id}"
                 )
         except Exception as e:
             safe_print(f"Error saving official placement data: {e}")

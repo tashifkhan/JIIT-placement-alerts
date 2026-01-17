@@ -220,6 +220,7 @@ class MongoDBManager:
                     # 2. Merge Students
                     existing_students = existing_company.get("students_selected", [])
                     new_students = offer.get("students_selected", [])
+                    newly_added_students = []  # Track new students for update notice
 
                     # Map existing students by enrollment number (preferred) or name
                     student_map = {}
@@ -251,6 +252,9 @@ class MongoDBManager:
                             # Add new student
                             existing_students.append(new_student)
                             student_map[key] = new_student
+                            newly_added_students.append(
+                                new_student
+                            )  # Track for notification
 
                     # Update counts and timestamps
                     total_students = len(existing_students)
@@ -273,9 +277,15 @@ class MongoDBManager:
                     updated += 1
                     safe_print(f"Updated placement data for {company_name}")
 
-                    # We might want to trigger a new notice or update existing notice here
-                    # For now, we'll leave the notice logic as is (it might create duplicate notices if we don't handle it)
-                    # But the requirement was focused on data merging.
+                    # Create update notice if new students were added
+                    if newly_added_students:
+                        self._create_placement_update_notice(
+                            company_name,
+                            existing_company["_id"],
+                            newly_added_students,
+                            existing_roles,
+                            total_students,
+                        )
 
                 else:
                     # Insert new
@@ -393,6 +403,100 @@ class MongoDBManager:
             safe_print(f"Inserted placement notice {notice_id}")
         except Exception as e:
             safe_print(f"Error inserting placement notice: {e}")
+
+    def _create_placement_update_notice(
+        self, company_name, offer_id, newly_added_students, roles_data, total_students
+    ):
+        """Helper to create a notice for placement updates (new students added to existing offer)"""
+        try:
+            if getattr(self, "notices_collection", None) is None:
+                return
+
+            ts = datetime.utcnow().timestamp()
+            safe_company = (company_name or "").replace(" ", "_") or "unknown_company"
+            notice_id = f"placement_update_{safe_company}_{int(ts)}"
+
+            # Build role -> package map
+            role_pkg: dict[str, str | None] = {}
+            role_names = []
+            for r in roles_data:
+                rname = r.get("role")
+                if not rname:
+                    continue
+                role_names.append(rname)
+                pkg = r.get("package")
+                pkg_str: str | None
+                try:
+                    if pkg is None:
+                        pkg_str = None
+                    else:
+                        p = float(pkg)
+                        if p >= 100000:
+                            pkg_str = f"{p/100000:.1f} LPA"
+                        else:
+                            pkg_str = f"{p:g} LPA"
+                except Exception:
+                    pkg_str = str(pkg) if pkg is not None else None
+                role_pkg[rname] = pkg_str
+
+            # Count new students per role
+            new_count = len(newly_added_students)
+            default_role = role_names[0] if len(role_names) == 1 else None
+
+            role_counts: dict[str, int] = {}
+            for s in newly_added_students:
+                rname = s.get("role") or default_role or "Unspecified"
+                role_counts[rname] = role_counts.get(rname, 0) + 1
+
+            # Build breakdown lines for new students
+            lines: list[str] = []
+            listed = set()
+            for rname in role_names:
+                cnt = role_counts.get(rname, 0)
+                if cnt <= 0:
+                    continue
+                pkg_str = role_pkg.get(rname)
+                suffix = f" — {pkg_str}" if pkg_str else ""
+                lines.append(
+                    f"- {rname}: {cnt} new offer{'s' if cnt != 1 else ''}{suffix}"
+                )
+                listed.add(rname)
+            for rname, cnt in role_counts.items():
+                if rname in listed:
+                    continue
+                lines.append(f"- {rname}: {cnt} new offer{'s' if cnt != 1 else ''}")
+
+            breakdown = "\n".join(lines)
+
+            # Build summary message
+            summary = f"🔄 **Placement Update: {company_name}**\n\n"
+            summary += f"{new_count} more student{'s have' if new_count != 1 else ' has'} been placed at {company_name}!"
+            summary += f"\n\nTotal placements at {company_name}: {total_students}"
+            if breakdown:
+                summary += f"\n\nNew positions:\n{breakdown}"
+            summary += "\n\nCongratulations to the newly selected!"
+
+            notice_doc = {
+                "id": notice_id,
+                "title": f"Placement Update: {company_name} (+{new_count})",
+                "content": summary,
+                "author": "PlacementBot",
+                "type": "placement_update",
+                "source": "PlacementOffers",
+                "placement_offer_ref": str(offer_id),
+                "is_update": True,
+                "new_students_count": new_count,
+                "formatted_message": summary,
+                "createdAt": int(ts * 1000),
+                "updatedAt": int(ts * 1000),
+                "sent_to_telegram": False,
+            }
+            self.notices_collection.insert_one(notice_doc)
+            safe_print(
+                f"Inserted placement update notice {notice_id} (+{new_count} students)"
+            )
+        except Exception as e:
+            safe_print(f"Error inserting placement update notice: {e}")
 
     def save_official_placement_data(self, data: dict) -> None:
         """

@@ -1,66 +1,30 @@
+"""
+Notice Formatter Service:
+
+LLM-based formatter for notices using LangGraph and Gemini.
+Models (Job, Notice, EligibilityMark) are imported from superset_client to keep types unified.
+"""
+
+import json
+import logging
 from typing import Any, Dict, List, Optional, Sequence
-from typing import Required, TypedDict
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 from rapidfuzz import fuzz, process
-from dotenv import load_dotenv
-import os
-import json
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, END
-from pydantic import BaseModel
+from typing import Required, TypedDict
+from core import get_settings
 
 
-"""
-LLM-based formatter for notices using LangGraph and Gemini.
-Models (Job, Notice, EligibilityMark) are imported from main.py to keep types unified.
-"""
+# Re-export models for convenience
+from .superset_client import Notice, Job, EligibilityMark
 
 
-class EligibilityMark(BaseModel):
-    level: str
-    criteria: float
-
-
-class Job(BaseModel):
-    id: str
-    job_profile: str
-    company: str
-    placement_category_code: int
-    placement_category: str
-    content: str
-    createdAt: Optional[int]
-    deadline: Optional[int]
-    eligibility_marks: List[EligibilityMark]
-    eligibility_courses: List[str]
-    allowed_genders: List[str]
-    job_description: str
-    location: str
-    package: float
-    package_info: str
-    annum_months: Optional[str]
-    required_skills: List[str]
-    hiring_flow: List[str]
-    placement_type: Optional[str] = None
-
-
-class Notice(BaseModel):
-    id: str
-    title: str
-    content: str
-    author: str
-    updatedAt: int
-    createdAt: int
-
-
-load_dotenv()
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-
-
-# state - LangGraph
 class PostState(TypedDict, total=False):
     # inputs
     notice: Required["Notice"]
@@ -77,7 +41,8 @@ class PostState(TypedDict, total=False):
     formatted_message: str
 
 
-class NoticeFormatter:
+class NoticeFormatterService:
+
     def __init__(
         self,
         google_api_key: Optional[str] = None,
@@ -87,7 +52,7 @@ class NoticeFormatter:
         self.llm = ChatGoogleGenerativeAI(
             model=model,
             temperature=temperature,
-            google_api_key=google_api_key or GOOGLE_API_KEY,
+            google_api_key=google_api_key or get_settings().google_api_key,
         )
         self.app = self._build_graph()
 
@@ -269,7 +234,10 @@ class NoticeFormatter:
                     "6. Minor status/info changes -> update.\n\n"
                     "Respond with ONLY the label (e.g., job posting).",
                 ),
-                ("human", "{raw_text}"),
+                (
+                    "human",
+                    "{raw_text}",
+                ),
             ]
         )
 
@@ -293,7 +261,10 @@ class NoticeFormatter:
                     "system",
                     "You are an expert entity extractor. Your task is to identify and extract any company names mentioned in the text. List them separated by commas. If no company is mentioned, return an empty string.",
                 ),
-                ("human", "Text: {raw_text}"),
+                (
+                    "human",
+                    "Text: {raw_text}",
+                ),
             ]
         )
 
@@ -356,7 +327,10 @@ class NoticeFormatter:
                     "- For hackathon: extract 'event_name', 'theme', 'start_date', 'end_date', 'registration_deadline', 'registration_link', 'prize_pool', 'team_size', and 'venue' if present.\n"
                     "- For all others: extract relevant details based on the context (e.g., 'message', 'event_name', etc.).",
                 ),
-                ("human", "Category: {category}\n\nNotice:\n{raw_text}"),
+                (
+                    "human",
+                    "Category: {category}\n\nNotice:\n{raw_text}",
+                ),
             ]
         )
         chain = extraction_prompt | self.llm
@@ -392,6 +366,16 @@ class NoticeFormatter:
 
         post_date = self._format_ms_epoch_to_ist(notice.updatedAt)
         title = notice.title
+
+        # Add prefix for job postings
+        if cat == "job posting":
+            company_name = job.company if job else data.get("company_name", "")
+            role = job.job_profile if job else data.get("role", "")
+            if company_name and role:
+                title = f"Open for applications - {company_name}'s Job Profile - {role}"
+            elif company_name:
+                title = f"Open for applications - {company_name}"
+
         msg_parts = [f"**{title}**\n"]
 
         # --- Simple passthrough formatting for 'update' or 'announcement' ---
@@ -729,12 +713,14 @@ class NoticeFormatter:
         job_location_out = result.get("job_location") or (
             matched_job.location if matched_job else None
         )
+
         if matched_job:
             pkg_lpa = matched_job.package / 100000
             pkg_str = self._format_package(
                 matched_job.package, matched_job.annum_months
             )
             pkg_breakdown = self.format_html_breakdown(matched_job.package_info)
+
         else:
             pkg_val = extracted.get("package")
             pkg_str = str(pkg_val) if pkg_val is not None else None
@@ -742,6 +728,7 @@ class NoticeFormatter:
 
         enriched: Dict[str, Any] = {
             **notice.model_dump(),
+            "source": "Superset",
             "category": result.get("category"),
             "matched_job_id": result.get("matched_job_id"),
             "job_company": job_company,
@@ -758,11 +745,12 @@ class NoticeFormatter:
         notices: Sequence[Notice],
         jobs: Sequence[Job],
     ) -> List[Dict[str, Any]]:
+        """
+        Format multiple notices.
+        """
         final_records: List[Dict[str, Any]] = []
+
         for notice in notices:
             final_records.append(self.format_notice(notice, jobs))
+
         return final_records
-
-
-if __name__ == "__main__":
-    print("NoticeFormatter module provides class-based API. Use from update.py.")

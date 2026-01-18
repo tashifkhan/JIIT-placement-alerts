@@ -5,16 +5,22 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "apscheduler>=3.11.2",
     "beautifulsoup4>=4.13.4",
+    "fastapi>=0.128.0",
     "langchain>=0.3.27",
     "langchain-google-genai>=2.1.9",
     "langgraph>=0.6.6",
     "pydantic>=2.11.7",
+    "pydantic-settings>=2.12.0",
     "pymongo>=4.14.1",
+    "python-dateutil>=2.9.0.post0",
     "python-dotenv>=1.1.1",
     "python-telegram-bot>=22.3",
     "pytz>=2025.2",
+    "pywebpush>=2.2.0",
     "rapidfuzz>=3.13.0",
     "requests>=2.32.5",
     "schedule>=1.2.2",
+    "uvicorn>=0.40.0",
 ]

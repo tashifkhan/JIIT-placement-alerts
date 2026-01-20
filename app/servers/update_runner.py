@@ -122,8 +122,14 @@ class UpdateRunner:
             if j.get("jobProfileIdentifier") in existing_job_ids
         ]
 
+        # Track enriched job IDs for later
+        enriched_job_ids = {j.id for j in enriched_new_jobs}
+
         # Process only new notices (use all_jobs for linking)
-        new_notices = self._process_notices(notices, all_jobs_for_linking)
+        # Also collect job IDs that were matched during notice processing
+        new_notices, matched_job_ids = self._process_notices(
+            notices, all_jobs_for_linking, users[0], all_jobs_basic, enriched_job_ids
+        )
         safe_print(f"Saved {new_notices} new notices")
 
         # Process only new jobs (already enriched)
@@ -132,12 +138,70 @@ class UpdateRunner:
 
         return {"notices": new_notices, "jobs": new_jobs}
 
-    def _process_notices(self, notices: list, jobs: list) -> int:
-        """Process and save new notices (already filtered for new ones only)."""
+    def _process_notices(
+        self,
+        notices: list,
+        jobs: list,
+        detail_user,
+        all_jobs_basic: list,
+        already_enriched_ids: set,
+    ) -> tuple[int, set]:
+        """
+        Process and save new notices (already filtered for new ones only).
+
+        Uses job_enricher callback to enrich jobs mid-pipeline when matched.
+        The LLM identifies the matching job, and if it needs enriching, the
+        enricher callback fetches details before formatting continues.
+
+        Returns:
+            Tuple of (new_notices_count, matched_job_ids)
+        """
         new_notices = 0
+        matched_job_ids = set()
+
+        # Create a lookup for basic job data by ID
+        basic_job_lookup = {j.get("jobProfileIdentifier"): j for j in all_jobs_basic}
+
+        # Create a mutable lookup for jobs (so enriched versions persist across notices)
+        jobs_by_id = {j.id: j for j in jobs}
+
+        def job_enricher(matched_job):
+            """Callback to enrich a matched job with full details."""
+            if matched_job.id in already_enriched_ids:
+                # Already enriched, return the enriched version if we have it
+                return jobs_by_id.get(matched_job.id, matched_job)
+
+            basic_job = basic_job_lookup.get(matched_job.id)
+            if not basic_job:
+                return matched_job  # Can't enrich, return as-is
+
+            # Enrich the job
+            enriched_job = self.scraper.enrich_job(detail_user, basic_job)
+
+            # Update our lookups
+            jobs_by_id[matched_job.id] = enriched_job
+            already_enriched_ids.add(matched_job.id)
+
+            # Save to DB
+            self.db.upsert_structured_job(enriched_job.model_dump())
+
+            return enriched_job
+
         for notice in notices:
             try:
-                formatted = self.formatter.format_notice(notice, jobs)
+                # Format notice with enricher callback
+                # The LLM will identify the matching job, and if found,
+                # the enricher is called mid-pipeline before formatting
+                formatted = self.formatter.format_notice(
+                    notice,
+                    list(jobs_by_id.values()),
+                    job_enricher=job_enricher,
+                )
+                matched_job_id = formatted.get("matched_job_id")
+
+                if matched_job_id:
+                    matched_job_ids.add(matched_job_id)
+
                 success, _ = self.db.save_notice(formatted)
                 if success:
                     new_notices += 1
@@ -146,7 +210,7 @@ class UpdateRunner:
                 logger.error(f"Error processing notice {notice.id}: {e}")
                 safe_print(f"Error processing notice {notice.id}: {e}")
 
-        return new_notices
+        return new_notices, matched_job_ids
 
     def _process_jobs(self, jobs: list) -> int:
         """Process and save/update jobs."""

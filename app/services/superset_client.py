@@ -77,7 +77,7 @@ class Job(BaseModel):
     job_description: str
     location: str
     package: float
-    annum_months: Optional[str]
+    annum_months: Optional[str] = None
     package_info: str
     required_skills: List[str]
     hiring_flow: List[str]
@@ -350,6 +350,7 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
             "job_description": "",
             "location": "Unknown",
             "package": 0,
+            "annum_months": None,
             "package_info": "",
             "required_skills": [],
             "hiring_flow": [],

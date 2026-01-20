@@ -30,6 +30,10 @@ class PostState(TypedDict, total=False):
     notice: Required["Notice"]
     jobs: Required[List["Job"]]
 
+    # optional callback: given a Job, returns enriched Job
+    # signature: (job: Job) -> Job
+    job_enricher: Optional[Any]
+
     # computed fields through the graph
     id: str
     raw_text: str
@@ -311,6 +315,35 @@ class NoticeFormatterService:
             state["matched_job_id"] = None
             state["job_location"] = None
             print("--- 3. No suitable job match found ---")
+
+        return state
+
+    def enrich_matched_job(self, state: PostState) -> PostState:
+        """
+        Enrich the matched job if an enricher callback is provided.
+
+        This node is called after match_job identifies a potential match.
+        If job_enricher callback is set and a job was matched, it will
+        call the enricher to get full job details before formatting.
+        """
+        matched_job = state.get("matched_job")
+        enricher = state.get("job_enricher")
+
+        if matched_job and enricher:
+            try:
+                print(f"--- 3b. Enriching matched job {matched_job.id}... ---")
+                enriched_job = enricher(matched_job)
+                if enriched_job:
+                    state["matched_job"] = enriched_job
+                    state["job_location"] = enriched_job.location
+                    # Also update in jobs list for consistency
+                    jobs = state.get("jobs", [])
+                    state["jobs"] = [
+                        enriched_job if j.id == matched_job.id else j for j in jobs
+                    ]
+                    print(f"--- 3b. Job enriched successfully ---")
+            except Exception as e:
+                print(f"--- 3b. Failed to enrich job: {e} ---")
 
         return state
 
@@ -746,19 +779,39 @@ class NoticeFormatterService:
         workflow.add_node("extract_text", self.extract_text)
         workflow.add_node("classify_post", self.classify_post)
         workflow.add_node("match_job", self.match_job)
+        workflow.add_node("enrich_matched_job", self.enrich_matched_job)
         workflow.add_node("extract_info", self.extract_info)
         workflow.add_node("format_message", self.format_message)
         workflow.set_entry_point("extract_text")
         workflow.add_edge("extract_text", "classify_post")
         workflow.add_edge("classify_post", "match_job")
-        workflow.add_edge("match_job", "extract_info")
+        workflow.add_edge("match_job", "enrich_matched_job")
+        workflow.add_edge("enrich_matched_job", "extract_info")
         workflow.add_edge("extract_info", "format_message")
         workflow.add_edge("format_message", END)
         return workflow.compile()
 
     # -------- public API ---------
-    def format_notice(self, notice: Notice, jobs: Sequence[Job]) -> Dict[str, Any]:
-        inputs = {"notice": notice, "jobs": list(jobs)}
+    def format_notice(
+        self,
+        notice: Notice,
+        jobs: Sequence[Job],
+        job_enricher: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """
+        Format a notice with LLM-based classification, matching, and formatting.
+
+        Args:
+            notice: Notice to format
+            jobs: List of jobs to match against
+            job_enricher: Optional callback (job: Job) -> Job that enriches
+                         a matched job with full details. Called mid-pipeline
+                         after job matching but before formatting.
+
+        Returns:
+            Enriched notice dict with formatted_message and metadata
+        """
+        inputs = {"notice": notice, "jobs": list(jobs), "job_enricher": job_enricher}
         result: PostState = self.app.invoke(inputs)  # type: ignore
         matched_job = result.get("matched_job")
         extracted = result.get("extracted", {}) or {}

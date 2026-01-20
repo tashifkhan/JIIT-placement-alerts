@@ -100,6 +100,17 @@ class DatabaseService:
             safe_print(f"Error checking notice existence: {e}")
             return False
 
+    def get_all_notice_ids(self) -> set:
+        """Get all notice IDs as a set for efficient lookup"""
+        try:
+            if self.notices_collection is None:
+                return set()
+            cursor = self.notices_collection.find({}, {"id": 1})
+            return {doc.get("id") for doc in cursor if doc.get("id")}
+        except Exception as e:
+            safe_print(f"Error getting notice IDs: {e}")
+            return set()
+
     def save_notice(self, notice: Dict[str, Any]) -> Tuple[bool, str]:
         """Insert a notice if id not present"""
         try:
@@ -236,6 +247,17 @@ class DatabaseService:
         except Exception as e:
             safe_print(f"Error checking structured job existence: {e}")
             return False
+
+    def get_all_job_ids(self) -> set:
+        """Get all job IDs as a set for efficient lookup"""
+        try:
+            if self.jobs_collection is None:
+                return set()
+            cursor = self.jobs_collection.find({}, {"id": 1})
+            return {doc.get("id") for doc in cursor if doc.get("id")}
+        except Exception as e:
+            safe_print(f"Error getting job IDs: {e}")
+            return set()
 
     def upsert_structured_job(self, structured_job: Dict[str, Any]) -> Tuple[bool, str]:
         """Insert or update a structured job"""

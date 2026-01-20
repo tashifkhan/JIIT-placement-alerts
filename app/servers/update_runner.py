@@ -48,6 +48,9 @@ class UpdateRunner:
         """
         Fetch new data from SuperSet and process it.
 
+        Optimized to first check existing IDs in the database, then only
+        fetch details for new notices/jobs.
+
         Returns:
             Dict with counts of new notices and jobs
         """
@@ -76,39 +79,49 @@ class UpdateRunner:
             safe_print("No users logged in. Check credentials.")
             return {"notices": 0, "jobs": 0}
 
-        # Fetch data
+        # Pre-fetch existing IDs from database for efficient filtering
+        safe_print("Checking existing records in database...")
+        existing_notice_ids = self.db.get_all_notice_ids()
+        existing_job_ids = self.db.get_all_job_ids()
+        safe_print(
+            f"Found {len(existing_notice_ids)} existing notices, {len(existing_job_ids)} existing jobs in DB"
+        )
+
+        # Fetch notices and filter out existing ones
         safe_print("Fetching notices...")
-        notices = self.scraper.get_notices(users)
-        safe_print(f"Found {len(notices)} notices")
+        all_notices = self.scraper.get_notices(users)
+        notices = [n for n in all_notices if n.id not in existing_notice_ids]
+        safe_print(f"Found {len(all_notices)} notices ({len(notices)} new)")
 
+        # Fetch jobs and filter out existing ones (for detail fetching)
         safe_print("Fetching job listings...")
-        jobs = self.scraper.get_job_listings(users)
-        safe_print(f"Found {len(jobs)} job listings")
+        all_jobs = self.scraper.get_job_listings(users)
+        new_jobs_list = [j for j in all_jobs if j.id not in existing_job_ids]
+        safe_print(f"Found {len(all_jobs)} job listings ({len(new_jobs_list)} new)")
 
-        # Process notices
-        new_notices = self._process_notices(notices, jobs)
+        # Process only new notices (use all_jobs for linking)
+        new_notices = self._process_notices(notices, all_jobs)
         safe_print(f"Saved {new_notices} new notices")
 
-        # Process jobs
-        new_jobs = self._process_jobs(jobs)
-        safe_print(f"Saved/updated {new_jobs} jobs")
+        # Process only new jobs
+        new_jobs = self._process_jobs(new_jobs_list)
+        safe_print(f"Saved {new_jobs} new jobs")
 
         return {"notices": new_notices, "jobs": new_jobs}
 
     def _process_notices(self, notices: list, jobs: list) -> int:
-        """Process and save new notices."""
+        """Process and save new notices (already filtered for new ones only)."""
         new_notices = 0
         for notice in notices:
-            if not self.db.notice_exists(notice.id):
-                try:
-                    formatted = self.formatter.format_notice(notice, jobs)
-                    success, _ = self.db.save_notice(formatted)
-                    if success:
-                        new_notices += 1
+            try:
+                formatted = self.formatter.format_notice(notice, jobs)
+                success, _ = self.db.save_notice(formatted)
+                if success:
+                    new_notices += 1
 
-                except Exception as e:
-                    logger.error(f"Error processing notice {notice.id}: {e}")
-                    safe_print(f"Error processing notice {notice.id}: {e}")
+            except Exception as e:
+                logger.error(f"Error processing notice {notice.id}: {e}")
+                safe_print(f"Error processing notice {notice.id}: {e}")
 
         return new_notices
 

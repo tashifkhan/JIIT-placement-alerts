@@ -72,7 +72,7 @@ class TelegramService:
     def send_message(
         self,
         message: str,
-        parse_mode: str = "MarkdownV2",
+        parse_mode: str = "HTML",
         **kwargs,
     ) -> bool:
         """Send a message to the default channel/chat"""
@@ -111,7 +111,7 @@ class TelegramService:
     def _send_single_message(
         self,
         message: str,
-        parse_mode: str = "MarkdownV2",
+        parse_mode: str = "HTML",
     ) -> bool:
         """Send a single message chunk"""
         try:
@@ -119,6 +119,8 @@ class TelegramService:
 
             if parse_mode == "MarkdownV2":
                 formatted_message = self.convert_markdown_to_telegram(message)
+            elif parse_mode == "HTML":
+                formatted_message = self.convert_markdown_to_html(message)
             else:
                 formatted_message = message
 

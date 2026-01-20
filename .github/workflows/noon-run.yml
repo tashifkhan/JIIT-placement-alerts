@@ -43,7 +43,7 @@ jobs:
       - name: Run offical scrapping script
         working-directory: app
         run: |
-          uv run official_placement.py
+          uv run main.py official
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

@@ -13,6 +13,131 @@ from typing import List, Optional, Dict, Any, Tuple
 from pydantic import BaseModel, Field
 
 from core.config import safe_print, get_settings
+from langchain_core.prompts import ChatPromptTemplate
+
+
+# ============================================================================
+# LLM Prompts
+# ============================================================================
+
+POLICY_EXTRACTION_PROMPT = ChatPromptTemplate.from_template(
+    """
+You are a precise technical editor and data transformer for a campus placement portal.
+
+GOAL
+Convert the INPUT (raw email thread / forwarded email text) into:
+1) A clean, student-friendly Placement Policy in Markdown (Option A)
+2) A MongoDB-importable JSON document representing that policy
+
+IMPORTANT RULES (NO HALLUCINATION)
+- Do not invent new policy clauses or numbers.
+- Do not "improve" the policy meaning. You may rephrase ONLY for clarity when the meaning is identical.
+- If something is ambiguous (dates/effective period/batches), keep it exactly as stated and add a "notes" array in JSON explaining what's missing/ambiguous.
+- Preserve currency amounts, thresholds, joining months, counts (e.g., "five additional chances"), and exceptions exactly.
+
+SECURITY / SANITIZATION
+- Remove tracking links, scripts, and any HTML/script snippets if present.
+- Remove Google Groups unsubscribe footer and mailing list boilerplate.
+- Remove repeated lines, duplicated paragraphs, and quoted email headers except essential source attribution.
+
+OUTPUT FORMAT (STRICT)
+Return ONLY valid JSON (no Markdown fences, no explanation).
+The JSON must be a single-element array: [ {{ ...policyDoc }} ]
+No trailing commas.
+Newlines inside the Markdown content must be encoded as "\\n" inside the JSON string.
+
+TARGET JSON SHAPE (MONGO DOCUMENT)
+Produce exactly these top-level fields:
+
+{{
+  "slug": string,
+  "title": string,
+  "description": string,
+  "badge": string,
+  "updatedDates": [ ISODateString ],
+  "published": true,
+  "contentFormat": "markdown",
+  "toc": [ {{ "id": string, "text": string, "level": 2 or 3 }} ],
+  "content": string,
+  "source": {{
+    "from": string,
+    "subject": string,
+    "date": ISODateString,
+    "audience": string | null
+  }},
+  "notes": [ string ]
+}}
+
+SLUG / TITLE / METADATA RULES
+- Derive batch year and scope from Subject line when possible:
+  e.g. "Placement Policy - 2027 Graduating Batches; Engineering and MCA"
+  => slug: "placement-policy-2027"
+  => badge: "Placement Policy 2027"
+  => title: "Jaypee Universities Placement Policy (2027 Graduating Batches) — Engineering and MCA"
+  => description: same as title unless the email provides a better one.
+- updatedDates must include the email's sent date in ISO format (YYYY-MM-DDT00:00:00.000Z). If the email includes multiple update dates, include all.
+- source.date: use the email date; if missing, leave null and add a note.
+
+MARKDOWN POLICY CONTENT RULES
+- The Markdown must render cleanly with GitHub Flavored Markdown (GFM): headings, lists, emphasis.
+- Do NOT include raw HTML unless absolutely required. (Usually not needed for policy emails.)
+- Structure:
+  - Start with a short intro paragraph (1–3 lines) based ONLY on the email's introductory part.
+  - Then convert "Policy Provisions …" into well-structured sections.
+  - End with "Key Takeaways" (bullet list) summarizing the policy WITHOUT adding new information.
+- Heading levels:
+  - Use "##" for major sections (these must become TOC level 2).
+  - Use "###" for subsections (TOC level 3) ONLY when the email clearly has subparts (like (a), (b), (c) groups or named subsections).
+- Lists:
+  - Convert (a), (b), (c) into nested bullet lists under the relevant section.
+  - Keep numbering exactly when it matters (e.g., policy item numbers 1–12). Prefer headings for each major numbered item, but do not lose the original numbering. Example:
+    "1. Other Than Mass Recruitment Drives" becomes:
+    "## 1. Other Than Mass Recruitment Drives"
+- Terminology:
+  - Keep terms like "Mass Recruitment Drives", "HackWithInfy", "BD Roles", "PPO", "T&P" exactly.
+  - Preserve "cannot be declined" vs "cannot be declined once announced" precisely (don't merge if distinct).
+
+HEADING IDS FOR TOC
+- For every "##" and "###", generate a stable id using:
+  - lowercase
+  - replace & with "and"
+  - remove quotes and punctuation
+  - replace spaces with hyphens
+  - collapse multiple hyphens
+Examples:
+  "## 2. Mass Recruitment Drives and HackWithInfy."
+  => id: "2-mass-recruitment-drives-and-hackwithinfy"
+  "## Business Development (BD) Roles"
+  => id: "business-development-bd-roles"
+- The TOC must be in the same order as content.
+- TOC should include all H2 sections. Include H3 subsections only if they are meaningful (not every trivial line).
+
+CONTENT NORMALIZATION
+- Fix obvious formatting issues from email:
+  - normalize inconsistent spacing
+  - fix broken bullet indentation
+  - remove repeated heading punctuation like extra periods
+- Do NOT change dates (Jun 2026 vs June 2026), but you may standardize month spelling if it doesn't alter meaning. Prefer to keep as written.
+
+KEY TAKEAWAYS
+- At the end, add:
+  "## Key Takeaways"
+  with 5–10 bullets summarizing:
+  - upgrade rules (2x)
+  - mass recruitment participation constraints
+  - BD role special rules
+  - off-campus approval consequence
+  - internship-only virtual drives constraints
+  - discipline points (offer cannot be declined, attendance, etc.)
+Only summarize what exists. No new advice.
+
+INPUT
+Here is the raw email thread to convert:
+
+Email here
+{email_content}
+"""
+)
 
 
 # ============================================================================

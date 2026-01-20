@@ -20,9 +20,11 @@ from langgraph.graph import StateGraph, END
 from core import safe_print, get_settings
 from services.google_groups_client import GoogleGroupsClient
 from services.notice_formatter_service import NoticeFormatterService
+
 from services.placement_policy_service import (
     PlacementPolicyService,
     ExtractedPolicyUpdate,
+    POLICY_EXTRACTION_PROMPT,
 )
 
 
@@ -450,6 +452,83 @@ class EmailNoticeService:
             json_content = self._extract_json(str(response.content))
             data = json.loads(json_content)
 
+            # Check for policy update
+            # Check for policy update
+            if data.get("is_policy_update"):
+                safe_print(
+                    "Detected placement policy update - Running advanced extraction..."
+                )
+
+                # Run second pass with specialized prompt
+                policy_chain = POLICY_EXTRACTION_PROMPT | self.llm
+                email_content_str = f"Subject: {email_data.get('subject', '')}\nFrom: {email_data.get('sender', '')}\nDate: {email_data.get('date', '')}\n\n{email_data.get('body', '')}"
+
+                policy_response = policy_chain.invoke(
+                    {"email_content": email_content_str}
+                )
+
+                # Extract JSON from response
+                policy_json_str = self._extract_json(str(policy_response.content))
+                policy_docs = json.loads(policy_json_str)
+
+                if isinstance(policy_docs, list) and len(policy_docs) > 0:
+                    p_doc = policy_docs[0]
+
+                    # Convert to ExtractedPolicyUpdate
+                    # Note mapping: p_doc matches PolicyDocument structure closely
+
+                    # Extract year if possible from slug or badge
+                    extracted_year = None
+                    # Try to find year in slug (placement-policy-2027)
+                    import re
+
+                    year_match = re.search(r"20\d{2}", p_doc.get("slug", ""))
+                    if not year_match:
+                        year_match = re.search(r"20\d{2}", p_doc.get("badge", ""))
+                    if year_match:
+                        extracted_year = int(year_match.group(0))
+
+                    policy_data = {
+                        "is_policy_update": True,
+                        "year": extracted_year,
+                        "title": p_doc.get("title"),
+                        "content": p_doc.get("content"),
+                        "update_date": p_doc.get("updatedDates", [None])[0],
+                        "summary": p_doc.get(
+                            "description"
+                        ),  # Use description as summary
+                        # We could also pass the full raw doc if needed, but ExtractedPolicyUpdate doesn't support it yet
+                    }
+
+                    policy_extract = ExtractedPolicyUpdate(**policy_data)
+
+                    return {
+                        **state,
+                        "is_policy_update": True,
+                        "extracted_policy": policy_extract,
+                        "rejection_reason": "Policy update handled separately",
+                    }
+                else:
+                    safe_print(
+                        "Advanced policy extraction failed to return a list, falling back to basic."
+                    )
+                    # Fallback to basic data if advanced failed (though it shouldn't)
+                    policy_data = {
+                        "is_policy_update": True,
+                        "year": data.get("year"),
+                        "title": data.get("title"),
+                        "content": data.get("content"),
+                        "update_date": data.get("update_date"),
+                        "summary": data.get("summary"),
+                    }
+                    policy_extract = ExtractedPolicyUpdate(**policy_data)
+                    return {
+                        **state,
+                        "is_policy_update": True,
+                        "extracted_policy": policy_extract,
+                        "rejection_reason": "Policy update handled separately (basic fallback)",
+                    }
+
             if not data.get("is_notice", False):
                 rejection_reason = data.get(
                     "rejection_reason", "LLM determined this is not a valid notice"
@@ -459,26 +538,6 @@ class EmailNoticeService:
                     **state,
                     "extracted_notice": None,
                     "rejection_reason": rejection_reason,
-                }
-
-            # Check for policy update
-            if data.get("is_policy_update"):
-                safe_print("Detected placement policy update")
-                policy_data = {
-                    "is_policy_update": True,
-                    "year": data.get("year"),
-                    "title": data.get("title"),
-                    "content": data.get("content"),
-                    "update_date": data.get("update_date"),
-                    "summary": data.get("summary"),
-                }
-                policy_extract = ExtractedPolicyUpdate(**policy_data)
-
-                return {
-                    **state,
-                    "is_policy_update": True,
-                    "extracted_policy": policy_extract,
-                    "rejection_reason": "Policy update handled separately",
                 }
 
             notice = ExtractedNotice(**data)

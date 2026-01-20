@@ -185,8 +185,9 @@ class DatabaseService:
         try:
             if self.notices_collection is None:
                 return []
-            cursor = self.notices_collection.find().sort("created_at", -1).limit(limit)
+            cursor = self.notices_collection.find().sort("saved_at", -1).limit(limit)
             return list(cursor)
+
         except Exception as e:
             safe_print(f"Error getting all notices: {e}")
             return []

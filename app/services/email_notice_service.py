@@ -932,21 +932,17 @@ class EmailNoticeService:
                     msg_parts.append(
                         f"**{company}** ({len(company_students)} students)"
                     )
-                    for s in company_students[:20]:
+                    for s in company_students:
                         name = s.get("name", "Unknown")
                         enrollment = s.get("enrollment", "N/A")
-                        msg_parts.append(f"  - {name} ({enrollment})")
-                    if len(company_students) > 20:
-                        msg_parts.append(f"  ... and {len(company_students) - 20} more")
+                        msg_parts.append(f"- {name} ({enrollment})")
                     msg_parts.append("")
             else:
                 # No company grouping, just list students
-                for s in students[:50]:
+                for s in students:
                     name = s.get("name", "Unknown")
                     enrollment = s.get("enrollment", "N/A")
                     msg_parts.append(f"- {name} ({enrollment})")
-                if len(students) > 50:
-                    msg_parts.append(f"\n... and {len(students) - 50} more students")
 
             if notice.content:
                 msg_parts.append(f"\n{notice.content}")

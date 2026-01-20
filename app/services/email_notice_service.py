@@ -20,6 +20,10 @@ from langgraph.graph import StateGraph, END
 from core import safe_print, get_settings
 from services.google_groups_client import GoogleGroupsClient
 from services.notice_formatter_service import NoticeFormatterService
+from services.placement_policy_service import (
+    PlacementPolicyService,
+    ExtractedPolicyUpdate,
+)
 
 
 # ============================================================================
@@ -128,6 +132,8 @@ class NoticeGraphState(TypedDict):
     extracted_notice: Optional[ExtractedNotice]
     validation_errors: Optional[List[str]]
     retry_count: Optional[int]
+    extracted_policy: Optional[ExtractedPolicyUpdate]
+    is_policy_update: Optional[bool]
 
 
 # NOTE: Classification is now fully LLM-based - no keyword filtering
@@ -156,6 +162,18 @@ If this is a PLACEMENT OFFER (announcing final selected candidates with their pa
 }}
 ```
 
+}}
+```
+
+If this is a PLACEMENT POLICY UPDATE (policy document, rules, guidelines for placements, annual policy), return:
+```json
+{{
+    "is_notice": false,
+    "is_policy_update": true,
+    "rejection_reason": "This is a placement policy update"
+}}
+```
+
 If this is SPAM or irrelevant, return:
 ```json
 {{
@@ -163,6 +181,7 @@ If this is SPAM or irrelevant, return:
     "rejection_reason": "Explain why it's spam/irrelevant"
 }}
 ```
+
 
 **PHASE 2: EXTRACTION (only if valid notice)**
 
@@ -237,6 +256,15 @@ Just use base fields. Content should capture the full announcement.
 Required fields:
 - deadline: The deadline being reminded about (ISO format)
 Optional: original_notice (what this is a reminder for)
+**9. policy_update** - Updates to placement policy
+Required fields:
+- extracted_policy: Object with fields:
+    - is_policy_update: true
+    - year: Graduate batch year (e.g. 2026)
+    - title: "Placement Policy"
+    - content: Full policy text in markdown
+    - update_date: ISO date
+    - summary: Brief summary of changes
 
 **EXAMPLE RESPONSES:**
 
@@ -318,6 +346,7 @@ class EmailNoticeService:
         email_client: Optional[GoogleGroupsClient] = None,
         google_api_key: Optional[str] = None,
         db_service: Optional[Any] = None,
+        policy_service: Optional[PlacementPolicyService] = None,
         model: str = "gemini-2.5-pro",
     ):
         """
@@ -327,8 +356,10 @@ class EmailNoticeService:
             email_client: GoogleGroupsClient instance for fetching emails
             google_api_key: API key for LLM
             db_service: Database service for saving notices
+            policy_service: Optional injected PlacementPolicyService
             model: LLM model to use
         """
+
         self.logger = logging.getLogger(self.__class__.__name__)
 
         self.email_client = email_client or GoogleGroupsClient()
@@ -337,6 +368,14 @@ class EmailNoticeService:
 
         # Initialize formatter service for notice formatting
         self.formatter_service = NoticeFormatterService(google_api_key=api_key)
+
+        # Use injected policy service or create new (fallback)
+        if policy_service:
+            self.policy_service = policy_service
+        else:
+            self.policy_service = PlacementPolicyService(
+                db_service=db_service, google_api_key=api_key
+            )
 
         # Initialize LLM
         self.llm = ChatGoogleGenerativeAI(
@@ -420,6 +459,26 @@ class EmailNoticeService:
                     **state,
                     "extracted_notice": None,
                     "rejection_reason": rejection_reason,
+                }
+
+            # Check for policy update
+            if data.get("is_policy_update"):
+                safe_print("Detected placement policy update")
+                policy_data = {
+                    "is_policy_update": True,
+                    "year": data.get("year"),
+                    "title": data.get("title"),
+                    "content": data.get("content"),
+                    "update_date": data.get("update_date"),
+                    "summary": data.get("summary"),
+                }
+                policy_extract = ExtractedPolicyUpdate(**policy_data)
+
+                return {
+                    **state,
+                    "is_policy_update": True,
+                    "extracted_policy": policy_extract,
+                    "rejection_reason": "Policy update handled separately",
                 }
 
             notice = ExtractedNotice(**data)
@@ -598,10 +657,20 @@ class EmailNoticeService:
             "rejection_reason": None,
             "extracted_notice": None,
             "validation_errors": None,
+            "validation_errors": None,
             "retry_count": 0,
+            "extracted_policy": None,
+            "is_policy_update": False,
         }
 
         result = self.app.invoke(initial_state)
+
+        # Handle policy update
+        if result.get("is_policy_update") and result.get("extracted_policy"):
+            self.policy_service.process_policy_email(
+                email_data, result.get("extracted_policy")
+            )
+            return None  # Return None as it's not a standard notice
 
         notice = result.get("extracted_notice")
         if not notice or not result.get("is_relevant"):

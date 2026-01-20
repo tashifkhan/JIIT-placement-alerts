@@ -43,6 +43,7 @@ class DatabaseService:
         self.jobs_collection = None
         self.placement_offers_collection = None
         self.users_collection = None
+        self.policies_collection = None
 
         self.logger.info("Initializing DatabaseService")
         self.connect()
@@ -63,6 +64,7 @@ class DatabaseService:
             self.jobs_collection = self.db["Jobs"]
             self.placement_offers_collection = self.db["PlacementOffers"]
             self.users_collection = self.db["Users"]
+            self.policies_collection = self.db["Policies"]
 
             # Test connection
             self.client.admin.command("ping")
@@ -760,3 +762,69 @@ class DatabaseService:
         except Exception as e:
             safe_print(f"Error getting user stats: {e}")
             return {}
+
+    def get_policy_by_year(self, year: int) -> Optional[Dict[str, Any]]:
+        """Get a policy document by year"""
+        try:
+            if self.policies_collection is None:
+                return None
+            return self.policies_collection.find_one({"year": year})
+
+        except Exception as e:
+            safe_print(f"Error fetching policy for year {year}: {e}")
+            return None
+
+    def upsert_policy(self, policy: Dict[str, Any]) -> Tuple[bool, str]:
+        """Insert or update a policy document"""
+        try:
+            if self.policies_collection is None:
+                return False, "Policies collection not initialized"
+
+            year = policy.get("year")
+            if not year:
+                return False, "Missing policy year"
+
+            # Check if policy exists for this year
+            existing = self.policies_collection.find_one({"year": year})
+
+            if existing:
+                # Calculate what specifically changed for logging
+                # (Simple check primarily on content/updatedDates)
+                pass
+
+            result = self.policies_collection.update_one(
+                {"year": year}, {"$set": policy}, upsert=True
+            )
+
+            if result.upserted_id:
+                safe_print(f"Created new policy for year {year}")
+                return True, str(result.upserted_id)
+
+            elif result.modified_count > 0:
+                safe_print(f"Updated policy for year {year}")
+                return True, "updated"
+
+            else:
+                safe_print(f"Policy for year {year} unchanged")
+                return True, "unchanged"
+
+        except Exception as e:
+            safe_print(f"Error upserting policy: {e}")
+            return False, str(e)
+
+    def get_all_policies(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get all policies with optional limit"""
+        try:
+            if self.policies_collection is None:
+                return []
+
+            cursor = (
+                self.policies_collection.find({"published": True})
+                .sort("year", -1)
+                .limit(limit)
+            )
+            return list(cursor)
+
+        except Exception as e:
+            safe_print(f"Error getting all policies: {e}")
+            return []

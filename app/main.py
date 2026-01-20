@@ -76,7 +76,9 @@ def cmd_update_emails(args):
     from services.placement_service import PlacementService
     from services.placement_notification_formatter import PlacementNotificationFormatter
     from services.google_groups_client import GoogleGroupsClient
+
     from services.email_notice_service import EmailNoticeService
+    from services.placement_policy_service import PlacementPolicyService
 
     logger = logging.getLogger(__name__)
     safe_print("Starting email updates (placement offers + general notices)...")
@@ -84,6 +86,7 @@ def cmd_update_emails(args):
     # Create shared dependencies
     db = DatabaseService()
     email_client = GoogleGroupsClient()
+    policy_service = PlacementPolicyService(db_service=db)
 
     # Create services (without email_client - we'll orchestrate manually)
     notification_formatter = PlacementNotificationFormatter(db_service=db)
@@ -96,6 +99,7 @@ def cmd_update_emails(args):
     notice_service = EmailNoticeService(
         email_client=email_client,  # For its processing logic
         db_service=db,
+        policy_service=policy_service,
     )
 
     logger.info("Created services for orchestrated email processing")

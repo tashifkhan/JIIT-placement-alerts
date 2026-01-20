@@ -667,7 +667,8 @@ class EmailNoticeService:
         # Extract author from email sender (prioritize forwarded sender)
         body = email_data.get("body", "")
         forwarded_sender = GoogleGroupsClient.extract_forwarded_sender(body)
-        author = forwarded_sender or email_data.get("sender") or "EmailNoticeBot"
+        raw_author = forwarded_sender or email_data.get("sender") or "EmailNoticeBot"
+        author = re.sub(r"\s*<[^>]+>", "", raw_author).strip()
 
         time_sent = email_data.get("time_sent")
         post_date = (

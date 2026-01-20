@@ -44,7 +44,7 @@ class ExtractedNotice(BaseModel):
     additional_info: Optional[str] = Field(None, description="Other details")
 
     # Shortlisting / Internship NOC fields
-    students: Optional[List[Dict[str, str]]] = Field(
+    students: Optional[List[Dict[str, Optional[str]]]] = Field(
         None,
         description="List of students with name, enrollment, and optionally company",
     )
@@ -224,8 +224,8 @@ Optional fields:
 
 **5. internship_noc** - List of students joining internships, NOC lists
 Required fields:
-- students: Array of {{"name": "Full Name", "enrollment": "Enrollment Number", "company": "Company Name"}}
-Optional: noc_type (e.g., "Summer Internship", "6-month Internship")
+- students: Array of {{"name": "Full Name", "enrollment": "Enrollment Number"}} with optional "company" field if mentioned
+Optional: noc_type (e.g., "Summer Internship", "6-month Internship"), company_name (if a single company for all)
 
 **6. update** - Updates on ongoing processes, status changes, minor operational info
 Just use base fields. Content should summarize the update clearly.

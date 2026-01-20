@@ -381,24 +381,35 @@ class TelegramService:
         # Add extra line after Deadline
         text = re.sub(r"(?m)^(.*Deadline:.*)$", r"\1\n", text)
 
+        # Convert markdown links [text](url) to HTML <a> tags FIRST
+        # This must happen before other conversions to avoid conflicts
+        text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', text)
+
+        # Convert email addresses in angle brackets <email@example.com> to links
+        text = re.sub(
+            r"<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>",
+            r'<a href="mailto:\1">\1</a>',
+            text,
+        )
+
         # Headers to bold
         text = re.sub(r"^##\s+(.*?)$", r"<b>\1</b>", text, flags=re.MULTILINE)
         text = re.sub(r"^###\s+(.*?)$", r"<b>\1</b>", text, flags=re.MULTILINE)
 
-        # Bold **...**
-        text = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", text)
+        # Bold **...** (allow newlines inside with DOTALL)
+        text = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", text, flags=re.DOTALL)
 
-        # Italic _..._
-        text = re.sub(r"_(.*?)_", r"<i>\1</i>", text)
+        # Italic _..._  (simple approach - URLs typically don't use single underscores for emphasis)
+        text = re.sub(r"(?<!\w)_([^_\n]+)_(?!\w)", r"<i>\1</i>", text)
 
         # Blockquotes
         text = re.sub(r"^>\s+(.*?)$", r"<i>\1</i>", text, flags=re.MULTILINE)
 
         # Inline code
-        text = re.sub(r"`(.*?)`", r"<code>\1</code>", text)
+        text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
 
-        # Single *...* to italic
-        text = re.sub(r"(?<!\*)\*(?!\*)(.*?)\*(?!\*)", r"<i>\1</i>", text)
+        # Single *...* to italic (but not inside URLs)
+        text = re.sub(r"(?<!\*)\*(?!\*)([^*]+)\*(?!\*)", r"<i>\1</i>", text)
 
         # Collapse excessive blank lines
         text = re.sub(r"\n{3,}", "\n\n", text).strip()

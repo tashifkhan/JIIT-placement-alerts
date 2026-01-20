@@ -378,8 +378,8 @@ class NoticeFormatterService:
 
         msg_parts = [f"**{title}**\n"]
 
-        # --- Simple passthrough formatting for 'update' or 'announcement' ---
-        if cat in {"update", "announcement"}:
+        # --- Simple passthrough formatting for 'announcement' ---
+        if cat == "announcement":
             raw_text = state.get("raw_text", "")
             prettified = self._prettify_raw_text(raw_text)
 
@@ -388,6 +388,62 @@ class NoticeFormatterService:
             state["formatted_message"] = prettified
 
             print("--- 5. Message Formatted (passthrough) ---")
+            return state
+
+        # --- Well-formatted update notices using LLM ---
+        if cat == "update":
+            company_name = job.company if job else data.get("company_name", "")
+            role = job.job_profile if job else data.get("role", "")
+            raw_text = state.get("raw_text", "")
+
+            # Build context for LLM
+            context_parts = [f"Title: {title}", f"Content:\n{raw_text}"]
+            if company_name:
+                context_parts.append(f"Company: {company_name}")
+            if role:
+                context_parts.append(f"Role: {role}")
+            if job_location:
+                context_parts.append(f"Location: {job_location}")
+            if job:
+                package_info = self._format_package(job.package, job.annum_months)
+                if package_info:
+                    context_parts.append(f"Package: {package_info}")
+
+            context = "\n".join(context_parts)
+
+            format_prompt = ChatPromptTemplate.from_messages(
+                [
+                    (
+                        "system",
+                        "You are a message formatter for placement/job update notifications. "
+                        "Format the given notice into a clean, concise Telegram message.\n\n"
+                        "Rules:\n"
+                        "- Use **bold** for key labels only (Company, Role, Date, Location, etc.)\n"
+                        "- Use bullet points (-) for listing key information\n"
+                        "- Remove redundant/repetitive text\n"
+                        "- Fix line breaks - no excessive blank lines\n"
+                        "- Keep it concise - only essential info\n"
+                        "- Use at most 1 emoji at the start as a header indicator\n"
+                        "- Do NOT repeat information already shown\n"
+                        "- End with a single line break before footer\n\n"
+                        "Output ONLY the formatted message text, nothing else.",
+                    ),
+                    (
+                        "human",
+                        "{context}",
+                    ),
+                ]
+            )
+
+            chain = format_prompt | self.llm
+            result = chain.invoke({"context": context})
+            formatted_content = self._ensure_str_content(result.content).strip()
+
+            # Add footer
+            formatted_content += f"\n\n*Posted by:* {notice.author}\n*On:* {post_date}"
+
+            state["formatted_message"] = formatted_content
+            print("--- 5. Message Formatted (update via LLM) ---")
             return state
 
         if cat == "shortlisting":

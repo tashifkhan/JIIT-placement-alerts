@@ -93,18 +93,41 @@ class UpdateRunner:
         notices = [n for n in all_notices if n.id not in existing_notice_ids]
         safe_print(f"Found {len(all_notices)} notices ({len(notices)} new)")
 
-        # Fetch jobs and filter out existing ones (for detail fetching)
-        safe_print("Fetching job listings...")
-        all_jobs = self.scraper.get_job_listings(users)
-        new_jobs_list = [j for j in all_jobs if j.id not in existing_job_ids]
-        safe_print(f"Found {len(all_jobs)} job listings ({len(new_jobs_list)} new)")
+        # Fetch basic job listings first (fast, no detail API calls)
+        safe_print("Fetching basic job listings...")
+        all_jobs_basic = self.scraper.get_job_listings_basic(users)
+        safe_print(f"Found {len(all_jobs_basic)} job listings")
+
+        # Filter for new jobs before fetching expensive details
+        new_jobs_basic = [
+            j
+            for j in all_jobs_basic
+            if j.get("jobProfileIdentifier") not in existing_job_ids
+        ]
+        safe_print(f"Found {len(new_jobs_basic)} new jobs to enrich")
+
+        # Enrich only new jobs with detailed info (expensive API calls)
+        enriched_new_jobs = []
+        if new_jobs_basic:
+            safe_print("Enriching new jobs with detailed info...")
+            detail_user = users[0]
+            enriched_new_jobs = self.scraper.enrich_jobs(detail_user, new_jobs_basic)
+            safe_print(f"Enriched {len(enriched_new_jobs)} jobs with details")
+
+        # For notice linking, structure existing jobs from basic info only (without API calls)
+        # This is sufficient for matching company names in notices
+        all_jobs_for_linking = enriched_new_jobs + [
+            self.scraper.structure_job_listing(j)
+            for j in all_jobs_basic
+            if j.get("jobProfileIdentifier") in existing_job_ids
+        ]
 
         # Process only new notices (use all_jobs for linking)
-        new_notices = self._process_notices(notices, all_jobs)
+        new_notices = self._process_notices(notices, all_jobs_for_linking)
         safe_print(f"Saved {new_notices} new notices")
 
-        # Process only new jobs
-        new_jobs = self._process_jobs(new_jobs_list)
+        # Process only new jobs (already enriched)
+        new_jobs = self._process_jobs(enriched_new_jobs)
         safe_print(f"Saved {new_jobs} new jobs")
 
         return {"notices": new_notices, "jobs": new_jobs}

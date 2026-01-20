@@ -449,20 +449,24 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
 
         return Job(**tmp)
 
-    def get_job_listings(
+    def get_job_listings_basic(
         self,
         users: Union[User, List[User]],
         limit: Optional[int] = None,
-    ) -> List[Job]:
+    ) -> List[dict]:
         """
-        Fetch job listings from SuperSet.
+        Fetch basic job listings from SuperSet WITHOUT detailed information.
+
+        This is a lightweight call that returns only the summary info from the
+        job listings endpoint. Use enrich_jobs() to fetch full details for
+        specific jobs.
 
         Args:
             users: User session(s) to use
             limit: Maximum number of jobs to fetch
 
         Returns:
-            List of Job objects
+            List of raw job dicts with basic info (id, company, title, etc.)
         """
         if isinstance(users, User):
             users = [users]
@@ -507,28 +511,92 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
         if limit is not None:
             job_listings_sorted = job_listings_sorted[:limit]
 
-        # Fetch details
+        self.logger.info(f"Fetched {len(job_listings_sorted)} basic job listings")
+        return job_listings_sorted
+
+    def enrich_job(self, user: User, job: dict) -> Job:
+        """
+        Enrich a single job with detailed information and return structured Job.
+
+        Args:
+            user: User session to use for API calls
+            job: Raw job dict from get_job_listings_basic()
+
+        Returns:
+            Fully structured Job object with details and document URLs
+        """
+        job_id = job.get("jobProfileIdentifier")
+        if job_id:
+            job["jobDetails"] = self.get_job_details(user, job_id)
+
+        structured_job = self.structure_job_listing(job)
+
+        # Fetch document URLs
+        if job_id and structured_job.documents:
+            for doc in structured_job.documents:
+                if doc.identifier:
+                    doc.url = self.get_document_url(user, job_id, doc.identifier)
+
+        return structured_job
+
+    def enrich_jobs(
+        self,
+        user: User,
+        jobs: List[dict],
+    ) -> List[Job]:
+        """
+        Enrich multiple jobs with detailed information.
+
+        Args:
+            user: User session to use for API calls
+            jobs: List of raw job dicts from get_job_listings_basic()
+
+        Returns:
+            List of fully structured Job objects
+        """
+        enriched_jobs: List[Job] = []
+        for job in jobs:
+            try:
+                enriched = self.enrich_job(user, job)
+                enriched_jobs.append(enriched)
+
+            except Exception as e:
+                job_id = job.get("jobProfileIdentifier", "unknown")
+                self.logger.error(f"Error enriching job {job_id}: {e}")
+
+        self.logger.info(f"Enriched {len(enriched_jobs)} jobs with details")
+        return enriched_jobs
+
+    def get_job_listings(
+        self,
+        users: Union[User, List[User]],
+        limit: Optional[int] = None,
+    ) -> List[Job]:
+        """
+        Fetch job listings from SuperSet with full details.
+
+        NOTE: This fetches details for ALL jobs. For better performance when
+        you only need details for new jobs, use:
+          1. get_job_listings_basic() - get basic listing
+          2. Filter for new jobs
+          3. enrich_jobs() - get details only for new ones
+
+        Args:
+            users: User session(s) to use
+            limit: Maximum number of jobs to fetch
+
+        Returns:
+            List of Job objects with full details
+        """
+        if isinstance(users, User):
+            users = [users]
+
+        # Get basic listings first
+        job_listings = self.get_job_listings_basic(users, limit)
+
+        # Enrich all jobs with details
         detail_user = users[0]
-        for job in job_listings_sorted:
-            job_id = job.get("jobProfileIdentifier")
-            if job_id:
-                job["jobDetails"] = self.get_job_details(detail_user, job_id)
-
-        # Structure jobs
-        formatted_job_listings: List[Job] = []
-        for job in job_listings_sorted:
-            structured_job = self.structure_job_listing(job)
-
-            # Fetch document URLs
-            job_id = job.get("jobProfileIdentifier")
-            if job_id and structured_job.documents:
-                for doc in structured_job.documents:
-                    if doc.identifier:
-                        doc.url = self.get_document_url(
-                            detail_user, job_id, doc.identifier
-                        )
-
-            formatted_job_listings.append(structured_job)
+        formatted_job_listings = self.enrich_jobs(detail_user, job_listings)
 
         self.logger.info(f"Fetched {len(formatted_job_listings)} job listings")
         return formatted_job_listings

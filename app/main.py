@@ -426,6 +426,11 @@ EXAMPLES
 
     # Official command
     official_parser = subparsers.add_parser("official", help="Update official data")
+    official_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Run without saving to database",
+    )
 
     # Update Supersets command
     subparsers.add_parser(

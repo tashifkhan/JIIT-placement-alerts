@@ -46,6 +46,7 @@ class BotServer:
         db_service: Optional[Any] = None,
         notification_service: Optional[Any] = None,
         admin_service: Optional[Any] = None,
+        stats_service: Optional[Any] = None,
         daemon_mode: bool = False,
     ):
         """
@@ -56,6 +57,7 @@ class BotServer:
             db_service: Database service instance
             notification_service: Notification service instance
             admin_service: Admin service instance
+            stats_service: PlacementStatsCalculatorService instance
             daemon_mode: Run in daemon mode (suppress stdout)
         """
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -66,6 +68,7 @@ class BotServer:
         self.db_service = db_service
         self.notification_service = notification_service
         self.admin_service = admin_service
+        self.stats_service = stats_service
 
         # Bot setup
         self.bot_token = self.settings.telegram_bot_token
@@ -252,24 +255,50 @@ The bot automatically sends:
         if not update.message:
             return
 
-        if not self.db_service:
+        if not self.stats_service:
             await update.message.reply_text("Statistics temporarily unavailable.")
             return
 
-        stats = self.db_service.get_placement_stats()
-
-        if "error" in stats:
-            await update.message.reply_text(f"Error: {stats['error']}")
+        try:
+            stats = self.stats_service.calculate_all_stats()
+        except Exception as e:
+            self.logger.error(f"Error calculating stats: {e}")
+            await update.message.reply_text(f"Error calculating stats: {e}")
             return
 
-        stats_msg = f"""
-📊 **Placement Statistics**
+        # Format branch stats
+        branch_lines = []
+        branch_stats = stats.get("branch_stats", {})
+        for branch in ["CSE", "ECE", "IT", "BT", "Intg. MTech"]:
+            bs = branch_stats.get(branch)
+            if bs:
+                pct = bs.get("placement_percentage", 0)
+                unique = bs.get("unique_students", 0)
+                total = bs.get("total_students_in_branch", 0)
+                avg = bs.get("avg_package", 0)
+                median = bs.get("median_package", 0)
+                branch_lines.append(
+                    f"  • {branch}: {unique}/{total} ({pct:.1f}%)\n      Avg: ₹{avg:.1f}L | Median: ₹{median:.1f}L"
+                )
 
-👥 Total Students Placed: {stats.get('total_students_placed', 0)}
-🏢 Companies: {stats.get('unique_companies', 0)}
-💰 Average Package: ₹{stats.get('average_package', 0)/100000:.1f} LPA
-📈 Highest Package: ₹{stats.get('highest_package', 0)/100000:.1f} LPA
-        """
+        branch_section = "\n".join(branch_lines) if branch_lines else "  No data"
+
+        stats_msg = f"""📊 *Placement Statistics*
+
+👥 Unique Students Placed: *{stats.get('unique_students_placed', 0)}*
+📝 Total Offers: *{stats.get('total_offers', 0)}*
+🏢 Companies: *{stats.get('unique_companies', 0)}*
+
+💰 *Package Stats (LPA)*
+  • Average: ₹{stats.get('average_package', 0):.2f}L
+  • Median: ₹{stats.get('median_package', 0):.2f}L
+  • Highest: ₹{stats.get('highest_package', 0):.2f}L
+
+📈 *Branch-wise Placement*
+{branch_section}
+
+📊 Overall: *{stats.get('placement_percentage', 0):.1f}%* ({stats.get('unique_students_placed', 0)}/{stats.get('total_eligible_students', 0)})
+"""
 
         await update.message.reply_text(stats_msg, parse_mode="Markdown")
 
@@ -436,6 +465,9 @@ def create_bot_server(
     from services.notification_service import NotificationService
     from services.telegram_service import TelegramService
     from services.admin_telegram_service import AdminTelegramService
+    from services.placement_stats_calculator_service import (
+        PlacementStatsCalculatorService,
+    )
 
     settings = settings or get_settings()
 
@@ -458,11 +490,15 @@ def create_bot_server(
         settings=settings, db_service=db_service, telegram_service=telegram_service
     )
 
+    # Stats Calculator Service
+    stats_service = PlacementStatsCalculatorService(db_service=db_service)
+
     return BotServer(
         settings=settings,
         db_service=db_service,
         notification_service=notification_service,
         admin_service=admin_service,
+        stats_service=stats_service,
         daemon_mode=daemon_mode,
     )
 

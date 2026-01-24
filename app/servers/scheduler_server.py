@@ -88,8 +88,8 @@ class SchedulerServer:
 
         try:
             # Import the same modules used by main.py commands
-            from servers.update_runner import fetch_and_process_updates
-            from servers.notification_runner import send_updates
+            from runners.update_runner import fetch_and_process_updates
+            from runners.notification_runner import send_updates
 
             # Step 1: Fetch updates (SuperSet + Emails)
             # This mirrors cmd_update() in main.py

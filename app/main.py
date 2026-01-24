@@ -27,8 +27,8 @@ import logging
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core.config import get_settings, setup_logging, set_daemon_mode, safe_print
-from servers.update_runner import fetch_and_process_updates
-from servers.notification_runner import send_updates
+from runners.update_runner import fetch_and_process_updates
+from runners.notification_runner import send_updates
 
 
 def cmd_bot(args):

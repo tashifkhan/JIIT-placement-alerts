@@ -287,7 +287,7 @@ class SchedulerServer:
             time(21, 0),  # 9:00 PM
             time(22, 0),  # 10:00 PM
             time(23, 0),  # 11:00 PM
-            time(24, 0),  # 12:00 AM
+            time(0, 0),  # 12:00 AM
         ]
 
         for t in schedule_times:
@@ -319,18 +319,25 @@ class SchedulerServer:
 
     async def run_async(self) -> None:
         """Run scheduler asynchronously"""
-        # Setup logging
-        setup_logging(self.settings)
+        try:
+            # Setup logging
+            setup_logging(self.settings)
 
-        # Setup scheduler
-        self.setup_scheduler()
+            # Setup scheduler
+            self.setup_scheduler()
 
-        safe_print("Scheduler server is running. Press Ctrl+C to stop.")
-        self.logger.info("Scheduler server started")
+            safe_print("Scheduler server is running. Press Ctrl+C to stop.")
+            self.logger.info("Scheduler server started")
 
-        # Keep running
-        while self.running:
-            await asyncio.sleep(1)
+            # Keep running
+            while self.running:
+                await asyncio.sleep(1)
+
+        finally:
+            self.running = False
+            if self.scheduler and self.scheduler.running:
+                self.scheduler.shutdown()
+            self.logger.info("Scheduler server stopped")
 
     def run(self) -> None:
         """Run scheduler (blocking)"""
@@ -341,15 +348,10 @@ class SchedulerServer:
             safe_print("Scheduler stopped.")
         finally:
             self.running = False
-            if self.scheduler:
-                self.scheduler.shutdown()
 
     async def shutdown(self) -> None:
         """Graceful shutdown"""
         self.running = False
-
-        if self.scheduler:
-            self.scheduler.shutdown()
 
         self.logger.info("Scheduler shutdown complete")
 

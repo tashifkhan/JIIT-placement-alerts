@@ -5,7 +5,8 @@ SuperSet Telegram Notification Bot - Main CLI Entry Point
 Unified CLI for running servers and scripts.
 
 Usage:
-    python main.py bot                     # Run Telegram bot server
+    python main.py bot                     # Run Telegram bot server (commands only)
+    python main.py scheduler               # Run scheduler server (scheduled jobs only)
     python main.py webhook                 # Run webhook/API server
     python main.py update                  # Fetch and process updates
     python main.py send --telegram         # Send unsent notices via Telegram
@@ -31,7 +32,7 @@ from servers.notification_runner import send_updates
 
 
 def cmd_bot(args):
-    """Run Telegram bot server"""
+    """Run Telegram bot server (without scheduler)"""
     from servers.bot_server import create_bot_server
 
     settings = get_settings()
@@ -40,6 +41,19 @@ def cmd_bot(args):
         set_daemon_mode(True)
 
     server = create_bot_server(settings=settings, daemon_mode=args.daemon)
+    server.run()
+
+
+def cmd_scheduler(args):
+    """Run scheduler server (scheduled jobs only)"""
+    from servers.scheduler_server import create_scheduler_server
+
+    settings = get_settings()
+
+    if args.daemon:
+        set_daemon_mode(True)
+
+    server = create_scheduler_server(settings=settings, daemon_mode=args.daemon)
     server.run()
 
 
@@ -303,7 +317,8 @@ COMMANDS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   SERVERS:
-    bot                 Run interactive Telegram bot server
+    bot                 Run interactive Telegram bot server (commands only)
+    scheduler           Run scheduled update jobs server
     webhook             Run FastAPI webhook/REST API server
 
   DATA COLLECTION:
@@ -319,8 +334,11 @@ COMMANDS
 EXAMPLES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  # Start the Telegram bot in background mode
+   # Start the Telegram bot (without scheduler)
   python main.py bot --daemon
+
+  # Start the scheduler server for automated updates
+  python main.py scheduler --daemon
 
   # Start webhook server on custom port
   python main.py webhook --port 8080
@@ -362,9 +380,20 @@ EXAMPLES
     # Bot command
     bot_parser = subparsers.add_parser(
         "bot",
-        help="Run Telegram bot server",
+        help="Run Telegram bot server (commands only, no scheduler)",
     )
     bot_parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help="Daemon mode",
+    )
+
+    # Scheduler command
+    scheduler_parser = subparsers.add_parser(
+        "scheduler",
+        help="Run scheduler server for automated updates",
+    )
+    scheduler_parser.add_argument(
         "--daemon",
         action="store_true",
         help="Daemon mode",
@@ -460,6 +489,8 @@ EXAMPLES
     try:
         if args.command == "bot":
             cmd_bot(args)
+        elif args.command == "scheduler":
+            cmd_scheduler(args)
         elif args.command == "webhook":
             cmd_webhook(args)
         elif args.command == "update":

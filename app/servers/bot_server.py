@@ -3,28 +3,22 @@ Telegram Bot Server
 
 Dedicated Telegram bot server with:
 - User command handling (/start, /help, /stats, etc.)
-- Scheduled jobs for automated updates
 - DI-based architecture
+
+Note: Scheduler logic has been decoupled into scheduler_server.py
 """
 
 import asyncio
-import json
 import logging
-import os
 from typing import Optional, Any
-from datetime import time
 
 import pytz
-from telegram import Update, Bot
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
     ContextTypes,
-    CallbackContext,
-    MessageHandler,
-    filters,
 )
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from core.config import (
     Settings,
@@ -41,8 +35,9 @@ class BotServer:
 
     Handles:
     - Bot commands and user interactions
-    - Scheduled update jobs
     - User registration and management
+
+    Note: Scheduled jobs are handled by SchedulerServer (scheduler_server.py)
     """
 
     def __init__(
@@ -50,8 +45,6 @@ class BotServer:
         settings: Optional[Settings] = None,
         db_service: Optional[Any] = None,
         notification_service: Optional[Any] = None,
-        scraper_service: Optional[Any] = None,
-        formatter_service: Optional[Any] = None,
         admin_service: Optional[Any] = None,
         daemon_mode: bool = False,
     ):
@@ -62,8 +55,6 @@ class BotServer:
             settings: Application settings
             db_service: Database service instance
             notification_service: Notification service instance
-            scraper_service: SuperSet scraper service
-            formatter_service: Notice formatter service
             admin_service: Admin service instance
             daemon_mode: Run in daemon mode (suppress stdout)
         """
@@ -74,14 +65,11 @@ class BotServer:
         # Injected services
         self.db_service = db_service
         self.notification_service = notification_service
-        self.scraper_service = scraper_service
-        self.formatter_service = formatter_service
         self.admin_service = admin_service
 
         # Bot setup
         self.bot_token = self.settings.telegram_bot_token
         self.application: Optional[Application] = None
-        self.scheduler: Optional[AsyncIOScheduler] = None
 
         # Timezone
         self.ist = pytz.timezone("Asia/Kolkata")
@@ -348,85 +336,6 @@ The bot automatically sends:
         await update.message.reply_text(text, parse_mode="HTML")
 
     # =========================================================================
-    # Scheduled Jobs
-    # =========================================================================
-
-    async def run_scheduled_update(self) -> None:
-        """Run scheduled update job"""
-        self.logger.info("Running scheduled update...")
-        safe_print("Starting scheduled update job...")
-
-        try:
-            # Import here to avoid circular imports
-            from services.database_service import DatabaseService
-            from services.superset_client import SupersetClientService
-            from services.notice_formatter_service import NoticeFormatterService
-
-            # Use injected services or create new ones
-            db = self.db_service or DatabaseService()
-            scraper = self.scraper_service or SupersetClientService()
-            formatter = self.formatter_service or NoticeFormatterService()
-
-            # Login
-            creds = json.loads(get_settings().superset_credentials)
-            users = [scraper.login(cred["email"], cred["password"]) for cred in creds]
-
-            # Fetch data
-            notices = scraper.get_notices(users)
-            jobs = scraper.get_job_listings(users)
-
-            # Process notices
-            new_notices = 0
-            for notice in notices:
-                if not db.notice_exists(notice.id):
-                    formatted = formatter.format_notice(notice, jobs)
-                    success, _ = db.save_notice(formatted)
-                    if success:
-                        new_notices += 1
-
-            # Process jobs
-            new_jobs = 0
-            for job in jobs:
-                success, _ = db.upsert_structured_job(job.model_dump())
-                if success:
-                    new_jobs += 1
-
-            safe_print(f"Update complete: {new_notices} new notices, {new_jobs} jobs")
-
-            # Send notifications
-            if self.notification_service:
-                self.notification_service.send_unsent_notices(telegram=True)
-
-        except Exception as e:
-            self.logger.error(f"Scheduled update failed: {e}", exc_info=True)
-            safe_print(f"Scheduled update error: {e}")
-
-    def setup_scheduler(self) -> None:
-        """Setup scheduled jobs"""
-        self.scheduler = AsyncIOScheduler(timezone=self.ist)
-
-        # Schedule updates at specific times (IST)
-        schedule_times = [
-            time(8, 0),  # 8:00 AM
-            time(12, 0),  # 12:00 PM
-            time(16, 0),  # 4:00 PM
-            time(20, 0),  # 8:00 PM
-        ]
-
-        for t in schedule_times:
-            self.scheduler.add_job(
-                self.run_scheduled_update,
-                trigger="cron",
-                hour=t.hour,
-                minute=t.minute,
-                timezone=self.ist,
-            )
-            self.logger.info(f"Scheduled update job at {t.strftime('%H:%M')} IST")
-
-        self.scheduler.start()
-        safe_print("Scheduler started with update jobs")
-
-    # =========================================================================
     # Bot Lifecycle
     # =========================================================================
 
@@ -475,9 +384,6 @@ The bot automatically sends:
         self.application = Application.builder().token(self.bot_token).build()
         self.setup_handlers(self.application)
 
-        # Setup scheduler
-        self.setup_scheduler()
-
         safe_print("Starting Telegram bot...")
         self.logger.info("Bot starting in polling mode")
 
@@ -502,15 +408,10 @@ The bot automatically sends:
             safe_print("Bot stopped.")
         finally:
             self.running = False
-            if self.scheduler:
-                self.scheduler.shutdown()
 
     async def shutdown(self) -> None:
         """Graceful shutdown"""
         self.running = False
-
-        if self.scheduler:
-            self.scheduler.shutdown()
 
         if self.application:
             if self.application.updater:
@@ -527,13 +428,13 @@ def create_bot_server(
 ) -> BotServer:
     """
     Factory function to create bot server with full DI setup.
+
+    Note: Scheduler-related services (scraper, formatter) have been moved
+    to create_scheduler_server() in scheduler_server.py
     """
-    # Direct service instantiation
     from services.database_service import DatabaseService
     from services.notification_service import NotificationService
     from services.telegram_service import TelegramService
-    from services.superset_client import SupersetClientService
-    from services.notice_formatter_service import NoticeFormatterService
     from services.admin_telegram_service import AdminTelegramService
 
     settings = settings or get_settings()
@@ -552,9 +453,6 @@ def create_bot_server(
         channels=[telegram_service], db_service=db_service
     )
 
-    scraper_service = SupersetClientService()
-    formatter_service = NoticeFormatterService(google_api_key=settings.google_api_key)
-
     # Admin Service
     admin_service = AdminTelegramService(
         settings=settings, db_service=db_service, telegram_service=telegram_service
@@ -564,8 +462,6 @@ def create_bot_server(
         settings=settings,
         db_service=db_service,
         notification_service=notification_service,
-        scraper_service=scraper_service,
-        formatter_service=formatter_service,
         admin_service=admin_service,
         daemon_mode=daemon_mode,
     )

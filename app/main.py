@@ -70,9 +70,14 @@ def cmd_scheduler(args):
 
         # Re-setup logging for the daemon process
         logging.root.handlers = []  # clear existing handlers
-        setup_logging(get_settings())
+
+        # Override log file for scheduler
+        settings = get_settings()
+        settings.log_file = settings.scheduler_log_file
+
+        setup_logging(settings)
         logging.getLogger().info(
-            "Daemon process fully started and logging re-initialized"
+            f"Daemon process fully started and logging re-initialized to {settings.log_file}"
         )
 
     settings = get_settings()

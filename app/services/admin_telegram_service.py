@@ -42,7 +42,7 @@ class AdminTelegramService:
         """Check if the user is the admin"""
         if not update.effective_chat or not update.message:
             return False
-            
+
         chat_id = str(update.effective_chat.id)
         if chat_id != self.admin_chat_id:
             await update.message.reply_text(
@@ -58,7 +58,7 @@ class AdminTelegramService:
         """Handle /users command"""
         if not update.message:
             return
-            
+
         if not await self._is_admin(update):
             return
 
@@ -110,7 +110,7 @@ class AdminTelegramService:
         """Handle /boo command - Broadcast"""
         if not update.message or not update.message.text:
             return
-            
+
         if not await self._is_admin(update):
             return
 
@@ -194,7 +194,7 @@ class AdminTelegramService:
         """Handle /fu and /scrapyyy command"""
         if not update.message:
             return
-            
+
         if not await self._is_admin(update):
             return
 
@@ -229,16 +229,43 @@ class AdminTelegramService:
     async def logs_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
-        """Handle /logs command"""
+        """
+        Handle /logs command
+        Usage: /logs [bot|scheduler] (default: bot)
+        """
         if not update.message:
             return
-            
+
         if not await self._is_admin(update):
             return
 
-        log_path = self.settings.log_file
+        # Parse argument
+        target = "bot"
+        if context.args and len(context.args) > 0:
+            target = context.args[0].lower()
+
+        # Determine file path
+        if target == "scheduler":
+            log_filename = "logs/scheduler.log"
+        elif target == "bot":
+            log_filename = self.settings.log_file  # Default log file
+        else:
+            await update.message.reply_text(
+                "❌ Unknown log type. Use: /logs [bot|scheduler]"
+            )
+            return
+
+        # Resolve absolute path (robust way)
+        # Using the same logic as config.py or relative to project root
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+        log_path = os.path.join(base_dir, log_filename)
+
+        # If settings.log_file is absolute, use it directly for bot
+        if target == "bot" and os.path.isabs(self.settings.log_file):
+            log_path = self.settings.log_file
+
         if not os.path.exists(log_path):
-            await update.message.reply_text("❌ Log file not found.")
+            await update.message.reply_text(f"❌ Log file not found: {log_filename}")
             return
 
         try:
@@ -246,18 +273,21 @@ class AdminTelegramService:
                 lines = f.readlines()
 
             last_lines = lines[-100:] if len(lines) >= 100 else lines
-            full_text = "".join(last_lines)
 
-            if len(full_text) > 4000:
-                chunks = self.telegram_service.split_long_message(full_text)
-                for chunk in chunks:
-                    await update.message.reply_text(
-                        f"<pre>{chunk}</pre>", parse_mode="HTML"
-                    )
+            header = f"📋 <b>Log Viewer ({target})</b>\n"
+            header += f"Path: <code>{log_filename}</code>\n"
+            header += f"Lines: {len(last_lines)}\n\n"
+
+            full_text = "".join(last_lines)
+            message = header + f"<pre>{full_text}</pre>"
+
+            if len(message) > 4000:
+                # Naive chunking if too big
+                # Or use telegram_service.split_long_message if available
+                # For now, just send the tail that fits
+                await update.message.reply_text(message[-4000:], parse_mode="HTML")
             else:
-                await update.message.reply_text(
-                    f"<pre>{full_text}</pre>", parse_mode="HTML"
-                )
+                await update.message.reply_text(message, parse_mode="HTML")
 
         except Exception as e:
             await update.message.reply_text(f"❌ Error reading logs: {e}")

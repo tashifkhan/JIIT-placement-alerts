@@ -113,7 +113,12 @@ class Settings(BaseSettings):
     log_file: str = Field(
         default="logs/superset_bot.log",
         validation_alias="LOG_FILE",
-        description="Log file path",
+        description="Log file path (Bot)",
+    )
+    scheduler_log_file: str = Field(
+        default="logs/scheduler.log",
+        validation_alias="SCHEDULER_LOG_FILE",
+        description="Log file path (Scheduler)",
     )
 
     class Config:

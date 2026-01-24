@@ -197,3 +197,6 @@ formatted_job_posts.md
 output/
 
 .DS_Store
+
+# Daemon PID files
+data/pids/

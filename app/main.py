@@ -13,6 +13,8 @@ Usage:
     python main.py send --web              # Send unsent notices via Web Push
     python main.py send --both             # Send via both channels
     python main.py official                # Update official placement data
+    python main.py stop [bot|scheduler]    # Stop a running daemon
+    python main.py status [name]           # Check status of daemons
 
 Legacy Support:
     python main.py                         # Runs update + send (backward compatible)
@@ -27,6 +29,7 @@ import logging
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core.config import get_settings, setup_logging, set_daemon_mode, safe_print
+from core.daemon import daemonize, get_daemon_status, stop_daemon, is_running
 from runners.update_runner import fetch_and_process_updates
 from runners.notification_runner import send_updates
 
@@ -35,11 +38,22 @@ def cmd_bot(args):
     """Run Telegram bot server (without scheduler)"""
     from servers.bot_server import create_bot_server
 
-    settings = get_settings()
-
+    # Daemonize first if requested (before any other init)
     if args.daemon:
+        daemonize("bot")
+        get_settings.cache_clear()  # Force reload settings in daemon process
         set_daemon_mode(True)
 
+        # Re-setup logging for the daemon process
+        # The parent's handlers are invalid after fork/dup2
+        # We need to force a re-initialization
+        logging.root.handlers = []  # clear existing handlers
+        setup_logging(get_settings())
+        logging.getLogger().info(
+            "Daemon process fully started and logging re-initialized"
+        )
+
+    settings = get_settings()
     server = create_bot_server(settings=settings, daemon_mode=args.daemon)
     server.run()
 
@@ -48,11 +62,20 @@ def cmd_scheduler(args):
     """Run scheduler server (scheduled jobs only)"""
     from servers.scheduler_server import create_scheduler_server
 
-    settings = get_settings()
-
+    # Daemonize first if requested (before any other init)
     if args.daemon:
+        daemonize("scheduler")
+        get_settings.cache_clear()  # Force reload settings in daemon process
         set_daemon_mode(True)
 
+        # Re-setup logging for the daemon process
+        logging.root.handlers = []  # clear existing handlers
+        setup_logging(get_settings())
+        logging.getLogger().info(
+            "Daemon process fully started and logging re-initialized"
+        )
+
+    settings = get_settings()
     server = create_scheduler_server(settings=settings, daemon_mode=args.daemon)
     server.run()
 
@@ -299,6 +322,39 @@ def cmd_legacy(args):
     }
 
 
+def cmd_stop(args):
+    """Stop a running daemon (bot or scheduler)"""
+    name = args.name
+    if name not in ["bot", "scheduler"]:
+        safe_print(f"Unknown daemon: {name}. Use 'bot' or 'scheduler'")
+        sys.exit(1)
+
+    if not is_running(name):
+        safe_print(f"Daemon '{name}' is not running")
+        return
+
+    status = get_daemon_status(name)
+    safe_print(f"Stopping {name} daemon (PID: {status['pid']})...")
+
+    if stop_daemon(name):
+        safe_print(f"Daemon '{name}' stopped successfully")
+    else:
+        safe_print(f"Failed to stop daemon '{name}'")
+        sys.exit(1)
+
+
+def cmd_status(args):
+    """Show status of daemons"""
+    names = [args.name] if args.name else ["bot", "scheduler"]
+
+    for name in names:
+        status = get_daemon_status(name)
+        if status["running"]:
+            safe_print(f"✓ {name}: running (PID: {status['pid']})")
+        else:
+            safe_print(f"✗ {name}: not running")
+
+
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
@@ -321,6 +377,10 @@ COMMANDS
     scheduler           Run scheduled update jobs server
     webhook             Run FastAPI webhook/REST API server
 
+  DAEMON CONTROL:
+    stop                Stop a running daemon (bot or scheduler)
+    status              Show status of daemons
+
   DATA COLLECTION:
     update              Full update: SuperSet + Email placement data + Email notices
     update-supersets    Fetch notices/jobs from SuperSet portal (supports multiple accounts)
@@ -334,11 +394,17 @@ COMMANDS
 EXAMPLES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-   # Start the Telegram bot (without scheduler)
-  python main.py bot --daemon
+   # Start the Telegram bot in background (daemon mode)
+  python main.py bot -d
 
-  # Start the scheduler server for automated updates
-  python main.py scheduler --daemon
+  # Start the scheduler in background
+  python main.py scheduler -d
+
+  # Check status of all daemons
+  python main.py status
+
+  # Stop the bot daemon
+  python main.py stop bot
 
   # Start webhook server on custom port
   python main.py webhook --port 8080
@@ -367,6 +433,7 @@ EXAMPLES
         help="Verbose output",
     )
     parser.add_argument(
+        "-d",
         "--daemon",
         action="store_true",
         help="Run in daemon mode (suppress stdout)",
@@ -383,6 +450,7 @@ EXAMPLES
         help="Run Telegram bot server (commands only, no scheduler)",
     )
     bot_parser.add_argument(
+        "-d",
         "--daemon",
         action="store_true",
         help="Daemon mode",
@@ -394,6 +462,7 @@ EXAMPLES
         help="Run scheduler server for automated updates",
     )
     scheduler_parser.add_argument(
+        "-d",
         "--daemon",
         action="store_true",
         help="Daemon mode",
@@ -473,17 +542,42 @@ EXAMPLES
         help="Fetch and process placement offers + general notices from emails",
     )
 
+    # Stop daemon command
+    stop_parser = subparsers.add_parser(
+        "stop",
+        help="Stop a running daemon",
+    )
+    stop_parser.add_argument(
+        "name",
+        choices=["bot", "scheduler"],
+        help="Name of daemon to stop",
+    )
+
+    # Status command
+    status_parser = subparsers.add_parser(
+        "status",
+        help="Show daemon status",
+    )
+    status_parser.add_argument(
+        "name",
+        nargs="?",
+        choices=["bot", "scheduler"],
+        help="Name of daemon (shows all if not specified)",
+    )
+
     args = parser.parse_args()
 
-    # Setup
+    # Setup - set daemon mode BEFORE logging so it takes effect
     settings = get_settings()
+
+    # Check daemon from global parser OR subparser (bot/scheduler)
+    if args.daemon:
+        set_daemon_mode(True)
+
     setup_logging(settings)
 
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
-
-    if args.daemon:
-        set_daemon_mode(True)
 
     # Dispatch command
     try:
@@ -503,6 +597,10 @@ EXAMPLES
             cmd_update_supersets(args)
         elif args.command == "update-emails":
             cmd_update_emails(args)
+        elif args.command == "stop":
+            cmd_stop(args)
+        elif args.command == "status":
+            cmd_status(args)
         else:
             # Legacy mode - no command specified
             cmd_legacy(args)
@@ -510,6 +608,7 @@ EXAMPLES
     except KeyboardInterrupt:
         safe_print("\nInterrupted by user")
         sys.exit(0)
+
     except Exception as e:
         logging.getLogger().error(f"Command failed: {e}", exc_info=True)
         safe_print(f"Error: {e}")

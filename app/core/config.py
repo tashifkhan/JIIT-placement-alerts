@@ -9,7 +9,7 @@ import os
 import logging
 from typing import Optional
 from functools import lru_cache
-
+from pathlib import Path
 
 from pydantic_settings import BaseSettings
 from pydantic import Field
@@ -156,8 +156,27 @@ def get_settings() -> Settings:
     Settings are loaded once and cached for the lifetime of the process.
     """
     from dotenv import load_dotenv
+    from pathlib import Path
 
-    load_dotenv()
+    # Determine paths relative to this file
+    # file at: app/core/config.py
+    # app dir: app/
+    # root dir: project root (where .env usually is)
+
+    # Try multiple locations for .env
+    base_dir = Path(__file__).resolve().parent.parent.parent
+    env_path = base_dir / ".env"
+
+    if not env_path.exists():
+        # Fallback to app directory
+        env_path = base_dir / "app" / ".env"
+
+    if env_path.exists():
+        load_dotenv(dotenv_path=str(env_path))
+    else:
+        # Fallback to default behavior (search in CWD)
+        load_dotenv()
+
     return Settings()
 
 
@@ -173,8 +192,17 @@ def setup_logging(settings: Optional[Settings] = None) -> logging.Logger:
     """
     settings = settings or get_settings()
 
-    # Create logs directory if needed
-    log_dir = os.path.dirname(settings.log_file)
+    # Configure handlers - use global daemon mode flag (set via CLI -d/--daemon)
+    daemon = is_daemon_mode()
+
+    # Ensure log file path is absolute using the same logic as get_settings
+    log_path = Path(settings.log_file)
+    if not log_path.is_absolute():
+        base_dir = Path(__file__).resolve().parent.parent.parent
+        log_path = base_dir / settings.log_file
+
+    # Create logs directory if needed (using absolute path)
+    log_dir = log_path.parent
     if log_dir:
         os.makedirs(log_dir, exist_ok=True)
 
@@ -188,10 +216,15 @@ def setup_logging(settings: Optional[Settings] = None) -> logging.Logger:
     # Determine log level
     level = getattr(logging, settings.log_level.upper(), logging.INFO)
 
-    # Configure handlers
-    handlers: list[logging.Handler] = [logging.FileHandler(settings.log_file, mode="a", encoding="utf-8")]
+    handlers: list[logging.Handler] = [
+        logging.FileHandler(
+            str(log_path),
+            mode="a",
+            encoding="utf-8",
+        )
+    ]
 
-    if not settings.daemon_mode:
+    if not daemon:
         handlers.append(logging.StreamHandler())
 
     # Configure root logger
@@ -209,8 +242,7 @@ def setup_logging(settings: Optional[Settings] = None) -> logging.Logger:
 
     logger = logging.getLogger("SuperSetBot")
     logger.info(
-        f"Logging initialized. Level: {settings.log_level}, "
-        f"Daemon: {settings.daemon_mode}"
+        f"Logging initialized. Level: {settings.log_level}, " f"Daemon: {daemon}"
     )
 
     return logger

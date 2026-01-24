@@ -13,6 +13,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from core.config import safe_print
+from core.daemon import stop_daemon, is_running, get_daemon_status
 
 
 class AdminTelegramService:
@@ -243,6 +244,34 @@ class AdminTelegramService:
 
         except Exception as e:
             await update.message.reply_text(f"❌ Error running update: {e}")
+
+    async def kill_scheduler_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /kill command - Stop scheduler daemon"""
+        if not update.message:
+            return
+
+        if not await self._is_admin(update):
+            return
+
+        name = "scheduler"
+        if not is_running(name):
+            await update.message.reply_text("❌ Scheduler is not running.")
+            return
+
+        status = get_daemon_status(name)
+        pid = status.get("pid")
+
+        await update.message.reply_text(f"🛑 Stopping scheduler (PID: {pid})...")
+
+        if stop_daemon(name):
+            await update.message.reply_text("✅ Scheduler stopped successfully.")
+            self.logger.info(f"Scheduler stopped by admin {update.effective_user.id}")
+
+        else:
+            await update.message.reply_text("❌ Failed to stop scheduler.")
+            self.logger.error("Failed to stop scheduler via admin command")
 
     async def logs_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE

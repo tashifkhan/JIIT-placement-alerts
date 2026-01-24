@@ -396,6 +396,9 @@ The bot automatically sends:
             application.add_handler(
                 CommandHandler("s", self.admin_service.scrape_command)
             )
+            application.add_handler(
+                CommandHandler("kill", self.admin_service.kill_scheduler_command)
+            )
 
         self.logger.info("Command handlers registered")
 

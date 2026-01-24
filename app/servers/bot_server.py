@@ -3,9 +3,6 @@ Telegram Bot Server
 
 Dedicated Telegram bot server with:
 - User command handling (/start, /help, /stats, etc.)
-- DI-based architecture
-
-Note: Scheduler logic has been decoupled into scheduler_server.py
 """
 
 import asyncio
@@ -36,8 +33,6 @@ class BotServer:
     Handles:
     - Bot commands and user interactions
     - User registration and management
-
-    Note: Scheduled jobs are handled by SchedulerServer (scheduler_server.py)
     """
 
     def __init__(
@@ -397,6 +392,9 @@ The bot automatically sends:
             )
             application.add_handler(
                 CommandHandler("logs", self.admin_service.logs_command)
+            )
+            application.add_handler(
+                CommandHandler("s", self.admin_service.scrape_command)
             )
 
         self.logger.info("Command handlers registered")

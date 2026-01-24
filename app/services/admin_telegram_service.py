@@ -202,29 +202,47 @@ class AdminTelegramService:
 
         try:
             # We need to run this in a separate thread to avoid blocking the bot loop
-            # since main.py likely has blocking calls or is long-running.
             loop = asyncio.get_event_loop()
 
-            # Function to run the scraper
-            def run_scraper():
-                from main import main as run_main_process
+            # Function to run the legacy command
+            def run_legacy_update():
+                from main import cmd_legacy
+                import argparse
+
+                # Mock args for legacy mode (update + send telegram)
+                # cmd_legacy expects args object with specific attributes used in cmd_update/cmd_send
+                # Looking at main.py:
+                # cmd_legacy calls cmd_update(args) -> cmd_update_supersets(args), cmd_update_emails(args)
+                # cmd_legacy calls send_updates(telegram=True...)
+
+                # We can use a simple namespace class or argparse.Namespace
+                mock_args = argparse.Namespace()
+                # Default args needed by callees
+                mock_args.dry_run = False
+                mock_args.telegram = True
+                mock_args.web = False
+                mock_args.both = False
+                mock_args.fetch = True  # cmd_legacy does update+send
+                mock_args.verbose = False
 
                 try:
-                    return run_main_process()  # type: ignore
-                except Exception:
-                    return 1
+                    return cmd_legacy(mock_args)
+                except Exception as e:
+                    logging.getLogger("AdminTelegramService").error(
+                        f"Legacy update failed: {e}"
+                    )
+                    raise e
 
-            result = await loop.run_in_executor(None, run_scraper)
+            result = await loop.run_in_executor(None, run_legacy_update)
 
-            if result == 0:
-                await update.message.reply_text("✅ Workflow completed successfully!")
-            else:
-                await update.message.reply_text(
-                    f"⚠️ Workflow completed with exit code: {result}"
-                )
+            await update.message.reply_text(
+                f"✅ Update workflow completed!\n"
+                f"Fetch: {result.get('fetch')}\n"
+                f"Send: {result.get('send')}"
+            )
 
         except Exception as e:
-            await update.message.reply_text(f"❌ Error running workflow: {e}")
+            await update.message.reply_text(f"❌ Error running update: {e}")
 
     async def logs_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -268,26 +286,33 @@ class AdminTelegramService:
             await update.message.reply_text(f"❌ Log file not found: {log_filename}")
             return
 
+        # Proper import for escaping
+        import html
+
         try:
             with open(log_path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
 
+            # Get last 100 lines first
             last_lines = lines[-100:] if len(lines) >= 100 else lines
+            full_text = "".join(last_lines)
+
+            # Escape the log content to avoid HTML parsing errors
+            safe_text = html.escape(full_text)
+
+            # Simple truncation if too long (reserving space for header/tags)
+            # standard max is 4096, keep it safe at 4000
+            if len(safe_text) > 3800:
+                safe_text = safe_text[-3800:]
+                safe_text = f"...[truncated]\n{safe_text}"
 
             header = f"📋 <b>Log Viewer ({target})</b>\n"
             header += f"Path: <code>{log_filename}</code>\n"
             header += f"Lines: {len(last_lines)}\n\n"
 
-            full_text = "".join(last_lines)
-            message = header + f"<pre>{full_text}</pre>"
+            message = header + f"<pre>{safe_text}</pre>"
 
-            if len(message) > 4000:
-                # Naive chunking if too big
-                # Or use telegram_service.split_long_message if available
-                # For now, just send the tail that fits
-                await update.message.reply_text(message[-4000:], parse_mode="HTML")
-            else:
-                await update.message.reply_text(message, parse_mode="HTML")
+            await update.message.reply_text(message, parse_mode="HTML")
 
         except Exception as e:
             await update.message.reply_text(f"❌ Error reading logs: {e}")

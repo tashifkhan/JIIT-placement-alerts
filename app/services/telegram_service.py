@@ -10,9 +10,11 @@ import re
 import time
 import logging
 from typing import Dict, List, Any, Optional
-import requests
+from typing import Dict, List, Any, Optional
+import time
 
 from core.config import safe_print
+from clients.telegram_client import TelegramClient
 
 
 class TelegramService:
@@ -41,10 +43,11 @@ class TelegramService:
             db_service: Database service for user lookup.
         """
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN")
-        self.chat_id = chat_id or os.getenv("TELEGRAM_CHAT_ID")
         self.db_service = db_service
+        # Initialize client
+        self.client = TelegramClient(bot_token, chat_id)
 
+        self.logger.info("TelegramService initialized with TelegramClient")
         self.logger.info("TelegramService initialized")
 
     @property
@@ -54,20 +57,7 @@ class TelegramService:
 
     def test_connection(self) -> bool:
         """Test if Telegram bot is configured correctly"""
-        try:
-            if not self.bot_token:
-                safe_print("TELEGRAM_BOT_TOKEN not set")
-                return False
-
-            if not self.chat_id:
-                safe_print("TELEGRAM_CHAT_ID not set")
-                return False
-
-            return True
-
-        except Exception as e:
-            safe_print(f"Error testing Telegram connection: {e}")
-            return False
+        return self.client.test_connection()
 
     def send_message(
         self,
@@ -77,7 +67,7 @@ class TelegramService:
     ) -> bool:
         """Send a message to the default channel/chat"""
         try:
-            if not self.bot_token or not self.chat_id:
+            if not self.client.bot_token or not self.client.default_chat_id:
                 safe_print("Error: Telegram bot token or chat ID not configured")
                 return False
 
@@ -114,49 +104,21 @@ class TelegramService:
         parse_mode: str = "HTML",
     ) -> bool:
         """Send a single message chunk"""
-        try:
-            url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+        if parse_mode == "MarkdownV2":
+            formatted_message = self.convert_markdown_to_telegram(message)
+        elif parse_mode == "HTML":
+            formatted_message = self.convert_markdown_to_html(message)
+        else:
+            formatted_message = message
 
-            if parse_mode == "MarkdownV2":
-                formatted_message = self.convert_markdown_to_telegram(message)
-            elif parse_mode == "HTML":
-                formatted_message = self.convert_markdown_to_html(message)
-            else:
-                formatted_message = message
+        sent = self.client.send_message(text=formatted_message, parse_mode=parse_mode)
 
-            payload = {
-                "chat_id": self.chat_id,
-                "text": formatted_message,
-                "parse_mode": parse_mode,
-                "disable_web_page_preview": True,
-            }
+        if not sent and parse_mode:
+            # Retry without formatting
+            safe_print("Retrying with plain text...")
+            return self.client.send_message(text=message, parse_mode="")
 
-            response = requests.post(url, json=payload)
-
-            if response.status_code == 200:
-                safe_print(
-                    f"Message sent successfully ({len(formatted_message)} chars)"
-                )
-                return True
-
-            else:
-                safe_print(f"Failed to send message. Status: {response.status_code}")
-                safe_print(f"Response: {response.text}")
-
-                # Retry with plain text if MarkdownV2 fails
-                if parse_mode == "MarkdownV2":
-                    safe_print("Retrying with plain text...")
-                    return self._send_single_message(message, "")
-
-                return False
-
-        except Exception as e:
-            safe_print(f"Error sending single message: {e}")
-
-            if parse_mode == "MarkdownV2":
-                return self._send_single_message(message, "")
-
-            return False
+        return sent
 
     def send_to_user(
         self,
@@ -166,32 +128,14 @@ class TelegramService:
         **kwargs,
     ) -> bool:
         """Send a message to a specific user"""
-        try:
-            url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+        if parse_mode == "HTML":
+            formatted_message = self.convert_markdown_to_html(message)
+        else:
+            formatted_message = message
 
-            if parse_mode == "HTML":
-                formatted_message = self.convert_markdown_to_html(message)
-            else:
-                formatted_message = message
-
-            payload = {
-                "chat_id": user_id,
-                "text": formatted_message,
-                "parse_mode": parse_mode,
-                "disable_web_page_preview": True,
-            }
-
-            response = requests.post(url, json=payload)
-
-            if response.status_code == 200:
-                return True
-            else:
-                safe_print(f"Failed to send to user {user_id}: {response.text}")
-                return False
-
-        except Exception as e:
-            safe_print(f"Error sending to user {user_id}: {e}")
-            return False
+        return self.client.send_message(
+            text=formatted_message, chat_id=user_id, parse_mode=parse_mode
+        )
 
     def broadcast_to_all_users(
         self,
@@ -230,7 +174,7 @@ class TelegramService:
     def send_message_html(self, message: str) -> bool:
         """Send message using HTML formatting"""
         try:
-            if not self.bot_token or not self.chat_id:
+            if not self.client.bot_token or not self.client.default_chat_id:
                 safe_print("Error: Telegram bot token or chat ID not configured")
                 return False
 
@@ -257,33 +201,15 @@ class TelegramService:
 
     def _send_single_html_message(self, message: str) -> bool:
         """Send a single HTML message"""
-        try:
-            url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-            html_message = self.convert_markdown_to_html(message)
+        formatted = self.convert_markdown_to_html(message)
 
-            payload = {
-                "chat_id": self.chat_id,
-                "text": html_message,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-            }
+        sent = self.client.send_message(text=formatted, parse_mode="HTML")
 
-            response = requests.post(url, json=payload)
+        if not sent:
+            # retry fallback
+            return self.client.send_message(text=message, parse_mode="")
 
-            if response.status_code == 200:
-                safe_print(f"HTML message sent ({len(html_message)} chars)")
-                return True
-            else:
-                safe_print(f"Failed to send HTML message: {response.text}")
-                # Fallback to plain text
-                payload["parse_mode"] = ""
-                payload["text"] = message
-                response = requests.post(url, json=payload)
-                return response.status_code == 200
-
-        except Exception as e:
-            safe_print(f"Error sending HTML message: {e}")
-            return False
+        return sent
 
     """
             Message Formatting

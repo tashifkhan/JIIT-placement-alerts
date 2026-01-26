@@ -103,8 +103,11 @@ def create_app(
         # Setup services if not provided
         if app_state["db_service"] is None:
             from services.database_service import DatabaseService
+            from clients.db_client import DBClient
 
-            app_state["db_service"] = DatabaseService()
+            db_client = DBClient()
+            db_client.connect()
+            app_state["db_service"] = DatabaseService(db_client)
 
         if app_state["web_push_service"] is None:
             from services.web_push_service import WebPushService

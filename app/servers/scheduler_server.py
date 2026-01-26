@@ -127,7 +127,8 @@ class SchedulerServer:
         from services.placement_notification_formatter import (
             PlacementNotificationFormatter,
         )
-        from services.google_groups_client import GoogleGroupsClient
+        from clients.google_groups_client import GoogleGroupsClient
+        from clients.db_client import DBClient
         from services.email_notice_service import EmailNoticeService
         from services.placement_policy_service import PlacementPolicyService
 
@@ -135,7 +136,9 @@ class SchedulerServer:
         safe_print("Starting email updates (placement offers + general notices)...")
 
         # Create shared dependencies
-        db = DatabaseService()
+        db_client = DBClient()
+        db_client.connect()
+        db = DatabaseService(db_client)
         email_client = GoogleGroupsClient()
         policy_service = PlacementPolicyService(db_service=db)
 
@@ -246,8 +249,11 @@ class SchedulerServer:
         try:
             from services.official_placement_service import OfficialPlacementService
             from services.database_service import DatabaseService
+            from clients.db_client import DBClient
 
-            db_service = DatabaseService()
+            db_client = DBClient()
+            db_client.connect()
+            db_service = DatabaseService(db_client)
             service = OfficialPlacementService(db_service=db_service)
 
             data = service.scrape_and_save()

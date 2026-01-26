@@ -5,13 +5,12 @@ Implements IDatabaseService protocol for MongoDB operations.
 Wraps the existing MongoDBManager functionality with dependency injection support.
 """
 
-import os
 import logging
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
-from pymongo import MongoClient
 
 from core.config import safe_print
+from clients.db_client import DBClient
 
 
 class DatabaseService:
@@ -26,64 +25,29 @@ class DatabaseService:
     - Official placement data
     """
 
-    def __init__(self, connection_string: Optional[str] = None):
+    def __init__(self, db_client: DBClient):
         """
         Initialize database service.
 
         Args:
-            connection_string: MongoDB connection string. If None, reads from env.
+            db_client: Initialized DBClient instance
         """
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.connection_string = connection_string or os.getenv("MONGO_CONNECTION_STR")
+        self.db_client = db_client
 
-        # Connection and collections
-        self.client: Optional[MongoClient] = None
-        self.db = None
-        self.notices_collection = None
-        self.jobs_collection = None
-        self.placement_offers_collection = None
-        self.users_collection = None
-        self.policies_collection = None
+        # Collections (delegated to db_client)
+        self.notices_collection = db_client.notices_collection
+        self.jobs_collection = db_client.jobs_collection
+        self.placement_offers_collection = db_client.placement_offers_collection
+        self.users_collection = db_client.users_collection
+        self.policies_collection = db_client.policies_collection
 
-        self.logger.info("Initializing DatabaseService")
-        self.connect()
-
-    # Connection Management
-    def connect(self) -> None:
-        """Establish database connection"""
-        self.logger.info("Attempting to connect to MongoDB")
-        try:
-            if not self.connection_string:
-                error_msg = "MONGO_CONNECTION_STR not found in environment variables"
-                self.logger.error(error_msg)
-                raise ValueError(error_msg)
-
-            self.client = MongoClient(self.connection_string)
-            self.db = self.client["SupersetPlacement"]
-            self.notices_collection = self.db["Notices"]
-            self.jobs_collection = self.db["Jobs"]
-            self.placement_offers_collection = self.db["PlacementOffers"]
-            self.users_collection = self.db["Users"]
-            self.policies_collection = self.db["Policies"]
-
-            # Test connection
-            self.client.admin.command("ping")
-            success_msg = "Successfully connected to MongoDB"
-            self.logger.info(success_msg)
-            safe_print(success_msg)
-
-        except Exception as e:
-            error_msg = f"Failed to connect to MongoDB: {e}"
-            self.logger.error(error_msg, exc_info=True)
-            safe_print(error_msg)
-            raise
+        self.logger.info("Initializing DatabaseService with DBClient")
 
     def close_connection(self) -> None:
         """Close MongoDB connection"""
-        if self.client:
-            self.client.close()
-            self.logger.info("MongoDB connection closed")
-            safe_print("MongoDB connection closed")
+        if self.db_client:
+            self.db_client.close_connection()
 
     # =========================================================================
     # Notice Operations
@@ -482,11 +446,11 @@ class DatabaseService:
             import json
             import hashlib
 
-            if self.db is None:
+            if self.db_client.db is None:
                 safe_print("Database not initialized")
                 return
 
-            collection = self.db["OfficialPlacementData"]
+            collection = self.db_client.official_placement_data_collection
 
             data_for_hash = {
                 k: v

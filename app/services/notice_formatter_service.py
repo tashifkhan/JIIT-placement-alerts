@@ -22,7 +22,7 @@ from core import get_settings
 
 
 # Re-export models for convenience
-from .superset_client import Notice, Job, EligibilityMark
+from clients.superset_client import Notice, Job, EligibilityMark
 
 
 class PostState(TypedDict, total=False):

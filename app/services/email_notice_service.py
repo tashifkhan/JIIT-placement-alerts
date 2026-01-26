@@ -18,7 +18,7 @@ from langchain.prompts import ChatPromptTemplate
 from langgraph.graph import StateGraph, END
 
 from core import safe_print, get_settings
-from services.google_groups_client import GoogleGroupsClient
+from clients.google_groups_client import GoogleGroupsClient
 from services.notice_formatter_service import NoticeFormatterService
 
 from services.placement_policy_service import (

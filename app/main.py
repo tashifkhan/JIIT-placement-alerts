@@ -114,10 +114,11 @@ def cmd_update_emails(args):
        c. If NOT placement offer, try EmailNoticeService
        d. Mark as read after processing
     """
+    from clients.db_client import DBClient
     from services.database_service import DatabaseService
     from services.placement_service import PlacementService
     from services.placement_notification_formatter import PlacementNotificationFormatter
-    from services.google_groups_client import GoogleGroupsClient
+    from clients.google_groups_client import GoogleGroupsClient
 
     from services.email_notice_service import EmailNoticeService
     from services.placement_policy_service import PlacementPolicyService
@@ -126,7 +127,9 @@ def cmd_update_emails(args):
     safe_print("Starting email updates (placement offers + general notices)...")
 
     # Create shared dependencies
-    db = DatabaseService()
+    db_client = DBClient()
+    db_client.connect()
+    db = DatabaseService(db_client)
     email_client = GoogleGroupsClient()
     policy_service = PlacementPolicyService(db_service=db)
 
@@ -154,7 +157,7 @@ def cmd_update_emails(args):
         email_ids = email_client.get_unread_message_ids()
     except Exception as e:
         safe_print(f"Error fetching email IDs: {e}")
-        db.close_connection()
+        db_client.close_connection()
         return {"error": str(e)}
 
     safe_print(f"Found {len(email_ids)} unread emails")
@@ -224,7 +227,7 @@ def cmd_update_emails(args):
     # ─────────────────────────────────────────────────────────────────────────
     # Summary & Cleanup
     # ─────────────────────────────────────────────────────────────────────────
-    db.close_connection()
+    db_client.close_connection()
 
     combined_result = {
         "emails_processed": len(email_ids),
@@ -282,10 +285,14 @@ def cmd_official(args):
     """Update official placement data"""
     from services.official_placement_service import OfficialPlacementService
     from services.database_service import DatabaseService
+    from clients.db_client import DBClient
 
+    db_client = None
     db_service = None
     if not args.dry_run:
-        db_service = DatabaseService()
+        db_client = DBClient()
+        db_client.connect()
+        db_service = DatabaseService(db_client)
 
     service = OfficialPlacementService(db_service=db_service)
 
@@ -297,15 +304,15 @@ def cmd_official(args):
             safe_print("Scraping and updating official placement data...")
             data = service.scrape_and_save()
 
-        if db_service:
-            db_service.close_connection()
+        if db_client:
+            db_client.close_connection()
 
         return data
 
     except Exception as e:
         safe_print(f"Error updating official placement: {e}")
-        if db_service:
-            db_service.close_connection()
+        if db_client:
+            db_client.close_connection()
         return None
 
 

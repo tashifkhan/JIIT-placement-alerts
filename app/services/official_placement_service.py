@@ -291,11 +291,14 @@ class OfficialPlacementService:
             return None
 
         batch_names = [
-            li.get_text(strip=True) for li in cast(Tag, batch_list_items_ul).find_all("li")
+            li.get_text(strip=True)
+            for li in cast(Tag, batch_list_items_ul).find_all("li")
         ]
         self.logger.debug(f"Found batch names from navigation: {batch_names}")
 
-        content_divs = cast(Tag, tab_container).find_all("div", class_="content", recursive=False)
+        content_divs = cast(Tag, tab_container).find_all(
+            "div", class_="content", recursive=False
+        )
 
         if not content_divs:
             self.logger.error("No content divs found within 'tab-containerr'.")
@@ -428,13 +431,16 @@ def main() -> None:
     Main function to orchestrate the scraping and storage process for all batches.
     """
     from services.database_service import DatabaseService
+    from clients.db_client import DBClient
 
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
     )
 
-    db_service = DatabaseService()
+    db_client = DBClient()
+    db_client.connect()
+    db_service = DatabaseService(db_client)
     service = OfficialPlacementService(db_service=db_service)
 
     scraped_data = service.scrape_and_save()
@@ -444,7 +450,7 @@ def main() -> None:
 
         print(json.dumps(scraped_data.model_dump(), indent=2))
 
-    db_service.close_connection()
+    db_client.close_connection()
     logging.info("All batches scraping and storage process completed.")
 
 

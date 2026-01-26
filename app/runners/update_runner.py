@@ -11,7 +11,7 @@ from typing import Optional
 
 from core.config import get_settings, safe_print
 from services.database_service import DatabaseService
-from services.superset_client import SupersetClientService
+from clients.superset_client import SupersetClientService
 from services.notice_formatter_service import NoticeFormatterService
 
 
@@ -39,10 +39,19 @@ class UpdateRunner:
             scraper_service: SuperSet client instance (created if not provided)
             formatter_service: Formatter service instance (created if not provided)
         """
-        self.db = db_service or DatabaseService()
+        if db_service:
+            self.db = db_service
+            self._owns_db = False
+        else:
+            from clients.db_client import DBClient
+
+            self.db_client = DBClient()
+            self.db_client.connect()
+            self.db = DatabaseService(self.db_client)
+            self._owns_db = True
+
         self.scraper = scraper_service or SupersetClientService()
         self.formatter = formatter_service or NoticeFormatterService()
-        self._owns_db = db_service is None  # Track if we created the DB connection
 
     def fetch_and_process_updates(self) -> dict:
         """

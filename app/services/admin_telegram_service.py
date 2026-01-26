@@ -21,8 +21,9 @@ class AdminTelegramService:
     Handles admin-only commands:
     - /users: List all users
     - /boo: Broadcast messages
-    - /fu: Force update (scrape)
+    - /fu or /s: Force update (scrape)
     - /logs: View server logs
+    - /kill: Kill scheduler
     """
 
     def __init__(

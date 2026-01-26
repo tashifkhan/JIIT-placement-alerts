@@ -41,11 +41,21 @@ class NotificationRunner:
             web_push_service: Web push service instance (created if not provided when needed)
             notification_service: Notification service instance (created if not provided)
         """
-        self.db = db_service or DatabaseService()
+        if db_service:
+            self.db = db_service
+            self._owns_db = False
+        else:
+            from clients.db_client import DBClient
+
+            # Local db client for this runner instance
+            self.db_client = DBClient()
+            self.db_client.connect()
+            self.db = DatabaseService(self.db_client)
+            self._owns_db = True
+
         self._telegram_service = telegram_service
         self._web_push_service = web_push_service
         self._notification_service = notification_service
-        self._owns_db = db_service is None  # Track if we created the DB connection
 
     def send_updates(
         self,

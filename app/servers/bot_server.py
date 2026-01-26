@@ -469,11 +469,14 @@ def create_bot_server(
     from services.placement_stats_calculator_service import (
         PlacementStatsCalculatorService,
     )
+    from clients.db_client import DBClient
 
     settings = settings or get_settings()
 
     # Initialize services
-    db_service = DatabaseService(settings.mongo_connection_str)
+    db_client = DBClient(settings.mongo_connection_str)
+    db_client.connect()
+    db_service = DatabaseService(db_client)
 
     # Setup notification channels
     telegram_service = TelegramService(

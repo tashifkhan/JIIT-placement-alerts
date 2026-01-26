@@ -31,7 +31,10 @@ def main():
     parser = argparse.ArgumentParser(
         description="Convert a PNG image to a Base64 string."
     )
-    parser.add_argument("path", help="The file path to the PNG image.")
+    parser.add_argument(
+        "path",
+        help="The file path to the PNG image.",
+    )
     parser.add_argument(
         "-w",
         "--web",

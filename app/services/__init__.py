@@ -4,7 +4,6 @@
 from .database_service import DatabaseService
 from .telegram_service import TelegramService
 from .notification_service import NotificationService
-from .superset_client import SupersetClientService
 from .notice_formatter_service import NoticeFormatterService
 from .placement_service import PlacementService
 from .placement_notification_formatter import PlacementNotificationFormatter
@@ -15,7 +14,6 @@ __all__ = [
     "DatabaseService",
     "TelegramService",
     "NotificationService",
-    "SupersetClientService",
     "NoticeFormatterService",
     "PlacementService",
     "PlacementNotificationFormatter",

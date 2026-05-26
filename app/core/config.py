@@ -29,6 +29,11 @@ class Settings(BaseSettings):
         validation_alias="MONGO_CONNECTION_STR",
         description="MongoDB connection string",
     )
+    mongo_database_name: str = Field(
+        default="2025-26",
+        validation_alias="MONGO_DATABASE_NAME",
+        description="MongoDB database name",
+    )
 
     # Telegram Bot
     telegram_bot_token: str = Field(

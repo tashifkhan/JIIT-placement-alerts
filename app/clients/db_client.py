@@ -18,15 +18,17 @@ class DBClient:
     Database client for handling MongoDB connections.
     """
 
-    def __init__(self, connection_string: Optional[str] = None):
+    def __init__(self, connection_string: Optional[str] = None, database_name: Optional[str] = None):
         """
         Initialize database client.
 
         Args:
             connection_string: MongoDB connection string. If None, reads from env.
+            database_name: MongoDB database name. If None, reads from env.
         """
         self.logger = logging.getLogger(self.__class__.__name__)
         self.connection_string = connection_string or os.getenv("MONGO_CONNECTION_STR")
+        self.database_name = database_name or os.getenv("MONGO_DATABASE_NAME", "2025-26")
 
         self.client: Optional[MongoClient] = None
         self.db = None
@@ -49,7 +51,7 @@ class DBClient:
                 raise ValueError(error_msg)
 
             self.client = MongoClient(self.connection_string)
-            self.db = self.client["SupersetPlacement"]
+            self.db = self.client[self.database_name]
 
             # Initialize collections
             self._notices_collection = self.db["Notices"]

@@ -30,6 +30,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core.config import get_settings, setup_logging, set_daemon_mode, safe_print
 from core.daemon import daemonize, get_daemon_status, stop_daemon, is_running
+from core.year_context import (
+    database_name_for_year,
+    extract_year_from_email_data,
+    get_active_year,
+)
 from runners.update_runner import fetch_and_process_updates
 from runners.notification_runner import send_updates
 
@@ -97,7 +102,7 @@ def cmd_webhook(args):
 
 def cmd_update_supersets(args):
     """Fetch and process updates from SuperSet"""
-    result = fetch_and_process_updates()
+    result = fetch_and_process_updates(placement_year=getattr(args, "year", None))
     safe_print(f"SuperSet update complete: {result}")
     return result
 
@@ -124,28 +129,43 @@ def cmd_update_emails(args):
     from services.placement_policy_service import PlacementPolicyService
 
     logger = logging.getLogger(__name__)
+    settings = get_settings()
+    fallback_year = get_active_year(settings, getattr(args, "year", None))
     safe_print("Starting email updates (placement offers + general notices)...")
+    safe_print(f"Fallback placement year: {fallback_year}")
 
-    # Create shared dependencies
-    db_client = DBClient()
-    db_client.connect()
-    db = DatabaseService(db_client)
+    # Create shared email dependency. Database-backed services are scoped per year.
     email_client = GoogleGroupsClient()
-    policy_service = PlacementPolicyService(db_service=db)
+    services_by_year = {}
 
-    # Create services (without email_client - we'll orchestrate manually)
-    notification_formatter = PlacementNotificationFormatter(db_service=db)
-    placement_service = PlacementService(
-        db_service=db,
-        notification_formatter=notification_formatter,
-        # NOTE: No email_client - we handle fetching ourselves
-    )
+    def get_services_for_year(year: str) -> dict:
+        """Create or reuse ingestion services for a placement year."""
+        if year in services_by_year:
+            return services_by_year[year]
 
-    notice_service = EmailNoticeService(
-        email_client=email_client,  # For its processing logic
-        db_service=db,
-        policy_service=policy_service,
-    )
+        db_client = DBClient(database_name=database_name_for_year(year))
+        db_client.connect()
+        db = DatabaseService(db_client)
+        policy_service = PlacementPolicyService(db_service=db)
+        notification_formatter = PlacementNotificationFormatter(db_service=db)
+        placement_service = PlacementService(
+            db_service=db,
+            notification_formatter=notification_formatter,
+        )
+        notice_service = EmailNoticeService(
+            email_client=email_client,
+            db_service=db,
+            policy_service=policy_service,
+        )
+
+        services_by_year[year] = {
+            "db_client": db_client,
+            "db": db,
+            "notification_formatter": notification_formatter,
+            "placement_service": placement_service,
+            "notice_service": notice_service,
+        }
+        return services_by_year[year]
 
     logger.info("Created services for orchestrated email processing")
 
@@ -157,7 +177,6 @@ def cmd_update_emails(args):
         email_ids = email_client.get_unread_message_ids()
     except Exception as e:
         safe_print(f"Error fetching email IDs: {e}")
-        db_client.close_connection()
         return {"error": str(e)}
 
     safe_print(f"Found {len(email_ids)} unread emails")
@@ -165,6 +184,7 @@ def cmd_update_emails(args):
     placement_count = 0
     notice_count = 0
     skipped_count = 0
+    per_year = {}
 
     for e_id in email_ids:
         try:
@@ -176,6 +196,21 @@ def cmd_update_emails(args):
 
             subject = email_data.get("subject", "Unknown")
             safe_print(f"\n📧 Processing: {subject[:60]}...")
+
+            email_year = extract_year_from_email_data(email_data)
+            placement_year = email_year or fallback_year
+            if not email_year:
+                safe_print(f"  ○ No plus-alias year found, using fallback {placement_year}")
+
+            year_services = get_services_for_year(placement_year)
+            db = year_services["db"]
+            notification_formatter = year_services["notification_formatter"]
+            placement_service = year_services["placement_service"]
+            notice_service = year_services["notice_service"]
+            year_counts = per_year.setdefault(
+                placement_year,
+                {"placements": 0, "notices": 0, "skipped": 0},
+            )
 
             processed = False
 
@@ -195,6 +230,7 @@ def cmd_update_emails(args):
                         notification_formatter.process_events(events, save_to_db=True)
 
                     placement_count += 1
+                    year_counts["placements"] += 1
                     processed = True
                 except Exception as e:
                     safe_print(f"  ⚠ Error saving placement: {e}")
@@ -208,12 +244,14 @@ def cmd_update_emails(args):
                         success, _ = db.save_notice(notice_doc.model_dump())
                         if success:
                             notice_count += 1
+                            year_counts["notices"] += 1
                             processed = True
                     except Exception as e:
                         safe_print(f"  ⚠ Error saving notice: {e}")
                 else:
                     safe_print(f"  ○ Not relevant (skipped)")
                     skipped_count += 1
+                    year_counts["skipped"] += 1
                     processed = True  # Mark as processed so we mark it read
 
             # 4. Mark as read (only if we successfully processed or determined irrelevant)
@@ -227,13 +265,15 @@ def cmd_update_emails(args):
     # ─────────────────────────────────────────────────────────────────────────
     # Summary & Cleanup
     # ─────────────────────────────────────────────────────────────────────────
-    db_client.close_connection()
+    for services in services_by_year.values():
+        services["db_client"].close_connection()
 
     combined_result = {
         "emails_processed": len(email_ids),
         "placements": placement_count,
         "notices": notice_count,
         "skipped": skipped_count,
+        "per_year": per_year,
     }
     safe_print(f"\n━━━ Email Update Complete ━━━")
     safe_print(f"  Placements: {placement_count}")
@@ -507,6 +547,10 @@ EXAMPLES
         "update",
         help="Fetch updates",
     )
+    update_parser.add_argument(
+        "--year",
+        help="Only ingest one placement year, e.g. 202526 or 2025-26",
+    )
 
     # Send command
     send_parser = subparsers.add_parser(
@@ -543,15 +587,23 @@ EXAMPLES
     )
 
     # Update Supersets command
-    subparsers.add_parser(
+    update_supersets_parser = subparsers.add_parser(
         "update-supersets",
         help="Fetch and process updates from SuperSet",
     )
+    update_supersets_parser.add_argument(
+        "--year",
+        help="Only ingest one SuperSet placement year, e.g. 202526 or 2025-26",
+    )
 
     # Update Emails command (placement offers + general notices)
-    subparsers.add_parser(
+    update_emails_parser = subparsers.add_parser(
         "update-emails",
         help="Fetch and process placement offers + general notices from emails",
+    )
+    update_emails_parser.add_argument(
+        "--year",
+        help="Fallback placement year when an email has no plus alias, default 202526",
     )
 
     # Stop daemon command

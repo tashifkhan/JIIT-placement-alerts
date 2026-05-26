@@ -28,6 +28,11 @@ from core.config import (
     safe_print,
     setup_logging,
 )
+from core.year_context import (
+    database_name_for_year,
+    extract_year_from_email_data,
+    get_active_year,
+)
 
 
 class SchedulerServer:
@@ -133,27 +138,43 @@ class SchedulerServer:
         from services.placement_policy_service import PlacementPolicyService
 
         logger = logging.getLogger(__name__)
+        settings = get_settings()
+        fallback_year = get_active_year(settings)
         safe_print("Starting email updates (placement offers + general notices)...")
+        safe_print(f"Fallback placement year: {fallback_year}")
 
-        # Create shared dependencies
-        db_client = DBClient()
-        db_client.connect()
-        db = DatabaseService(db_client)
+        # Create shared email dependency. Database-backed services are scoped per year.
         email_client = GoogleGroupsClient()
-        policy_service = PlacementPolicyService(db_service=db)
+        services_by_year = {}
 
-        # Create services
-        notification_formatter = PlacementNotificationFormatter(db_service=db)
-        placement_service = PlacementService(
-            db_service=db,
-            notification_formatter=notification_formatter,
-        )
+        def get_services_for_year(year: str) -> dict:
+            """Create or reuse ingestion services for a placement year."""
+            if year in services_by_year:
+                return services_by_year[year]
 
-        notice_service = EmailNoticeService(
-            email_client=email_client,
-            db_service=db,
-            policy_service=policy_service,
-        )
+            db_client = DBClient(database_name=database_name_for_year(year))
+            db_client.connect()
+            db = DatabaseService(db_client)
+            policy_service = PlacementPolicyService(db_service=db)
+            notification_formatter = PlacementNotificationFormatter(db_service=db)
+            placement_service = PlacementService(
+                db_service=db,
+                notification_formatter=notification_formatter,
+            )
+            notice_service = EmailNoticeService(
+                email_client=email_client,
+                db_service=db,
+                policy_service=policy_service,
+            )
+
+            services_by_year[year] = {
+                "db_client": db_client,
+                "db": db,
+                "notification_formatter": notification_formatter,
+                "placement_service": placement_service,
+                "notice_service": notice_service,
+            }
+            return services_by_year[year]
 
         logger.info("Created services for orchestrated email processing")
 
@@ -162,7 +183,6 @@ class SchedulerServer:
             email_ids = email_client.get_unread_message_ids()
         except Exception as e:
             safe_print(f"Error fetching email IDs: {e}")
-            db.close_connection()
             return {"error": str(e)}
 
         safe_print(f"Found {len(email_ids)} unread emails")
@@ -170,6 +190,7 @@ class SchedulerServer:
         placement_count = 0
         notice_count = 0
         skipped_count = 0
+        per_year = {}
 
         for e_id in email_ids:
             try:
@@ -180,6 +201,21 @@ class SchedulerServer:
 
                 subject = email_data.get("subject", "Unknown")
                 safe_print(f"📧 Processing: {subject[:60]}...")
+
+                email_year = extract_year_from_email_data(email_data)
+                placement_year = email_year or fallback_year
+                if not email_year:
+                    safe_print(f"  ○ No plus-alias year found, using fallback {placement_year}")
+
+                year_services = get_services_for_year(placement_year)
+                db = year_services["db"]
+                notification_formatter = year_services["notification_formatter"]
+                placement_service = year_services["placement_service"]
+                notice_service = year_services["notice_service"]
+                year_counts = per_year.setdefault(
+                    placement_year,
+                    {"placements": 0, "notices": 0, "skipped": 0},
+                )
 
                 processed = False
 
@@ -199,6 +235,7 @@ class SchedulerServer:
                             )
 
                         placement_count += 1
+                        year_counts["placements"] += 1
                         processed = True
                     except Exception as e:
                         safe_print(f"  ⚠ Error saving placement: {e}")
@@ -212,12 +249,14 @@ class SchedulerServer:
                             success, _ = db.save_notice(notice_doc.model_dump())
                             if success:
                                 notice_count += 1
+                                year_counts["notices"] += 1
                                 processed = True
                         except Exception as e:
                             safe_print(f"  ⚠ Error saving notice: {e}")
                     else:
                         safe_print(f"  ○ Not relevant (skipped)")
                         skipped_count += 1
+                        year_counts["skipped"] += 1
                         processed = True
 
                 # Mark as read if processed
@@ -227,13 +266,15 @@ class SchedulerServer:
             except Exception as e:
                 safe_print(f"  ✗ Error processing email {e_id}: {e}")
 
-        db.close_connection()
+        for services in services_by_year.values():
+            services["db_client"].close_connection()
 
         return {
             "emails_processed": len(email_ids),
             "placements": placement_count,
             "notices": notice_count,
             "skipped": skipped_count,
+            "per_year": per_year,
         }
 
     async def run_official_placement_scrape(self) -> None:

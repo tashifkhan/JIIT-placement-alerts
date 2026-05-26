@@ -11,6 +11,7 @@ from typing import Optional
 from pymongo import MongoClient
 
 from core.config import safe_print
+from core.year_context import database_name_for_year, normalize_year
 
 
 class DBClient:
@@ -18,17 +19,28 @@ class DBClient:
     Database client for handling MongoDB connections.
     """
 
-    def __init__(self, connection_string: Optional[str] = None, database_name: Optional[str] = None):
+    def __init__(
+        self,
+        connection_string: Optional[str] = None,
+        database_name: Optional[str] = None,
+        placement_year: Optional[str] = None,
+    ):
         """
         Initialize database client.
 
         Args:
             connection_string: MongoDB connection string. If None, reads from env.
             database_name: MongoDB database name. If None, reads from env.
+            placement_year: Placement year used to derive database name.
         """
         self.logger = logging.getLogger(self.__class__.__name__)
         self.connection_string = connection_string or os.getenv("MONGO_CONNECTION_STR")
-        self.database_name = database_name or os.getenv("MONGO_DATABASE_NAME", "2025-26")
+        env_database_name = os.getenv("MONGO_DATABASE_NAME", "")
+        env_placement_year = os.getenv("ACTIVE_PLACEMENT_YEAR", "202526")
+        resolved_year = normalize_year(placement_year or env_placement_year)
+        self.database_name = (
+            database_name or env_database_name or database_name_for_year(resolved_year)
+        )
 
         self.client: Optional[MongoClient] = None
         self.db = None

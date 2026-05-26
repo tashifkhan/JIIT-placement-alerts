@@ -12,7 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import AliasChoices, Field
 
 
 class Settings(BaseSettings):
@@ -30,9 +30,14 @@ class Settings(BaseSettings):
         description="MongoDB connection string",
     )
     mongo_database_name: str = Field(
-        default="2025-26",
+        default="",
         validation_alias="MONGO_DATABASE_NAME",
         description="MongoDB database name",
+    )
+    active_placement_year: str = Field(
+        default="202526",
+        validation_alias="ACTIVE_PLACEMENT_YEAR",
+        description="Active placement year in compact format, e.g. 202526",
     )
 
     # Telegram Bot
@@ -53,6 +58,11 @@ class Settings(BaseSettings):
         validation_alias="SUPERSET_CREDENTIALS",
         description="JSON list of SuperSet credentials [{'email': '...', 'password': '...'}]",
     )
+    superset_credentials_by_year: str = Field(
+        default="",
+        validation_alias="SUPERSET_CREDENTIALS_BY_YEAR",
+        description="JSON map of placement year to SuperSet credentials",
+    )
 
     # Google AI (Gemini)
     google_api_key: str = Field(
@@ -64,12 +74,12 @@ class Settings(BaseSettings):
     # Placement Email (for reading offer letters)
     placement_email: str = Field(
         default="",
-        validation_alias="PLCAMENT_EMAIL",
+        validation_alias=AliasChoices("PLACEMENT_EMAIL", "PLCAMENT_EMAIL"),
         description="Email address for placement offers",
     )
     placement_app_password: str = Field(
         default="",
-        validation_alias="PLCAMENT_APP_PASSWORD",
+        validation_alias=AliasChoices("PLACEMENT_APP_PASSWORD", "PLCAMENT_APP_PASSWORD"),
         description="App password for placement email",
     )
 

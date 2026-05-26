@@ -63,7 +63,7 @@ class GoogleGroupsClient:
         if not self.email_address or not self.app_password:
             raise ValueError(
                 "Email credentials not properly configured. "
-                "Please check PLCAMENT_EMAIL and PLCAMENT_APP_PASSWORD environment variables."
+                "Please check PLACEMENT_EMAIL and PLACEMENT_APP_PASSWORD environment variables."
             )
 
         try:
@@ -200,6 +200,10 @@ class GoogleGroupsClient:
                 subject = subject.decode(encoding or "utf-8", errors="ignore")
 
             sender = msg.get("From", "")
+            to = msg.get("To", "")
+            cc = msg.get("Cc", "")
+            delivered_to = msg.get("Delivered-To", "")
+            x_original_to = msg.get("X-Original-To", "")
 
             # Extract body
             body = self._extract_body(msg)
@@ -215,6 +219,13 @@ class GoogleGroupsClient:
             return {
                 "subject": subject or "",
                 "sender": sender,
+                "to": to,
+                "cc": cc,
+                "delivered_to": delivered_to,
+                "x_original_to": x_original_to,
+                "recipients": ", ".join(
+                    value for value in [to, cc, delivered_to, x_original_to] if value
+                ),
                 "body": body,
                 "email_id": (
                     email_id.decode() if isinstance(email_id, bytes) else str(email_id)

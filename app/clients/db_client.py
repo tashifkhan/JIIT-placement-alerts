@@ -5,12 +5,11 @@ Handles the raw MongoDB connection and provides access to collections.
 Decoupled from the business logic service.
 """
 
-import os
 import logging
 from typing import Optional
 from pymongo import MongoClient
 
-from core.config import safe_print
+from core.config import get_settings, safe_print
 from core.year_context import database_name_for_year, normalize_year
 
 
@@ -24,6 +23,7 @@ class DBClient:
         connection_string: Optional[str] = None,
         database_name: Optional[str] = None,
         placement_year: Optional[str] = None,
+        use_global_database: bool = False,
     ):
         """
         Initialize database client.
@@ -32,15 +32,23 @@ class DBClient:
             connection_string: MongoDB connection string. If None, reads from env.
             database_name: MongoDB database name. If None, reads from env.
             placement_year: Placement year used to derive database name.
+            use_global_database: Use global bot database instead of a year database.
         """
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.connection_string = connection_string or os.getenv("MONGO_CONNECTION_STR")
-        env_database_name = os.getenv("MONGO_DATABASE_NAME", "")
-        env_placement_year = os.getenv("ACTIVE_PLACEMENT_YEAR", "202526")
-        resolved_year = normalize_year(placement_year or env_placement_year)
-        self.database_name = (
-            database_name or env_database_name or database_name_for_year(resolved_year)
-        )
+        settings = get_settings()
+        self.connection_string = connection_string or settings.mongo_connection_str
+        if use_global_database:
+            self.database_name = database_name or settings.global_database_name
+        else:
+            resolved_year = normalize_year(placement_year or settings.active_placement_year)
+            if placement_year:
+                self.database_name = database_name or database_name_for_year(resolved_year)
+            else:
+                self.database_name = (
+                    database_name
+                    or settings.mongo_database_name
+                    or database_name_for_year(resolved_year)
+                )
 
         self.client: Optional[MongoClient] = None
         self.db = None
@@ -52,6 +60,7 @@ class DBClient:
         self._users_collection = None
         self._policies_collection = None
         self._official_placement_data_collection = None
+        self._placement_years_collection = None
 
     def connect(self) -> None:
         """Establish database connection"""
@@ -72,6 +81,7 @@ class DBClient:
             self._users_collection = self.db["Users"]
             self._policies_collection = self.db["Policies"]
             self._official_placement_data_collection = self.db["OfficialPlacementData"]
+            self._placement_years_collection = self.db["PlacementYears"]
 
             # Test connection
             self.client.admin.command("ping")
@@ -115,3 +125,7 @@ class DBClient:
     @property
     def official_placement_data_collection(self):
         return self._official_placement_data_collection
+
+    @property
+    def placement_years_collection(self):
+        return self._placement_years_collection

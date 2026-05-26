@@ -10,11 +10,14 @@ import logging
 from typing import Optional, Any
 
 import pytz
-from telegram import Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
+    MessageHandler,
+    filters,
 )
 
 from core.config import (
@@ -23,6 +26,13 @@ from core.config import (
     set_daemon_mode,
     safe_print,
     setup_logging,
+)
+from core.year_context import (
+    database_name_for_year,
+    get_configured_placement_years,
+    get_default_year,
+    label_for_year,
+    normalize_year,
 )
 
 
@@ -81,6 +91,49 @@ class BotServer:
         self.logger.info("BotServer initialized")
 
     # =========================================================================
+    # Year Helpers
+    # =========================================================================
+
+    def _get_default_year(self) -> str:
+        """Get the default placement year."""
+        return get_default_year(self.settings)
+
+    def _get_configured_years(self) -> list[str]:
+        """Get placement years configured for the bot."""
+        configured_years = get_configured_placement_years(self.settings)
+        if self.db_service:
+            self.db_service.upsert_placement_years(configured_years)
+            db_years = self.db_service.get_active_placement_years()
+            if db_years:
+                return [year_doc["year"] for year_doc in db_years if year_doc.get("year")]
+        return configured_years
+
+    def _get_user_year(self, user_id: int) -> str:
+        """Resolve the placement year selected by a user."""
+        default_year = self._get_default_year()
+        if not self.db_service:
+            return default_year
+        return self.db_service.get_user_placement_year(user_id, default_year)
+
+    def _create_year_services(self, placement_year: str) -> tuple[Any, Any, Any]:
+        """Create year-scoped DB and stats services."""
+        from clients.db_client import DBClient
+        from services.database_service import DatabaseService
+        from services.placement_stats_calculator_service import (
+            PlacementStatsCalculatorService,
+        )
+
+        normalized_year = normalize_year(placement_year)
+        db_client = DBClient(
+            connection_string=self.settings.mongo_connection_str,
+            database_name=database_name_for_year(normalized_year),
+        )
+        db_client.connect()
+        db_service = DatabaseService(db_client)
+        stats_service = PlacementStatsCalculatorService(db_service=db_service)
+        return db_client, db_service, stats_service
+
+    # =========================================================================
     # Command Handlers
     # =========================================================================
 
@@ -126,6 +179,7 @@ class BotServer:
                     "  /start - Register for notifications\n"
                     "  /stop - Stop receiving notifications\n"
                     "  /status - Check your subscription status\n"
+                    "  /placement_year - Choose placement year\n"
                     "  /stats - Get Placement Statistics\n"
                     "  /web - Get JIIT Suite Links\n\n"
                 )
@@ -175,6 +229,7 @@ class BotServer:
 /start - Register for notifications
 /stop - Unsubscribe from notifications
 /status - Check your subscription status
+/placement_year - Choose placement year
 /stats - View placement statistics
 /noticestats - View notice statistics
 /userstats - View user statistics (admin)
@@ -225,12 +280,14 @@ The bot automatically sends:
         user_data = self.db_service.get_user_by_id(user.id)
 
         if user_data and user_data.get("is_active", False):
+            placement_year = self._get_user_year(user.id)
             text = "✅ You're subscribed to SuperSet placement notifications.\n"
             created_at = user_data.get("created_at")
             if created_at:
                 text += f"Registered on: {created_at.strftime('%B %d, %Y')}\n"
             text += f"User ID: {user_data.get('user_id')}\n"
-            text += f"Status: Active ✅"
+            text += f"Placement Year: {label_for_year(placement_year)}\n"
+            text += "Status: Active ✅"
         else:
             text = "❌ You're not subscribed to notifications.\n"
             if user_data:
@@ -247,19 +304,23 @@ The bot automatically sends:
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """Handle /stats command - show placement statistics"""
-        if not update.message:
+        user = update.effective_user
+        if not user or not update.message:
             return
 
-        if not self.stats_service:
-            await update.message.reply_text("Statistics temporarily unavailable.")
-            return
+        placement_year = self._get_user_year(user.id)
+        db_client = None
 
         try:
-            stats = self.stats_service.calculate_all_stats()
+            db_client, _, stats_service = self._create_year_services(placement_year)
+            stats = stats_service.calculate_all_stats()
         except Exception as e:
             self.logger.error(f"Error calculating stats: {e}")
             await update.message.reply_text(f"Error calculating stats: {e}")
             return
+        finally:
+            if db_client:
+                db_client.close_connection()
 
         # Format branch stats
         branch_lines = []
@@ -278,7 +339,7 @@ The bot automatically sends:
 
         branch_section = "\n".join(branch_lines) if branch_lines else "  No data"
 
-        stats_msg = f"""📊 *Placement Statistics*
+        stats_msg = f"""📊 *Placement Statistics ({label_for_year(placement_year)})*
 
 👥 Unique Students Placed: *{stats.get('unique_students_placed', 0)}*
 📝 Total Offers: *{stats.get('total_offers', 0)}*
@@ -301,17 +362,22 @@ The bot automatically sends:
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """Handle /noticestats command"""
-        if not update.message:
+        user = update.effective_user
+        if not user or not update.message:
             return
 
-        if not self.db_service:
-            await update.message.reply_text("Statistics temporarily unavailable.")
-            return
+        placement_year = self._get_user_year(user.id)
+        db_client = None
 
-        stats = self.db_service.get_notice_stats()
+        try:
+            db_client, year_db_service, _ = self._create_year_services(placement_year)
+            stats = year_db_service.get_notice_stats()
+        finally:
+            if db_client:
+                db_client.close_connection()
 
         stats_msg = f"""
-📋 **Notice Statistics**
+📋 **Notice Statistics ({label_for_year(placement_year)})**
 
 📝 Total Notices: {stats.get('total_posts', 0)}
 ✅ Sent: {stats.get('sent_to_telegram', 0)}
@@ -319,6 +385,62 @@ The bot automatically sends:
         """
 
         await update.message.reply_text(stats_msg, parse_mode="Markdown")
+
+    async def placement_year_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle /placement_year command."""
+        user = update.effective_user
+        if not user or not update.message:
+            return
+
+        current_year = self._get_user_year(user.id)
+        keyboard = []
+        for year in self._get_configured_years():
+            label = label_for_year(year)
+            if year == current_year:
+                label = f"{label} ✅"
+            keyboard.append(
+                [InlineKeyboardButton(label, callback_data=f"placement_year:{year}")]
+            )
+
+        await update.message.reply_text(
+            "Choose placement year:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+
+    async def placement_year_callback(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle placement year selection callback."""
+        query = update.callback_query
+        user = update.effective_user
+        if not query or not user:
+            return
+
+        await query.answer()
+        data = query.data or ""
+        if not data.startswith("placement_year:"):
+            return
+
+        placement_year = normalize_year(data.split(":", 1)[1])
+        configured_years = self._get_configured_years()
+        if placement_year not in configured_years:
+            await query.edit_message_text("That placement year is not configured.")
+            return
+
+        if not self.db_service:
+            await query.edit_message_text("Service temporarily unavailable.")
+            return
+
+        updated = self.db_service.set_user_placement_year(user.id, placement_year)
+        if not updated:
+            await query.edit_message_text("Use /start before choosing a placement year.")
+            return
+
+        await query.edit_message_text(
+            f"Placement year set to {label_for_year(placement_year)}."
+        )
 
     async def user_stats_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -369,12 +491,24 @@ The bot automatically sends:
         application.add_handler(CommandHandler("help", self.help_command))
         application.add_handler(CommandHandler("stop", self.stop_command))
         application.add_handler(CommandHandler("status", self.status_command))
+        application.add_handler(
+            CommandHandler("placement_year", self.placement_year_command)
+        )
+        application.add_handler(
+            MessageHandler(filters.Regex(r"^/placement-year(?:\s|$)"), self.placement_year_command)
+        )
         application.add_handler(CommandHandler("stats", self.stats_command))
         application.add_handler(
             CommandHandler("noticestats", self.notice_stats_command)
         )
         application.add_handler(CommandHandler("userstats", self.user_stats_command))
         application.add_handler(CommandHandler("web", self.web_command))
+        application.add_handler(
+            CallbackQueryHandler(
+                self.placement_year_callback,
+                pattern="^placement_year:",
+            )
+        )
 
         # Admin commands
         if self.admin_service:
@@ -402,6 +536,23 @@ The bot automatically sends:
 
         self.logger.info("Command handlers registered")
 
+    async def setup_bot_commands(self) -> None:
+        """Register public command menu with Telegram."""
+        if not self.application:
+            return
+        await self.application.bot.set_my_commands(
+            [
+                BotCommand("start", "Register for placement updates"),
+                BotCommand("status", "Check subscription status"),
+                BotCommand("placement_year", "Choose placement year"),
+                BotCommand("stats", "View placement statistics"),
+                BotCommand("noticestats", "View notice statistics"),
+                BotCommand("web", "Get JIIT Suite links"),
+                BotCommand("help", "Show help"),
+                BotCommand("stop", "Unsubscribe"),
+            ]
+        )
+
     async def run_async(self) -> None:
         """Run bot asynchronously"""
         if not self.bot_token:
@@ -419,6 +570,7 @@ The bot automatically sends:
 
         # Start polling
         await self.application.initialize()
+        await self.setup_bot_commands()
         await self.application.start()
         if self.application.updater:
             await self.application.updater.start_polling(drop_pending_updates=True)
@@ -473,33 +625,43 @@ def create_bot_server(
 
     settings = settings or get_settings()
 
-    # Initialize services
-    db_client = DBClient(settings.mongo_connection_str)
-    db_client.connect()
-    db_service = DatabaseService(db_client)
+    # Global DB stores Telegram users and preferences.
+    global_db_client = DBClient(
+        connection_string=settings.mongo_connection_str,
+        database_name=settings.global_database_name,
+        use_global_database=True,
+    )
+    global_db_client.connect()
+    global_db_service = DatabaseService(global_db_client)
+    global_db_service.upsert_placement_years(get_configured_placement_years(settings))
+
+    # Year DB stores notices/jobs/offers for the default active year.
+    year_db_client = DBClient(connection_string=settings.mongo_connection_str)
+    year_db_client.connect()
+    year_db_service = DatabaseService(year_db_client)
 
     # Setup notification channels
     telegram_service = TelegramService(
         bot_token=settings.telegram_bot_token,
         chat_id=settings.telegram_chat_id,
-        db_service=db_service,
+        db_service=global_db_service,
     )
 
     notification_service = NotificationService(
-        channels=[telegram_service], db_service=db_service
+        channels=[telegram_service], db_service=year_db_service
     )
 
     # Admin Service
     admin_service = AdminTelegramService(
-        settings=settings, db_service=db_service, telegram_service=telegram_service
+        settings=settings, db_service=global_db_service, telegram_service=telegram_service
     )
 
     # Stats Calculator Service
-    stats_service = PlacementStatsCalculatorService(db_service=db_service)
+    stats_service = PlacementStatsCalculatorService(db_service=year_db_service)
 
     return BotServer(
         settings=settings,
-        db_service=db_service,
+        db_service=global_db_service,
         notification_service=notification_service,
         admin_service=admin_service,
         stats_service=stats_service,

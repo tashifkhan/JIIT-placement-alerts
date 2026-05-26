@@ -10,6 +10,7 @@ from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 
 from core.config import safe_print
+from core.year_context import get_default_year, label_for_year, normalize_year
 from clients.db_client import DBClient
 
 
@@ -41,6 +42,7 @@ class DatabaseService:
         self.placement_offers_collection = db_client.placement_offers_collection
         self.users_collection = db_client.users_collection
         self.policies_collection = db_client.policies_collection
+        self.placement_years_collection = db_client.placement_years_collection
 
         self.logger.info("Initializing DatabaseService with DBClient")
 
@@ -627,6 +629,8 @@ class DatabaseService:
                 return False, "Users collection not initialized"
 
             existing_user = self.users_collection.find_one({"user_id": user_id})
+            default_year = get_default_year(self._settings_for_defaults())
+
             if existing_user:
                 if not existing_user.get("is_active", False):
                     result = self.users_collection.update_one(
@@ -638,6 +642,9 @@ class DatabaseService:
                                 "username": username,
                                 "first_name": first_name,
                                 "last_name": last_name,
+                                "selected_placement_year": existing_user.get(
+                                    "selected_placement_year", default_year
+                                ),
                                 "updated_at": datetime.utcnow(),
                             }
                         },
@@ -656,6 +663,7 @@ class DatabaseService:
                 "first_name": first_name,
                 "last_name": last_name,
                 "is_active": True,
+                "selected_placement_year": default_year,
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow(),
             }
@@ -726,6 +734,87 @@ class DatabaseService:
         except Exception as e:
             safe_print(f"Error getting user stats: {e}")
             return {}
+
+    def set_user_placement_year(self, user_id: int, placement_year: str) -> bool:
+        """Set a user's selected placement year."""
+        try:
+            if self.users_collection is None:
+                return False
+            normalized_year = normalize_year(placement_year)
+            if not normalized_year:
+                return False
+            result = self.users_collection.update_one(
+                {"user_id": user_id},
+                {
+                    "$set": {
+                        "selected_placement_year": normalized_year,
+                        "updated_at": datetime.utcnow(),
+                    }
+                },
+                upsert=False,
+            )
+            return result.modified_count > 0 or result.matched_count > 0
+        except Exception as e:
+            safe_print(f"Error setting user placement year: {e}")
+            return False
+
+    def get_user_placement_year(self, user_id: int, default_year: str = "202526") -> str:
+        """Get a user's selected placement year, falling back to default_year."""
+        try:
+            user = self.get_user_by_id(user_id)
+            if not user:
+                return normalize_year(default_year) or "202526"
+            return normalize_year(user.get("selected_placement_year") or default_year) or "202526"
+        except Exception as e:
+            safe_print(f"Error getting user placement year: {e}")
+            return normalize_year(default_year) or "202526"
+
+    def upsert_placement_years(self, years: List[str]) -> None:
+        """Ensure placement year documents exist in the global database."""
+        try:
+            if self.placement_years_collection is None:
+                return
+            now = datetime.utcnow()
+            for index, year in enumerate(years):
+                normalized_year = normalize_year(year)
+                if not normalized_year:
+                    continue
+                self.placement_years_collection.update_one(
+                    {"year": normalized_year},
+                    {
+                        "$set": {
+                            "label": label_for_year(normalized_year),
+                            "database_name": label_for_year(normalized_year),
+                            "is_active": True,
+                            "is_default": index == 0,
+                            "updated_at": now,
+                        },
+                        "$setOnInsert": {"created_at": now},
+                    },
+                    upsert=True,
+                )
+        except Exception as e:
+            safe_print(f"Error upserting placement years: {e}")
+
+    def get_active_placement_years(self) -> List[Dict[str, Any]]:
+        """Get active placement year documents from global database."""
+        try:
+            if self.placement_years_collection is None:
+                return []
+            return list(
+                self.placement_years_collection.find({"is_active": True}).sort(
+                    "year", 1
+                )
+            )
+        except Exception as e:
+            safe_print(f"Error getting active placement years: {e}")
+            return []
+
+    def _settings_for_defaults(self):
+        """Load settings lazily to avoid config import work during tests."""
+        from core.config import get_settings
+
+        return get_settings()
 
     def get_policy_by_year(self, year: int) -> Optional[Dict[str, Any]]:
         """Get a policy document by year"""

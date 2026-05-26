@@ -39,6 +39,21 @@ class Settings(BaseSettings):
         validation_alias="ACTIVE_PLACEMENT_YEAR",
         description="Active placement year in compact format, e.g. 202526",
     )
+    default_placement_year: str = Field(
+        default="202526",
+        validation_alias="DEFAULT_PLACEMENT_YEAR",
+        description="Default placement year for users without a preference",
+    )
+    global_database_name: str = Field(
+        default="PlacementBotGlobal",
+        validation_alias="GLOBAL_DATABASE_NAME",
+        description="MongoDB database name for global users and preferences",
+    )
+    placement_years: str = Field(
+        default='["202526", "202627"]',
+        validation_alias="PLACEMENT_YEARS",
+        description="JSON list of configured placement years",
+    )
 
     # Telegram Bot
     telegram_bot_token: str = Field(

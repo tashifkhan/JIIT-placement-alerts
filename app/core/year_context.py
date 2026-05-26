@@ -49,6 +49,19 @@ def database_name_for_year(year: str) -> str:
     return f"{normalized[:4]}-{normalized[4:]}"
 
 
+def label_for_year(year: str) -> str:
+    """
+    Convert compact placement year to display label.
+
+    Args:
+        year: Placement year in compact format.
+
+    Returns:
+        Display label, e.g. 2025-26.
+    """
+    return database_name_for_year(year)
+
+
 def get_active_year(settings: Any, override: Optional[str] = None) -> str:
     """
     Resolve active placement year from override or settings.
@@ -60,11 +73,66 @@ def get_active_year(settings: Any, override: Optional[str] = None) -> str:
     Returns:
         Normalized active year.
     """
-    year = override or getattr(settings, "active_placement_year", None) or DEFAULT_PLACEMENT_YEAR
+    year = (
+        override
+        or getattr(settings, "active_placement_year", None)
+        or getattr(settings, "default_placement_year", None)
+        or DEFAULT_PLACEMENT_YEAR
+    )
     normalized = normalize_year(year)
     if not normalized:
         raise ValueError("Placement year is required for year-scoped ingestion")
     return normalized
+
+
+def get_default_year(settings: Any) -> str:
+    """
+    Resolve default placement year.
+
+    Args:
+        settings: Application settings object.
+
+    Returns:
+        Normalized default placement year.
+    """
+    return get_active_year(settings, getattr(settings, "default_placement_year", None))
+
+
+def get_configured_placement_years(settings: Any) -> list[str]:
+    """
+    Resolve configured placement years for bot UI.
+
+    Args:
+        settings: Application settings object.
+
+    Returns:
+        Ordered list of normalized placement years.
+    """
+    years = []
+
+    placement_years_raw = getattr(settings, "placement_years", "")
+    if placement_years_raw:
+        parsed_years = json.loads(placement_years_raw)
+        if not isinstance(parsed_years, list):
+            raise ValueError("PLACEMENT_YEARS must be a JSON list")
+        years.extend(normalize_year(str(year)) for year in parsed_years)
+
+    credentials_by_year_raw = getattr(settings, "superset_credentials_by_year", "")
+    if credentials_by_year_raw:
+        credentials_by_year = json.loads(credentials_by_year_raw)
+        if isinstance(credentials_by_year, dict):
+            years.extend(normalize_year(str(year)) for year in credentials_by_year)
+
+    years.append(get_default_year(settings))
+
+    seen = set()
+    unique_years = []
+    for year in years:
+        if year and year not in seen:
+            seen.add(year)
+            unique_years.append(year)
+
+    return unique_years
 
 
 def get_database_name(settings: Any, year: str) -> str:

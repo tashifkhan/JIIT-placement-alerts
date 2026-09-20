@@ -13,6 +13,7 @@ Usage:
     python main.py send --web              # Send unsent notices via Web Push
     python main.py send --both             # Send via both channels
     python main.py official                # Update official placement data
+    python main.py official-seed           # Seed frozen prior-year official batches
     python main.py stop [bot|scheduler]    # Stop a running daemon
     python main.py status [name]           # Check status of daemons
 
@@ -21,22 +22,22 @@ Legacy Support:
 """
 
 import argparse
-import sys
-import os
 import logging
+import os
+import sys
 
 # Add app directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from core.config import get_settings, setup_logging, set_daemon_mode, safe_print
-from core.daemon import daemonize, get_daemon_status, stop_daemon, is_running
+from core.config import get_settings, safe_print, set_daemon_mode, setup_logging
+from core.daemon import daemonize, get_daemon_status, is_running, stop_daemon
 from core.year_context import (
     database_name_for_year,
     extract_year_from_email_data,
     get_active_year,
 )
-from runners.update_runner import fetch_and_process_updates
 from runners.notification_runner import send_updates
+from runners.update_runner import fetch_and_process_updates
 
 
 def cmd_bot(args):
@@ -93,6 +94,7 @@ def cmd_scheduler(args):
 def cmd_webhook(args):
     """Run webhook server"""
     import uvicorn
+
     from servers.webhook_server import create_app
 
     app = create_app()
@@ -120,12 +122,11 @@ def cmd_update_emails(args):
        d. Mark as read after processing
     """
     from clients.db_client import DBClient
+    from clients.google_groups_client import GoogleGroupsClient
     from services.database import DatabaseService
+    from services.email_notice import EmailNoticeService
     from services.placement import PlacementService
     from services.placement_notification_formatter import PlacementNotificationFormatter
-    from clients.google_groups_client import GoogleGroupsClient
-
-    from services.email_notice import EmailNoticeService
     from services.placement_policy import PlacementPolicyService
 
     logger = logging.getLogger(__name__)
@@ -332,9 +333,9 @@ def cmd_send(args):
 
 def cmd_official(args):
     """Update official placement data"""
+    from clients.db_client import DBClient
     from services.database import DatabaseService
     from services.official_placement import OfficialPlacementService
-    from clients.db_client import DBClient
 
     db_client = None
     db_service = None
@@ -360,6 +361,46 @@ def cmd_official(args):
 
     except Exception as e:
         safe_print(f"Error updating official placement: {e}")
+        return None
+    finally:
+        if db_client:
+            db_client.close_connection()
+
+
+def cmd_official_seed(args):
+    """Seed frozen prior-year official placement batches."""
+    from pathlib import Path
+
+    from clients.db_client import DBClient
+    from services.database import DatabaseService
+    from services.official_placement import OfficialPlacementService
+
+    seed_path = Path(args.file) if args.file else None
+    db_client = None
+    try:
+        if args.dry_run:
+            service = OfficialPlacementService()
+            batches = service.load_seed_batches(seed_path)
+            safe_print(
+                f"Dry run: would seed {len(batches)} official batch(es) from "
+                f"{seed_path or OfficialPlacementService.default_seed_path()}"
+            )
+            for batch in batches:
+                safe_print(f"  - {batch.get('batch_name')}")
+            return {"batches": len(batches)}
+
+        db_client = DBClient(use_global_database=True)
+        db_client.connect()
+        db_service = DatabaseService(db_client)
+        service = OfficialPlacementService(db_service=db_service)
+        stats = service.seed_batches(
+            seed_path=seed_path,
+            overwrite_seeded=args.overwrite,
+        )
+        safe_print(f"Official seed complete: {stats}")
+        return stats
+    except Exception as e:
+        safe_print(f"Error seeding official placement batches: {e}")
         return None
     finally:
         if db_client:
@@ -448,6 +489,7 @@ COMMANDS
     update-supersets    Fetch notices/jobs from SuperSet portal (supports multiple accounts)
     update-emails       Fetch placement offers + general notices from emails (uses LLM)
     official            Scrape official JIIT placement website
+    official-seed       Seed frozen prior-year official batches (2025/2024/…)
 
   NOTIFICATIONS:
     send                Send unsent notices via Telegram/Web Push
@@ -474,7 +516,7 @@ EXAMPLES
   # Full update cycle: fetch from all sources + send to Telegram
   python main.py send --telegram --fetch
 
-  # Update only from SuperSet portal  
+  # Update only from SuperSet portal
   python main.py update-supersets
 
   # Update only from placement emails (LLM-powered extraction)
@@ -600,6 +642,25 @@ EXAMPLES
         help="Run without saving to database",
     )
 
+    official_seed_parser = subparsers.add_parser(
+        "official-seed",
+        help="Seed frozen prior-year official placement batches",
+    )
+    official_seed_parser.add_argument(
+        "--file",
+        help="Path to seed JSON (defaults to app/data/official_placement_batches_seed.json)",
+    )
+    official_seed_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace existing seeded batches (never overwrites live batches)",
+    )
+    official_seed_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print batches that would be seeded without writing",
+    )
+
     # Update Supersets command
     update_supersets_parser = subparsers.add_parser(
         "update-supersets",
@@ -678,6 +739,8 @@ EXAMPLES
             cmd_send(args)
         elif args.command == "official":
             cmd_official(args)
+        elif args.command == "official-seed":
+            cmd_official_seed(args)
         elif args.command == "update-supersets":
             cmd_update_supersets(args)
         elif args.command == "update-emails":

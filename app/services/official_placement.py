@@ -9,7 +9,8 @@ import datetime
 import json
 import logging
 import re
-from typing import Any, Iterator, List, Optional, cast
+from collections.abc import Iterator
+from typing import Any, cast
 from urllib.parse import urljoin
 
 import requests
@@ -18,13 +19,15 @@ from pydantic import BaseModel, Field
 
 from core.config import safe_print
 
+logger = logging.getLogger(__name__)
+
 
 # Pydantic Models
 class RecruiterLogo(BaseModel):
     """Recruiter logo data"""
 
-    src: Optional[str] = Field(None, description="Image source URL")
-    alt: Optional[str] = Field(None, description="Image alt text")
+    src: str | None = Field(None, description="Image source URL")
+    alt: str | None = Field(None, description="Image alt text")
 
 
 class PackageDistribution(BaseModel):
@@ -45,13 +48,13 @@ class PlacementHighlight(BaseModel):
 class BatchDetails(BaseModel):
     """Extracted details for a placement batch"""
 
-    placement_pointers: List[str] = Field(
+    placement_pointers: list[str] = Field(
         default_factory=list, description="List of placement bullet points"
     )
-    package_distribution: List[PackageDistribution] = Field(
+    package_distribution: list[PackageDistribution] = Field(
         default_factory=list, description="Package distribution table data"
     )
-    highlights: List[PlacementHighlight] = Field(
+    highlights: list[PlacementHighlight] = Field(
         default_factory=list, description="Placement highlight cards"
     )
 
@@ -67,12 +70,12 @@ class OfficialPlacementData(BaseModel):
     """Complete scraped placement data"""
 
     scrape_timestamp: str = Field(..., description="ISO timestamp of scrape")
-    main_heading: Optional[str] = Field(None, description="Main heading text")
-    intro_text: Optional[str] = Field(None, description="Introductory text")
-    recruiter_logos: List[RecruiterLogo] = Field(
+    main_heading: str | None = Field(None, description="Main heading text")
+    intro_text: str | None = Field(None, description="Introductory text")
+    recruiter_logos: list[RecruiterLogo] = Field(
         default_factory=list, description="List of recruiter logos"
     )
-    batches: List[BatchInfo] = Field(
+    batches: list[BatchInfo] = Field(
         default_factory=list, description="Placement data per batch"
     )
 
@@ -103,7 +106,7 @@ class OfficialPlacementService:
 
     def __init__(
         self,
-        db_service: Optional[object] = None,
+        db_service: object | None = None,
         target_url: str = TARGET_URL,
     ):
         """
@@ -120,7 +123,7 @@ class OfficialPlacementService:
 
         self.logger.info("OfficialPlacementService initialized")
 
-    def get_html_content(self, url: Optional[str] = None) -> Optional[str]:
+    def get_html_content(self, url: str | None = None) -> str | None:
         """
         Fetches the HTML content from the given URL.
 
@@ -159,8 +162,8 @@ class OfficialPlacementService:
             self.logger.error(f"An unexpected request error occurred: {req_err}")
             return None
 
-        except Exception as e:
-            self.logger.error(f"An unknown error occurred during HTML fetch: {e}")
+        except Exception:
+            self.logger.exception("An unknown error occurred during HTML fetch")
             return None
 
     def extract_batch_details(
@@ -179,8 +182,8 @@ class OfficialPlacementService:
         Returns:
             BatchDetails with placement_pointers and package_distribution
         """
-        placement_pointers: List[str] = []
-        package_distribution: List[PackageDistribution] = []
+        placement_pointers: list[str] = []
+        package_distribution: list[PackageDistribution] = []
 
         self.logger.debug(
             f"Searching for details within container for '{context_label}'."
@@ -232,8 +235,7 @@ class OfficialPlacementService:
                 continue
 
             payload = script_text[len(prefix) :]
-            if payload.endswith(")"):
-                payload = payload[:-1]
+            payload = payload.removesuffix(")")
 
             try:
                 parsed = json.loads(payload)
@@ -280,9 +282,9 @@ class OfficialPlacementService:
         return match.group(1) if match else f"Unknown Batch {fallback_index}"
 
     @staticmethod
-    def _highlights_from_section(section: Tag) -> List[PlacementHighlight]:
+    def _highlights_from_section(section: Tag) -> list[PlacementHighlight]:
         """Read title/description pairs from a highlight-card grid."""
-        highlights: List[PlacementHighlight] = []
+        highlights: list[PlacementHighlight] = []
         for item in section.select(".highlights .item"):
             item_title = item.select_one(".title")
             description = item.select_one(".desc")
@@ -296,7 +298,7 @@ class OfficialPlacementService:
                 )
         return highlights
 
-    def _placement_sections(self, soup: BeautifulSoup) -> List[Tag]:
+    def _placement_sections(self, soup: BeautifulSoup) -> list[Tag]:
         """Find highlight-card sections in the students-placement markup.
 
         JIIT currently misspells the wrapper as `palcement-sec` and uses
@@ -312,7 +314,7 @@ class OfficialPlacementService:
             if sections:
                 return sections
 
-        sections: List[Tag] = []
+        sections: list[Tag] = []
         seen: set[int] = set()
         for heading in soup.select(".mainheading__large"):
             if not isinstance(heading, Tag):
@@ -331,9 +333,9 @@ class OfficialPlacementService:
                 container = parent if isinstance(parent, Tag) else None
         return sections
 
-    def _batches_from_dom(self, soup: BeautifulSoup) -> List[BatchInfo]:
+    def _batches_from_dom(self, soup: BeautifulSoup) -> list[BatchInfo]:
         """Parse highlight cards from the HTML already in the document."""
-        batches: List[BatchInfo] = []
+        batches: list[BatchInfo] = []
         for index, section in enumerate(self._placement_sections(soup), start=1):
             heading = section.select_one(".mainheading__large")
             title = heading.get_text(" ", strip=True) if heading else ""
@@ -354,9 +356,9 @@ class OfficialPlacementService:
         component = str(data.get("__component") or "")
         return component.endswith("placement-highlights")
 
-    def _batches_from_payload(self, payload_fragments: List[str]) -> List[BatchInfo]:
+    def _batches_from_payload(self, payload_fragments: list[str]) -> list[BatchInfo]:
         """Parse highlight cards from Next.js flight payloads."""
-        batches: List[BatchInfo] = []
+        batches: list[BatchInfo] = []
         for fragment in payload_fragments:
             for data in self._objects_containing(fragment, '"__component"'):
                 if not self._is_highlights_component(data):
@@ -389,8 +391,8 @@ class OfficialPlacementService:
         return batches
 
     def _extract_current_batches(
-        self, soup: BeautifulSoup, payload_fragments: List[str]
-    ) -> List[BatchInfo]:
+        self, soup: BeautifulSoup, payload_fragments: list[str]
+    ) -> list[BatchInfo]:
         """Extract placement highlight cards from the current JIIT page."""
         batches = self._batches_from_dom(soup)
         if batches:
@@ -398,7 +400,7 @@ class OfficialPlacementService:
         return self._batches_from_payload(payload_fragments)
 
     def _logo_from_src(
-        self, src: str, alt: Optional[str] = None
+        self, src: str, alt: str | None = None
     ) -> RecruiterLogo:
         cleaned_alt = alt.strip() if isinstance(alt, str) else None
         return RecruiterLogo(
@@ -407,10 +409,10 @@ class OfficialPlacementService:
         )
 
     def _logos_from_payload(
-        self, payload_fragments: List[str]
-    ) -> List[RecruiterLogo]:
+        self, payload_fragments: list[str]
+    ) -> list[RecruiterLogo]:
         """Recruiter slides in the flight payload include company names."""
-        logos: List[RecruiterLogo] = []
+        logos: list[RecruiterLogo] = []
         seen: set[str] = set()
         for fragment in payload_fragments:
             for data in self._objects_containing(fragment, '"slidecount"'):
@@ -431,9 +433,9 @@ class OfficialPlacementService:
                     )
         return logos
 
-    def _logos_from_dom(self, soup: BeautifulSoup) -> List[RecruiterLogo]:
+    def _logos_from_dom(self, soup: BeautifulSoup) -> list[RecruiterLogo]:
         """Read recruiter images from the Key Recruiters grid."""
-        logos: List[RecruiterLogo] = []
+        logos: list[RecruiterLogo] = []
         seen: set[str] = set()
         selectors = (
             ".placements-items img",
@@ -455,8 +457,8 @@ class OfficialPlacementService:
         return logos
 
     def _extract_current_recruiter_logos(
-        self, soup: BeautifulSoup, payload_fragments: List[str]
-    ) -> List[RecruiterLogo]:
+        self, soup: BeautifulSoup, payload_fragments: list[str]
+    ) -> list[RecruiterLogo]:
         """Extract recruiter logos from rendered or serialized current markup."""
         # Payload includes company names; the rendered grid currently ships empty alts.
         logos = self._logos_from_payload(payload_fragments)
@@ -466,7 +468,7 @@ class OfficialPlacementService:
 
     def parse_all_batches_data(
         self, html_content: str
-    ) -> Optional[OfficialPlacementData]:
+    ) -> OfficialPlacementData | None:
         """
         Parses the HTML content to extract general info and data for all batches,
         including identifying the active batch.
@@ -480,10 +482,10 @@ class OfficialPlacementService:
         self.logger.info("Starting HTML parsing for all batches data...")
         soup = BeautifulSoup(html_content, "html.parser")
 
-        main_heading: Optional[str] = None
-        intro_text: Optional[str] = None
-        recruiter_logos: List[RecruiterLogo] = []
-        batches: List[BatchInfo] = []
+        main_heading: str | None = None
+        intro_text: str | None = None
+        recruiter_logos: list[RecruiterLogo] = []
+        batches: list[BatchInfo] = []
 
         payload_fragments = list(self._next_payload_fragments(soup))
         current_batches = self._extract_current_batches(soup, payload_fragments)
@@ -519,7 +521,7 @@ class OfficialPlacementService:
                 len(recruiter_logos),
             )
             return OfficialPlacementData(
-                scrape_timestamp=datetime.datetime.now().isoformat(),
+                scrape_timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
                 main_heading=main_heading,
                 intro_text=intro_text,
                 recruiter_logos=recruiter_logos,
@@ -560,7 +562,7 @@ class OfficialPlacementService:
                 if (
                     src
                     and isinstance(src, str)
-                    and not (src.startswith("http://") or src.startswith("https://"))
+                    and not src.startswith(("http://", "https://"))
                 ):
                     src = urljoin(self.target_url, src)
 
@@ -664,14 +666,14 @@ class OfficialPlacementService:
             )
 
         return OfficialPlacementData(
-            scrape_timestamp=datetime.datetime.now().isoformat(),
+            scrape_timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
             main_heading=main_heading,
             intro_text=intro_text,
             recruiter_logos=recruiter_logos,
             batches=batches,
         )
 
-    def scrape(self) -> Optional[OfficialPlacementData]:
+    def scrape(self) -> OfficialPlacementData | None:
         """
         Main scraping function - implements IOfficialPlacementScraper protocol.
 
@@ -702,9 +704,13 @@ class OfficialPlacementService:
 
         return scraped_data
 
-    def scrape_and_save(self) -> Optional[OfficialPlacementData]:
+    def scrape_and_save(self) -> OfficialPlacementData | None:
         """
         Scrape data and save to database if db_service is available.
+
+        Writes a full-page snapshot to OfficialPlacementData and upserts each
+        scraped year into OfficialPlacementBatches (without overwriting seeded
+        years).
 
         Returns:
             Scraped data, or None on error
@@ -720,10 +726,60 @@ class OfficialPlacementService:
                 self.logger.error("Failed to persist official placement data")
                 safe_print("Failed to save official placement data.")
                 return None
-            safe_print("Official placement data saved to database.")
+            safe_print(
+                "Official placement snapshot and live batches saved to database."
+            )
 
         return scraped_data
 
+    @staticmethod
+    def default_seed_path():
+        """Default path for frozen prior-year official batch seed JSON."""
+        from pathlib import Path
+
+        return (
+            Path(__file__).resolve().parents[1]
+            / "data"
+            / "official_placement_batches_seed.json"
+        )
+
+    def load_seed_batches(self, seed_path=None) -> list[dict[str, Any]]:
+        """Load seeded graduating-year batches from JSON."""
+        from pathlib import Path
+
+        path = Path(seed_path) if seed_path else self.default_seed_path()
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        batches = payload.get("batches") if isinstance(payload, dict) else payload
+        if not isinstance(batches, list):
+            raise TypeError(f"Seed file {path} must contain a batches list")
+        seed_version = (
+            str(payload.get("seed_version") or "1")
+            if isinstance(payload, dict)
+            else "1"
+        )
+        normalized: list[dict[str, Any]] = []
+        for item in batches:
+            if not isinstance(item, dict):
+                continue
+            row = dict(item)
+            row.setdefault("seed_version", seed_version)
+            normalized.append(row)
+        return normalized
+
+    def seed_batches(
+        self,
+        seed_path=None,
+        *,
+        overwrite_seeded: bool = False,
+    ) -> dict[str, int]:
+        """Upsert frozen prior-year batches from the seed file."""
+        if not self.db_service:
+            raise RuntimeError("db_service is required to seed official batches")
+        batches = self.load_seed_batches(seed_path)
+        return self.db_service.upsert_seeded_official_placement_batches(  # type: ignore
+            batches,
+            overwrite_seeded=overwrite_seeded,
+        )
 
 # ============================================================================
 # Standalone Execution
@@ -734,8 +790,8 @@ def main() -> None:
     """
     Main function to orchestrate the scraping and storage process for all batches.
     """
-    from services.database import DatabaseService
     from clients.db_client import DBClient
+    from services.database import DatabaseService
 
     logging.basicConfig(
         level=logging.INFO,
@@ -755,7 +811,7 @@ def main() -> None:
         print(json.dumps(scraped_data.model_dump(), indent=2))
 
     db_client.close_connection()
-    logging.info("All batches scraping and storage process completed.")
+    logger.info("All batches scraping and storage process completed.")
 
 
 if __name__ == "__main__":

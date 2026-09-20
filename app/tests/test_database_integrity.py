@@ -5,11 +5,11 @@ from pymongo.errors import DuplicateKeyError
 
 from clients import db_client
 from model.notices import NoticeDocument
+from scripts.migrate_structured_notices import normalize_student_rows
 from services.database.notices import NoticeRepository
 from services.database.placement_offers import PlacementOfferRepository
 from services.database.users import UserRepository
 from services.placement.analysis.helpers import to_float
-from scripts.migrate_structured_notices import normalize_student_rows
 
 
 class FakeCursor(list):
@@ -245,6 +245,7 @@ def test_index_creation_is_complete_and_duplicate_failure_is_nonfatal(monkeypatc
         "users_user_id_unique",
         "placement_offers_company_key_unique",
         "placement_years_year_unique",
+        "official_placement_batches_batch_name_unique",
     }
     index_options = {options["name"]: options for _, _, options in created_indexes}
     assert index_options["notices_id_unique"]["unique"] is True

@@ -1,6 +1,6 @@
-"""Schemas for the OfficialPlacementData collection."""
+"""Schemas for official JIIT placement scrape snapshots and per-year batches."""
 
-from typing import List, Optional
+from typing import Literal
 
 from pydantic import Field
 
@@ -10,8 +10,8 @@ from model.base import MongoModel
 class RecruiterLogo(MongoModel):
     """Recruiter logo scraped from the official website."""
 
-    src: Optional[str] = None
-    alt: Optional[str] = None
+    src: str | None = None
+    alt: str | None = None
 
 
 class PackageDistribution(MongoModel):
@@ -34,17 +34,36 @@ class BatchInfo(MongoModel):
 
     batch_name: str
     is_active: bool = False
-    placement_pointers: List[str] = Field(default_factory=list)
-    package_distribution: List[PackageDistribution] = Field(default_factory=list)
-    highlights: List[PlacementHighlight] = Field(default_factory=list)
+    placement_pointers: list[str] = Field(default_factory=list)
+    package_distribution: list[PackageDistribution] = Field(default_factory=list)
+    highlights: list[PlacementHighlight] = Field(default_factory=list)
 
 
 class OfficialPlacementDataDocument(MongoModel):
-    """Scraped official placement data stored in OfficialPlacementData."""
+    """Full-page scrape snapshot stored in OfficialPlacementData."""
 
     scrape_timestamp: str
-    content_hash: Optional[str] = None
-    main_heading: Optional[str] = None
-    intro_text: Optional[str] = None
-    recruiter_logos: List[RecruiterLogo] = Field(default_factory=list)
-    batches: List[BatchInfo] = Field(default_factory=list)
+    content_hash: str | None = None
+    main_heading: str | None = None
+    intro_text: str | None = None
+    recruiter_logos: list[RecruiterLogo] = Field(default_factory=list)
+    batches: list[BatchInfo] = Field(default_factory=list)
+
+
+class OfficialPlacementBatchDocument(MongoModel):
+    """One graduating year in OfficialPlacementBatches.
+
+    Live scrapes own ``source=live`` docs. Seeded docs are frozen and never
+    overwritten by the scraper.
+    """
+
+    batch_name: str
+    is_active: bool = False
+    source: Literal["live", "seeded"] = "live"
+    placement_pointers: list[str] = Field(default_factory=list)
+    package_distribution: list[PackageDistribution] = Field(default_factory=list)
+    highlights: list[PlacementHighlight] = Field(default_factory=list)
+    updated_at: str
+    scrape_timestamp: str | None = None
+    seed_version: str | None = None
+    provenance: str | None = None

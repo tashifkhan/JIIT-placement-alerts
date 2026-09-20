@@ -279,50 +279,87 @@ class OfficialPlacementService:
         match = re.search(r"\b(20\d{2})\b", title)
         return match.group(1) if match else f"Unknown Batch {fallback_index}"
 
-    def _extract_current_batches(
-        self, soup: BeautifulSoup, payload_fragments: List[str]
-    ) -> List[BatchInfo]:
-        """Extract placement highlight cards from the current JIIT page."""
-        batches: List[BatchInfo] = []
+    @staticmethod
+    def _highlights_from_section(section: Tag) -> List[PlacementHighlight]:
+        """Read title/description pairs from a highlight-card grid."""
+        highlights: List[PlacementHighlight] = []
+        for item in section.select(".highlights .item"):
+            item_title = item.select_one(".title")
+            description = item.select_one(".desc")
+            if not item_title or not description:
+                continue
+            title = item_title.get_text(" ", strip=True)
+            desc = description.get_text(" ", strip=True)
+            if title and desc:
+                highlights.append(
+                    PlacementHighlight(title=title, description=desc)
+                )
+        return highlights
 
-        # This is the DOM produced in a browser after the Next.js page hydrates.
-        for index, section in enumerate(
-            soup.select("div.placement-sec.student-placement-pg"), start=1
+    def _placement_sections(self, soup: BeautifulSoup) -> List[Tag]:
+        """Find highlight-card sections in the students-placement markup.
+
+        JIIT currently misspells the wrapper as `palcement-sec` and uses
+        `student-placement-pg`. Prefer those, then the correctly spelled class,
+        then any heading that says Placement Highlights.
+        """
+        for selector in (
+            "div.student-placement-pg",
+            "div.palcement-sec",
+            "div.placement-sec",
         ):
+            sections = [tag for tag in soup.select(selector) if isinstance(tag, Tag)]
+            if sections:
+                return sections
+
+        sections: List[Tag] = []
+        seen: set[int] = set()
+        for heading in soup.select(".mainheading__large"):
+            if not isinstance(heading, Tag):
+                continue
+            if "Placement Highlights" not in heading.get_text(" ", strip=True):
+                continue
+            container = heading.parent
+            while isinstance(container, Tag):
+                if container.select_one(".highlights .item"):
+                    ident = id(container)
+                    if ident not in seen:
+                        seen.add(ident)
+                        sections.append(container)
+                    break
+                parent = container.parent
+                container = parent if isinstance(parent, Tag) else None
+        return sections
+
+    def _batches_from_dom(self, soup: BeautifulSoup) -> List[BatchInfo]:
+        """Parse highlight cards from the HTML already in the document."""
+        batches: List[BatchInfo] = []
+        for index, section in enumerate(self._placement_sections(soup), start=1):
             heading = section.select_one(".mainheading__large")
             title = heading.get_text(" ", strip=True) if heading else ""
-            highlights: List[PlacementHighlight] = []
-
-            for item in section.select(".highlights .item"):
-                item_title = item.select_one(".title")
-                description = item.select_one(".desc")
-                if not item_title or not description:
-                    continue
-                highlights.append(
-                    PlacementHighlight(
-                        title=item_title.get_text(" ", strip=True),
-                        description=description.get_text(" ", strip=True),
-                    )
+            highlights = self._highlights_from_section(section)
+            if not highlights:
+                continue
+            batches.append(
+                BatchInfo(
+                    batch_name=self._batch_name(title, index),
+                    is_active=index == 1,
+                    highlights=highlights,
                 )
+            )
+        return batches
 
-            if highlights:
-                batches.append(
-                    BatchInfo(
-                        batch_name=self._batch_name(title, index),
-                        is_active=index == 1,
-                        highlights=highlights,
-                    )
-                )
+    @staticmethod
+    def _is_highlights_component(data: dict[str, Any]) -> bool:
+        component = str(data.get("__component") or "")
+        return component.endswith("placement-highlights")
 
-        if batches:
-            return batches
-
-        # requests receives the card data in Next.js flight payloads before the
-        # browser turns it into the DOM above.
-        marker = '"__component"'
+    def _batches_from_payload(self, payload_fragments: List[str]) -> List[BatchInfo]:
+        """Parse highlight cards from Next.js flight payloads."""
+        batches: List[BatchInfo] = []
         for fragment in payload_fragments:
-            for data in self._objects_containing(fragment, marker):
-                if data.get("__component") != "jiit-youth-club.placement-highlights":
+            for data in self._objects_containing(fragment, '"__component"'):
+                if not self._is_highlights_component(data):
                     continue
                 title = str(data.get("title") or "")
                 raw_items = data.get("list")
@@ -349,46 +386,83 @@ class OfficialPlacementService:
                         highlights=highlights,
                     )
                 )
-
         return batches
 
-    def _extract_current_recruiter_logos(
+    def _extract_current_batches(
         self, soup: BeautifulSoup, payload_fragments: List[str]
+    ) -> List[BatchInfo]:
+        """Extract placement highlight cards from the current JIIT page."""
+        batches = self._batches_from_dom(soup)
+        if batches:
+            return batches
+        return self._batches_from_payload(payload_fragments)
+
+    def _logo_from_src(
+        self, src: str, alt: Optional[str] = None
+    ) -> RecruiterLogo:
+        cleaned_alt = alt.strip() if isinstance(alt, str) else None
+        return RecruiterLogo(
+            src=urljoin(self.target_url, src),
+            alt=cleaned_alt or None,
+        )
+
+    def _logos_from_payload(
+        self, payload_fragments: List[str]
     ) -> List[RecruiterLogo]:
-        """Extract recruiter logos from rendered or serialized current markup."""
+        """Recruiter slides in the flight payload include company names."""
         logos: List[RecruiterLogo] = []
-
-        for section in soup.select(".recruiters, .key-recruiters"):
-            for img in section.find_all("img"):
-                src = img.get("src")
-                alt = img.get("alt")
-                if isinstance(src, str):
-                    logos.append(
-                        RecruiterLogo(
-                            src=urljoin(self.target_url, src),
-                            alt=alt if isinstance(alt, str) else None,
-                        )
-                    )
-
-        if logos:
-            return logos
-
+        seen: set[str] = set()
         for fragment in payload_fragments:
             for data in self._objects_containing(fragment, '"slidecount"'):
-                images = data.get("Images")
+                images = data.get("Images") or data.get("images")
                 if not isinstance(images, list):
                     continue
                 for item in images:
                     if not isinstance(item, dict) or not item.get("image"):
                         continue
+                    src = urljoin(self.target_url, str(item["image"]))
+                    if src in seen:
+                        continue
+                    seen.add(src)
                     logos.append(
-                        RecruiterLogo(
-                            src=urljoin(self.target_url, str(item["image"])),
-                            alt=str(item.get("name") or "") or None,
+                        self._logo_from_src(
+                            src, str(item.get("name") or "") or None
                         )
                     )
-
         return logos
+
+    def _logos_from_dom(self, soup: BeautifulSoup) -> List[RecruiterLogo]:
+        """Read recruiter images from the Key Recruiters grid."""
+        logos: List[RecruiterLogo] = []
+        seen: set[str] = set()
+        selectors = (
+            ".placements-items img",
+            ".recruiters img",
+            ".key-recruiters img",
+        )
+        for selector in selectors:
+            for img in soup.select(selector):
+                src = img.get("src")
+                if not isinstance(src, str) or not src or src in seen:
+                    continue
+                seen.add(src)
+                alt = img.get("alt")
+                logos.append(
+                    self._logo_from_src(
+                        src, alt if isinstance(alt, str) else None
+                    )
+                )
+        return logos
+
+    def _extract_current_recruiter_logos(
+        self, soup: BeautifulSoup, payload_fragments: List[str]
+    ) -> List[RecruiterLogo]:
+        """Extract recruiter logos from rendered or serialized current markup."""
+        # Payload includes company names; the rendered grid currently ships empty alts.
+        logos = self._logos_from_payload(payload_fragments)
+        if logos:
+            return logos
+        return self._logos_from_dom(soup)
 
     def parse_all_batches_data(
         self, html_content: str
@@ -421,7 +495,7 @@ class OfficialPlacementService:
                 else "Training & Placement"
             )
 
-            intro = soup.select_one(".student-training-page .desc-sec .left")
+            intro = soup.select_one(".desc-sec .left")
             if intro:
                 intro_text = intro.get_text(" ", strip=True)
             else:

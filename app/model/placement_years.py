@@ -1,7 +1,6 @@
 """Schemas for the PlacementYears collection."""
 
 from datetime import datetime
-from typing import Optional
 
 from model.base import MongoModel
 
@@ -14,5 +13,5 @@ class PlacementYearDocument(MongoModel):
     database_name: str
     is_active: bool = True
     is_default: bool = False
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None

@@ -1,7 +1,7 @@
 """Data models for placement statistics."""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Set, TypedDict
+from typing import Any, TypedDict
 
 
 @dataclass
@@ -21,7 +21,7 @@ class BranchStats:
     total_offers: int = 0
     unique_students: int = 0
     total_students_in_branch: int = 0
-    packages: List[float] = field(default_factory=list)
+    packages: list[float] = field(default_factory=list)
     avg_package: float = 0.0
     highest_package: float = 0.0
     median_package: float = 0.0
@@ -34,8 +34,8 @@ class CompanyStats:
 
     company: str
     students_count: int = 0
-    profiles: Set[str] = field(default_factory=set)
-    packages: List[float] = field(default_factory=list)
+    profiles: set[str] = field(default_factory=set)
+    packages: list[float] = field(default_factory=list)
     avg_package: float = 0.0
 
 
@@ -50,6 +50,6 @@ class PlacementStats(TypedDict, total=False):
     highest_package: float
     placement_percentage: float
     total_eligible_students: int
-    branch_stats: Dict[str, Dict[str, Any]]
-    company_stats: Dict[str, Dict[str, Any]]
-    available_filters: Dict[str, List[str]]
+    branch_stats: dict[str, dict[str, Any]]
+    company_stats: dict[str, dict[str, Any]]
+    available_filters: dict[str, list[str]]

@@ -13,8 +13,9 @@ import argparse
 import os
 import re
 import sys
+from collections.abc import Iterable
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 from rapidfuzz import fuzz, process
 
@@ -28,7 +29,6 @@ from core.year_context import (
     get_configured_placement_years,
     normalize_year,
 )
-
 
 LABEL_PATTERNS = {
     "company": re.compile(r"(?:\*\*)?Company(?:\*\*)?\s*:\s*(.+)", re.I),
@@ -44,7 +44,7 @@ JOB_URL_RE = re.compile(r"/jobs/([A-Za-z0-9_-]+)")
 STUDENT_LINE_RE = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s*(?P<name>[^()\n]+?)\s*\((?P<enrollment>[^()\n]+)\)")
 
 
-def parse_dt(value: Any) -> Optional[datetime]:
+def parse_dt(value: Any) -> datetime | None:
     """Parse date-ish values used by existing Mongo records."""
     if value in (None, ""):
         return None
@@ -73,11 +73,11 @@ def parse_dt(value: Any) -> Optional[datetime]:
         return None
 
 
-def epoch_ms(dt: Optional[datetime]) -> Optional[int]:
+def epoch_ms(dt: datetime | None) -> int | None:
     return int(dt.timestamp() * 1000) if dt else None
 
 
-def clean_value(value: Optional[str]) -> Optional[str]:
+def clean_value(value: str | None) -> str | None:
     if not value:
         return None
     value = re.sub(r"</?[^>]+>", "", value)
@@ -86,8 +86,8 @@ def clean_value(value: Optional[str]) -> Optional[str]:
     return value or None
 
 
-def parse_labels(message: str) -> Dict[str, Any]:
-    parsed: Dict[str, Any] = {}
+def parse_labels(message: str) -> dict[str, Any]:
+    parsed: dict[str, Any] = {}
     for key, pattern in LABEL_PATTERNS.items():
         match = pattern.search(message or "")
         if match:
@@ -97,7 +97,7 @@ def parse_labels(message: str) -> Dict[str, Any]:
     if job_match:
         parsed["job_id"] = job_match.group(1)
 
-    students: List[Dict[str, Any]] = []
+    students: list[dict[str, Any]] = []
     for line in (message or "").splitlines():
         match = STUDENT_LINE_RE.search(line)
         if not match:
@@ -118,7 +118,7 @@ def parse_labels(message: str) -> Dict[str, Any]:
     return parsed
 
 
-def normalize_category(doc: Dict[str, Any], parsed: Dict[str, Any]) -> str:
+def normalize_category(doc: dict[str, Any], parsed: dict[str, Any]) -> str:
     raw = doc.get("category") or doc.get("type") or "announcement"
     category = str(raw).replace("_", " ").strip().lower()
     title_message = f"{doc.get('title', '')}\n{doc.get('content', '')}\n{doc.get('formatted_message', '')}".lower()
@@ -134,14 +134,14 @@ def normalize_category(doc: Dict[str, Any], parsed: Dict[str, Any]) -> str:
     return category or "announcement"
 
 
-def build_job_lookup(jobs: Iterable[Dict[str, Any]]) -> Tuple[Dict[str, Dict[str, Any]], Dict[int, str], List[Dict[str, Any]]]:
+def build_job_lookup(jobs: Iterable[dict[str, Any]]) -> tuple[dict[str, dict[str, Any]], dict[int, str], list[dict[str, Any]]]:
     job_list = [job for job in jobs if isinstance(job, dict)]
     by_id = {str(job.get("id") or job.get("_id")): job for job in job_list if job.get("id") or job.get("_id")}
     choices = {index: str(job.get("company", "")) for index, job in enumerate(job_list) if job.get("company")}
     return by_id, choices, job_list
 
 
-def job_summary(job: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def job_summary(job: dict[str, Any] | None) -> dict[str, Any] | None:
     if not job:
         return None
     return {
@@ -154,7 +154,7 @@ def job_summary(job: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     }
 
 
-def match_job(company: Optional[str], parsed_job_id: Optional[str], job_by_id: Dict[str, Dict[str, Any]], job_choices: Dict[int, str], jobs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def match_job(company: str | None, parsed_job_id: str | None, job_by_id: dict[str, dict[str, Any]], job_choices: dict[int, str], jobs: list[dict[str, Any]]) -> dict[str, Any] | None:
     if parsed_job_id and parsed_job_id in job_by_id:
         return job_by_id[parsed_job_id]
     if not company or not job_choices:
@@ -167,17 +167,17 @@ def match_job(company: Optional[str], parsed_job_id: Optional[str], job_by_id: D
 
 
 def normalize_student_rows(
-    students: List[Dict[str, Any]],
-    roles: List[Dict[str, Any]],
-    location: Optional[str],
-    joining_date: Optional[str],
-    offer_received_at: Optional[datetime] = None,
-    student_offer_dates: Optional[Dict[str, datetime]] = None,
-) -> List[Dict[str, Any]]:
+    students: list[dict[str, Any]],
+    roles: list[dict[str, Any]],
+    location: str | None,
+    joining_date: str | None,
+    offer_received_at: datetime | None = None,
+    student_offer_dates: dict[str, datetime] | None = None,
+) -> list[dict[str, Any]]:
     default_role = roles[0].get("role") if len(roles) == 1 and roles[0].get("role") else None
     role_packages = {role.get("role"): role.get("package") for role in roles if role.get("role")}
     default_package = roles[0].get("package") if len(roles) == 1 else None
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     student_offer_dates = student_offer_dates or {}
 
     for student in students:
@@ -206,7 +206,7 @@ def normalize_student_rows(
     return rows
 
 
-def student_identity(student: Dict[str, Any]) -> str:
+def student_identity(student: dict[str, Any]) -> str:
     """Build the same stable student identity used by placement persistence."""
     enrollment = student.get("enrollment_number") or student.get("enrollment")
     if enrollment:
@@ -215,11 +215,11 @@ def student_identity(student: Dict[str, Any]) -> str:
     return f"name:{name}" if name else ""
 
 
-def get_student_offer_dates(db, offer: Dict[str, Any]) -> Dict[str, datetime]:
+def get_student_offer_dates(db, offer: dict[str, Any]) -> dict[str, datetime]:
     """Recover earliest student offer dates from related placement notices."""
     offer_id = str(offer.get("_id") or "")
     company = offer.get("company")
-    clauses: List[Dict[str, Any]] = []
+    clauses: list[dict[str, Any]] = []
     if offer_id:
         clauses.append({"placement_offer_ref": offer_id})
     if company:
@@ -232,7 +232,7 @@ def get_student_offer_dates(db, offer: Dict[str, Any]) -> Dict[str, datetime]:
     if not clauses:
         return {}
 
-    dates: Dict[str, datetime] = {}
+    dates: dict[str, datetime] = {}
     notices = db["Notices"].find({"$or": clauses}).sort("createdAt", 1)
     for notice in notices:
         notice_date = parse_dt(
@@ -282,7 +282,7 @@ def migrate_notices(db, year: str, dry_run: bool) -> int:
             students = []
 
         source_dt = parse_dt(doc.get("time_sent") or doc.get("saved_at") or parsed.get("posted_on"))
-        set_doc: Dict[str, Any] = {
+        set_doc: dict[str, Any] = {
             "category": category,
             "type": category.replace(" ", "_"),
             "year": doc.get("year") or year,
@@ -346,7 +346,7 @@ def migrate_placement_offers(db, dry_run: bool) -> int:
         matched = job_summary(matched_job)
         matched_job_id = matched.get("id") if matched else doc.get("matched_job_id")
 
-        set_doc: Dict[str, Any] = {
+        set_doc: dict[str, Any] = {
             "students_selected": normalized_students,
             "number_of_offers": len(normalized_students),
             "matched_job_id": matched_job_id,
@@ -366,7 +366,7 @@ def migrate_placement_offers(db, dry_run: bool) -> int:
     return changed
 
 
-def migrate_year(year: str, dry_run: bool) -> Dict[str, int]:
+def migrate_year(year: str, dry_run: bool) -> dict[str, int]:
     db_client = DBClient(database_name=database_name_for_year(year))
     db_client.connect()
     try:
@@ -391,7 +391,7 @@ def main() -> None:
     else:
         years = [normalize_year(args.year or getattr(settings, "active_placement_year", None) or DEFAULT_PLACEMENT_YEAR)]
 
-    totals: Dict[str, Dict[str, int]] = {}
+    totals: dict[str, dict[str, int]] = {}
     for year in years:
         safe_print(f"Migrating {year} ({'dry run' if args.dry_run else 'write'})...")
         totals[year] = migrate_year(year, args.dry_run)

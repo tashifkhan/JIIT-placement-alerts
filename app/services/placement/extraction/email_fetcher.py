@@ -1,6 +1,5 @@
 """Email fetching helpers for placement offer extraction."""
 
-from typing import Dict, List
 
 from clients.google_groups_client import GoogleGroupsClient
 
@@ -8,7 +7,7 @@ from clients.google_groups_client import GoogleGroupsClient
 class PlacementEmailFetcherMixin:
     """Email fetching behavior for PlacementService."""
 
-    def fetch_unread_emails(self) -> List[Dict[str, str]]:
+    def fetch_unread_emails(self) -> list[dict[str, str]]:
         """
         Fetch unread emails from IMAP.
 

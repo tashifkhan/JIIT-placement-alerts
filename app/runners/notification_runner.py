@@ -6,7 +6,7 @@ Uses dependency injection for testability.
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from core.config import get_settings, safe_print
 from core.year_context import database_name_for_year, get_configured_placement_years
@@ -14,7 +14,6 @@ from services.database import DatabaseService
 from services.notification import NotificationService
 from services.telegram import TelegramService
 from services.web_push import WebPushService
-
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,7 @@ class _PlacementYearUserService:
         self._global_db_service = global_db_service
         self._placement_year = placement_year
 
-    def get_active_users(self, placement_year: Optional[str] = None):
+    def get_active_users(self, placement_year: str | None = None):
         """Return users subscribed to this scoped placement year."""
         return self._global_db_service.get_active_users(
             placement_year or self._placement_year
@@ -45,11 +44,11 @@ class NotificationRunner:
 
     def __init__(
         self,
-        db_service: Optional[DatabaseService] = None,
-        telegram_service: Optional[TelegramService] = None,
-        web_push_service: Optional[WebPushService] = None,
-        notification_service: Optional[NotificationService] = None,
-        placement_year: Optional[str] = None,
+        db_service: DatabaseService | None = None,
+        telegram_service: TelegramService | None = None,
+        web_push_service: WebPushService | None = None,
+        notification_service: NotificationService | None = None,
+        placement_year: str | None = None,
     ):
         """
         Initialize NotificationRunner with dependencies.
@@ -153,10 +152,10 @@ class NotificationRunner:
 def send_updates(
     telegram: bool = False,
     web: bool = False,
-    db_service: Optional[DatabaseService] = None,
-    telegram_service: Optional[TelegramService] = None,
-    web_push_service: Optional[WebPushService] = None,
-    notification_service: Optional[NotificationService] = None,
+    db_service: DatabaseService | None = None,
+    telegram_service: TelegramService | None = None,
+    web_push_service: WebPushService | None = None,
+    notification_service: NotificationService | None = None,
 ) -> dict:
     """
     Convenience function to send unsent notices.

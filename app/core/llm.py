@@ -1,6 +1,6 @@
 """Shared Gemini chat-model factory for notice and offer extraction."""
 
-from typing import Any, List, Optional
+from typing import Any
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -12,10 +12,10 @@ DEFAULT_THINKING_LEVEL = "low"
 
 def build_chat_model(
     *,
-    model: Optional[str] = None,
+    model: str | None = None,
     temperature: float = 0,
-    api_key: Optional[str] = None,
-    thinking_level: Optional[str] = None,
+    api_key: str | None = None,
+    thinking_level: str | None = None,
 ) -> ChatGoogleGenerativeAI:
     """Build the Gemini chat model used by every LangGraph pipeline."""
     settings = get_settings()
@@ -43,7 +43,7 @@ def message_text(message_or_content: Any) -> str:
         return content
 
     if isinstance(content, list):
-        parts: List[str] = []
+        parts: list[str] = []
         for part in content:
             if isinstance(part, str):
                 parts.append(part)

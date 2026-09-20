@@ -17,14 +17,14 @@ from __future__ import annotations
 
 import argparse
 import os
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any
 
 from dotenv import load_dotenv
 from pymongo import ASCENDING, MongoClient, ReplaceOne, UpdateOne
 from pymongo.database import Database
 from pymongo.errors import BulkWriteError, PyMongoError
-
 
 DEFAULT_SOURCE_DATABASE = "SupersetPlacement"
 DEFAULT_DESTINATION_DATABASE = "2025-26"
@@ -33,9 +33,9 @@ DEFAULT_PLACEMENT_YEAR = "202526"
 DEFAULT_BATCH_SIZE = 500
 
 
-def batched(items: Iterable[Dict[str, Any]], batch_size: int) -> Iterable[List[Dict[str, Any]]]:
+def batched(items: Iterable[dict[str, Any]], batch_size: int) -> Iterable[list[dict[str, Any]]]:
     """Yield document batches of at most ``batch_size`` items."""
-    batch: List[Dict[str, Any]] = []
+    batch: list[dict[str, Any]] = []
     for item in items:
         batch.append(item)
         if len(batch) == batch_size:
@@ -111,7 +111,7 @@ def migrate_users_to_global(
         return True
 
     imported = 0
-    source_user_ids: List[int] = []
+    source_user_ids: list[int] = []
     cursor = source.find({"user_id": {"$exists": True}}).batch_size(batch_size)
     try:
         for documents in batched(cursor, batch_size):

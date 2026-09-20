@@ -1,6 +1,6 @@
 """Shared MongoDB model helpers."""
 
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -18,4 +18,4 @@ class MongoModel(BaseModel):
         populate_by_name=True,
     )
 
-    mongo_id: Optional[Any] = Field(default=None, alias="_id")
+    mongo_id: Any | None = Field(default=None, alias="_id")

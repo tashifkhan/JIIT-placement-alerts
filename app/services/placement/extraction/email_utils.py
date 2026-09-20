@@ -1,7 +1,6 @@
 """Email parsing and privacy helpers for placement offer extraction."""
 
 import re
-from typing import List, Optional
 
 
 def strip_headers_and_forwarded_markers(text: str) -> str:
@@ -17,7 +16,7 @@ def strip_headers_and_forwarded_markers(text: str) -> str:
     ]
 
     lines = text.splitlines()
-    cleaned_lines: List[str] = []
+    cleaned_lines: list[str] = []
     for line in lines:
         if any(re.search(pattern, line, flags=re.IGNORECASE) for pattern in header_patterns):
             continue
@@ -29,7 +28,7 @@ def strip_headers_and_forwarded_markers(text: str) -> str:
     return cleaned.strip()
 
 
-def extract_forwarded_date(text: str) -> Optional[str]:
+def extract_forwarded_date(text: str) -> str | None:
     """Extract forwarded email date and convert it to an ISO timestamp."""
     if not text:
         return None
@@ -79,11 +78,11 @@ def extract_forwarded_date(text: str) -> Optional[str]:
             parsed_date = parsed_date.astimezone(ist)
 
         return parsed_date.isoformat()
-    except Exception:
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
-def extract_forwarded_sender(text: str) -> Optional[str]:
+def extract_forwarded_sender(text: str) -> str | None:
     """Extract original sender from forwarded email headers."""
     if not text:
         return None

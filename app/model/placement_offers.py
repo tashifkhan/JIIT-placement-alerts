@@ -1,7 +1,7 @@
 """Schemas for the PlacementOffers collection."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import Field
 
@@ -13,48 +13,48 @@ class RolePackage(MongoModel):
     """Role and compensation details in a placement offer."""
 
     role: str
-    package: Optional[float] = None
-    package_details: Optional[str] = None
+    package: float | None = None
+    package_details: str | None = None
 
 
 class PlacementStudent(MongoModel):
     """Student-level placement offer row."""
 
     name: str
-    enrollment_number: Optional[str] = None
-    enrollment: Optional[str] = None
-    email: Optional[str] = None
-    role: Optional[str] = None
-    package: Optional[float] = None
-    location: Optional[str] = None
-    joining_date: Optional[str] = None
-    offer_received_at: Optional[datetime] = None
-    offerReceivedAt: Optional[int] = None
+    enrollment_number: str | None = None
+    enrollment: str | None = None
+    email: str | None = None
+    role: str | None = None
+    package: float | None = None
+    location: str | None = None
+    joining_date: str | None = None
+    offer_received_at: datetime | None = None
+    offerReceivedAt: int | None = None
 
 
 class PlacementOfferDocument(MongoModel):
     """Placement offer/result stored in PlacementOffers."""
 
     company: str
-    company_key: Optional[str] = None
-    roles: List[RolePackage] = Field(default_factory=list)
-    job_location: Optional[List[str]] = None
-    joining_date: Optional[str] = None
-    students_selected: List[PlacementStudent] = Field(default_factory=list)
+    company_key: str | None = None
+    roles: list[RolePackage] = Field(default_factory=list)
+    job_location: list[str] | None = None
+    joining_date: str | None = None
+    students_selected: list[PlacementStudent] = Field(default_factory=list)
     number_of_offers: int = 0
-    additional_info: Optional[str] = None
+    additional_info: str | None = None
 
-    email_subject: Optional[str] = None
-    email_sender: Optional[str] = None
-    time_sent: Optional[str] = None
+    email_subject: str | None = None
+    email_sender: str | None = None
+    time_sent: str | None = None
 
-    createdAt: Optional[int] = None
-    created_at: Optional[datetime] = None
-    saved_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    createdAt: int | None = None
+    created_at: datetime | None = None
+    saved_at: datetime | None = None
+    updated_at: datetime | None = None
 
-    matched_job_id: Optional[str] = None
-    related_job_id: Optional[str] = None
-    matched_job: Optional[MatchedJobSummary] = None
+    matched_job_id: str | None = None
+    related_job_id: str | None = None
+    matched_job: MatchedJobSummary | None = None
 
-    details: Dict[str, Any] = Field(default_factory=dict)
+    details: dict[str, Any] = Field(default_factory=dict)

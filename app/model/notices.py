@@ -1,7 +1,7 @@
 """Schemas for the Notices collection."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import Field, field_validator
 
@@ -12,75 +12,75 @@ class StudentNoticeRow(MongoModel):
     """Student row used by shortlist and placement-offer notices."""
 
     name: str = "Unknown"
-    enrollment: Optional[str] = None
-    enrollment_number: Optional[str] = None
-    company: Optional[str] = None
-    role: Optional[str] = None
-    package: Optional[Any] = None
-    location: Optional[str] = None
-    joining_date: Optional[str] = None
-    offer_received_at: Optional[datetime] = None
-    offerReceivedAt: Optional[int] = None
+    enrollment: str | None = None
+    enrollment_number: str | None = None
+    company: str | None = None
+    role: str | None = None
+    package: Any | None = None
+    location: str | None = None
+    joining_date: str | None = None
+    offer_received_at: datetime | None = None
+    offerReceivedAt: int | None = None
 
 
 class MatchedJobSummary(MongoModel):
     """Embedded summary of a related Jobs document."""
 
     id: str
-    company: Optional[str] = None
-    job_profile: Optional[str] = None
-    location: Optional[str] = None
-    package: Optional[Any] = None
-    package_breakdown: Optional[str] = None
+    company: str | None = None
+    job_profile: str | None = None
+    location: str | None = None
+    package: Any | None = None
+    package_breakdown: str | None = None
 
 
 class NoticeDocument(MongoModel):
     """Notice document stored in Notices."""
 
-    id: Optional[str] = Field(None, description="Source notice identifier")
+    id: str | None = Field(None, description="Source notice identifier")
     title: str = "Notice"
     content: str = ""
-    author: Optional[str] = None
+    author: str | None = None
     type: str = "announcement"
-    source: Optional[str] = None
+    source: str | None = None
     category: str = "announcement"
-    year: Optional[str] = None
+    year: str | None = None
 
-    createdAt: Optional[int] = None
-    updatedAt: Optional[int] = None
-    saved_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-    sent_at: Optional[datetime] = None
-    time_sent: Optional[str] = None
+    createdAt: int | None = None
+    updatedAt: int | None = None
+    saved_at: datetime | None = None
+    updated_at: datetime | None = None
+    sent_at: datetime | None = None
+    time_sent: str | None = None
     sent_to_telegram: bool = False
-    delivery_status: Dict[str, bool] = Field(default_factory=dict)
-    delivery_timestamps: Dict[str, datetime] = Field(default_factory=dict)
+    delivery_status: dict[str, bool] = Field(default_factory=dict)
+    delivery_timestamps: dict[str, datetime] = Field(default_factory=dict)
 
-    details: Dict[str, Any] = Field(default_factory=dict)
-    deadline: Optional[str] = None
-    links: Optional[List[str]] = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    deadline: str | None = None
+    links: list[str] | None = None
 
-    job_company: Optional[str] = None
-    job_role: Optional[str] = None
-    package: Optional[str] = None
-    package_breakdown: Optional[str] = None
-    location: Optional[str] = None
-    eligibility_criteria: Optional[List[str]] = None
-    hiring_flow: Optional[List[str]] = None
+    job_company: str | None = None
+    job_role: str | None = None
+    package: str | None = None
+    package_breakdown: str | None = None
+    location: str | None = None
+    eligibility_criteria: list[str] | None = None
+    hiring_flow: list[str] | None = None
 
-    students: Optional[List[StudentNoticeRow]] = None
-    selected_students: List[StudentNoticeRow] = Field(default_factory=list)
-    shortlisted_students: List[StudentNoticeRow] = Field(default_factory=list)
-    students_count: Optional[int] = None
-    number_of_offers: Optional[int] = None
+    students: list[StudentNoticeRow] | None = None
+    selected_students: list[StudentNoticeRow] = Field(default_factory=list)
+    shortlisted_students: list[StudentNoticeRow] = Field(default_factory=list)
+    students_count: int | None = None
+    number_of_offers: int | None = None
 
-    placement_offer_ref: Optional[str] = None
-    is_update: Optional[bool] = None
-    new_students_count: Optional[int] = None
+    placement_offer_ref: str | None = None
+    is_update: bool | None = None
+    new_students_count: int | None = None
 
-    matched_job_id: Optional[str] = None
-    related_job_id: Optional[str] = None
-    matched_job: Optional[MatchedJobSummary] = None
+    matched_job_id: str | None = None
+    related_job_id: str | None = None
+    matched_job: MatchedJobSummary | None = None
 
     @field_validator("selected_students", "shortlisted_students", mode="before")
     @classmethod

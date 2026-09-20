@@ -1,6 +1,6 @@
 """Filtering helpers for placement statistics."""
 
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from services.placement.analysis.config import EXCLUDED_BRANCHES
 from services.placement.analysis.helpers import get_student_package
@@ -10,8 +10,8 @@ class PlacementStatsFilteringMixin:
     """Student flattening and filtering behavior."""
 
     def _flatten_students(
-        self, placements: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        self, placements: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """
         Flatten placements into students with placement context.
 
@@ -34,14 +34,14 @@ class PlacementStatsFilteringMixin:
 
     def _filter_students(
         self,
-        students: List[Dict[str, Any]],
+        students: list[dict[str, Any]],
         exclude_branches: bool = True,
-        companies: Optional[List[str]] = None,
-        roles: Optional[List[str]] = None,
-        locations: Optional[List[str]] = None,
-        package_range: Optional[Tuple[float, float]] = None,
-        search_query: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        companies: list[str] | None = None,
+        roles: list[str] | None = None,
+        locations: list[str] | None = None,
+        package_range: tuple[float, float] | None = None,
+        search_query: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Filter students by branch, company, role, location, package, and search."""
         result = []
 
@@ -85,12 +85,12 @@ class PlacementStatsFilteringMixin:
         return result
 
     def _extract_filter_options(
-        self, placements: List[Dict[str, Any]]
-    ) -> Dict[str, List[str]]:
+        self, placements: list[dict[str, Any]]
+    ) -> dict[str, list[str]]:
         """Extract available company, role, and location filters from placements."""
-        companies: Set[str] = set()
-        roles: Set[str] = set()
-        locations: Set[str] = set()
+        companies: set[str] = set()
+        roles: set[str] = set()
+        locations: set[str] = set()
 
         for placement in placements:
             if placement.get("company"):

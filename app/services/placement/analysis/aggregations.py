@@ -1,6 +1,6 @@
 """Aggregation helpers for placement statistics."""
 
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any
 
 from services.placement.analysis.config import EXCLUDED_BRANCHES
 from services.placement.analysis.helpers import calculate_median, get_student_package
@@ -10,9 +10,9 @@ from services.placement.analysis.models import BranchStats, CompanyStats
 class PlacementStatsAggregationMixin:
     """Branch, company, and package aggregation behavior."""
 
-    def _get_branch_total_counts(self) -> Dict[str, int]:
+    def _get_branch_total_counts(self) -> dict[str, int]:
         """Get total student counts per branch excluding unsupported branches."""
-        totals: Dict[str, int] = {}
+        totals: dict[str, int] = {}
 
         for branch, counts in self.student_counts.items():
             if branch in EXCLUDED_BRANCHES:
@@ -30,10 +30,10 @@ class PlacementStatsAggregationMixin:
         return totals
 
     def _calculate_package_stats(
-        self, students: List[Dict[str, Any]]
-    ) -> Tuple[List[float], float, float, float]:
+        self, students: list[dict[str, Any]]
+    ) -> tuple[list[float], float, float, float]:
         """Calculate package stats using highest package per unique student."""
-        student_max_packages: Dict[str, float] = {}
+        student_max_packages: dict[str, float] = {}
 
         for student in students:
             enrollment = student.get("enrollment_number")
@@ -58,13 +58,13 @@ class PlacementStatsAggregationMixin:
         return all_packages, average, median, highest
 
     def _calculate_branch_stats(
-        self, students: List[Dict[str, Any]]
-    ) -> Dict[str, BranchStats]:
+        self, students: list[dict[str, Any]]
+    ) -> dict[str, BranchStats]:
         """Calculate placement statistics per branch."""
         branch_totals = self._get_branch_total_counts()
-        stats: Dict[str, BranchStats] = {}
-        branch_enrollments: Dict[str, Set[str]] = {}
-        branch_max_packages: Dict[str, Dict[str, float]] = {}
+        stats: dict[str, BranchStats] = {}
+        branch_enrollments: dict[str, set[str]] = {}
+        branch_max_packages: dict[str, dict[str, float]] = {}
 
         for student in students:
             branch = self._get_branch(student.get("enrollment_number", ""))
@@ -107,10 +107,10 @@ class PlacementStatsAggregationMixin:
         return stats
 
     def _calculate_company_stats(
-        self, students: List[Dict[str, Any]]
-    ) -> Dict[str, CompanyStats]:
+        self, students: list[dict[str, Any]]
+    ) -> dict[str, CompanyStats]:
         """Calculate placement statistics per company."""
-        stats: Dict[str, CompanyStats] = {}
+        stats: dict[str, CompanyStats] = {}
 
         for student in students:
             company = student.get("company", "Unknown")

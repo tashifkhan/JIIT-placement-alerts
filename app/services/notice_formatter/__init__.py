@@ -1,13 +1,13 @@
 """Notice formatter service and implementation modules."""
 
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from langgraph.graph import END, StateGraph
 
 from core import get_settings
 from core.llm import DEFAULT_GEMINI_MODEL, build_chat_model
 from core.year_context import DEFAULT_PLACEMENT_YEAR, normalize_year
-
 from services.notice_formatter.graph_nodes import NoticeFormatterGraphNodeMixin
 from services.notice_formatter.helpers import NoticeFormatterHelperMixin
 from services.notice_formatter.state import EligibilityMark, Job, Notice, PostState
@@ -21,10 +21,10 @@ class NoticeFormatterService(
 
     def __init__(
         self,
-        google_api_key: Optional[str] = None,
+        google_api_key: str | None = None,
         model: str = DEFAULT_GEMINI_MODEL,
         temperature: float = 0,
-        placement_year: Optional[str] = None,
+        placement_year: str | None = None,
     ):
         settings = get_settings()
         self.placement_year = normalize_year(
@@ -59,8 +59,8 @@ class NoticeFormatterService(
         self,
         notice: Notice,
         jobs: Sequence[Job],
-        job_enricher: Optional[Any] = None,
-    ) -> Dict[str, Any]:
+        job_enricher: Any | None = None,
+    ) -> dict[str, Any]:
         """
         Format a notice with LLM-based classification, matching, and formatting.
 
@@ -132,7 +132,7 @@ class NoticeFormatterService(
         self,
         notices: Sequence[Notice],
         jobs: Sequence[Job],
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Format multiple notices."""
         return [self.format_notice(notice, jobs) for notice in notices]
 
@@ -140,8 +140,8 @@ __all__ = [
     "EligibilityMark",
     "Job",
     "Notice",
-    "NoticeFormatterService",
     "NoticeFormatterGraphNodeMixin",
     "NoticeFormatterHelperMixin",
+    "NoticeFormatterService",
     "PostState",
 ]

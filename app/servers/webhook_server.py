@@ -10,16 +10,15 @@ FastAPI-based server for:
 import json
 import logging
 import secrets
-from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
 from core.config import Settings, get_settings, setup_logging
-
 
 # ============================================================================
 # Request/Response Models
@@ -39,7 +38,7 @@ class PushSubscription(BaseModel):
     """Web push subscription from client"""
 
     endpoint: str
-    keys: Dict[str, str]
+    keys: dict[str, str]
     user_id: int = Field(..., gt=0)
 
 
@@ -47,23 +46,23 @@ class NotifyRequest(BaseModel):
     """Request to send notification"""
 
     message: str
-    title: Optional[str] = "SuperSet Update"
-    channels: Optional[List[str]] = None  # ["telegram", "web_push"]
+    title: str | None = "SuperSet Update"
+    channels: list[str] | None = None  # ["telegram", "web_push"]
 
 
 class NotifyResponse(BaseModel):
     """Notification response"""
 
     success: bool
-    results: Dict[str, Any] = Field(default_factory=dict)
+    results: dict[str, Any] = Field(default_factory=dict)
 
 
 class StatsResponse(BaseModel):
     """Statistics response"""
 
-    placement_stats: Dict[str, Any] = Field(default_factory=dict)
-    notice_stats: Dict[str, Any] = Field(default_factory=dict)
-    user_stats: Dict[str, Any] = Field(default_factory=dict)
+    placement_stats: dict[str, Any] = Field(default_factory=dict)
+    notice_stats: dict[str, Any] = Field(default_factory=dict)
+    user_stats: dict[str, Any] = Field(default_factory=dict)
 
 
 # ============================================================================
@@ -72,10 +71,10 @@ class StatsResponse(BaseModel):
 
 
 def create_app(
-    settings: Optional[Settings] = None,
-    db_service: Optional[Any] = None,
-    notification_service: Optional[Any] = None,
-    web_push_service: Optional[Any] = None,
+    settings: Settings | None = None,
+    db_service: Any | None = None,
+    notification_service: Any | None = None,
+    web_push_service: Any | None = None,
 ) -> FastAPI:
     """
     Create FastAPI application with DI.
@@ -113,7 +112,7 @@ def create_app(
 
     api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
-    def require_api_key(api_key: Optional[str] = Depends(api_key_header)) -> None:
+    def require_api_key(api_key: str | None = Depends(api_key_header)) -> None:
         """Require the configured API key and fail closed when it is absent."""
         if not settings.webhook_api_key:
             raise HTTPException(status_code=503, detail="Service unavailable")
@@ -157,8 +156,8 @@ def create_app(
 
         # Setup services if not provided
         if app_state["db_service"] is None:
-            from services.database import DatabaseService
             from clients.db_client import DBClient
+            from services.database import DatabaseService
 
             db_client = DBClient()
             db_client.connect()
@@ -171,8 +170,8 @@ def create_app(
                 # combined repository facade.
                 app_state["global_db_service"] = app_state["db_service"]
             else:
-                from services.database import DatabaseService
                 from clients.db_client import DBClient
+                from services.database import DatabaseService
 
                 global_db_client = DBClient(use_global_database=True)
                 global_db_client.connect()
@@ -261,7 +260,7 @@ def create_app(
     def subscribe_push(
         subscription: PushSubscription,
         web_push=Depends(get_web_push),
-    ) -> Dict[str, bool]:
+    ) -> dict[str, bool]:
         """Subscribe to web push notifications"""
         if not web_push or not web_push.is_enabled:
             raise HTTPException(
@@ -286,7 +285,7 @@ def create_app(
     def unsubscribe_push(
         subscription: PushSubscription,
         web_push=Depends(get_web_push),
-    ) -> Dict[str, bool]:
+    ) -> dict[str, bool]:
         """Unsubscribe from web push notifications"""
         if not web_push:
             raise HTTPException(status_code=501, detail="Web push not configured")
@@ -302,7 +301,7 @@ def create_app(
             raise HTTPException(status_code=500, detail="Internal server error")
 
     @app.get("/api/push/vapid-key")
-    def get_vapid_key(web_push=Depends(get_web_push)) -> Dict[str, str]:
+    def get_vapid_key(web_push=Depends(get_web_push)) -> dict[str, str]:
         """Get VAPID public key for client subscription"""
         if not web_push:
             raise HTTPException(status_code=501, detail="Web push not configured")
@@ -350,7 +349,7 @@ def create_app(
     def send_telegram_notification(
         request: NotifyRequest,
         notification=Depends(get_notification),
-    ) -> Dict[str, bool]:
+    ) -> dict[str, bool]:
         """Send notification via Telegram only"""
         if not notification:
             raise HTTPException(
@@ -370,7 +369,7 @@ def create_app(
     def send_web_push_notification(
         request: NotifyRequest,
         notification=Depends(get_notification),
-    ) -> Dict[str, bool]:
+    ) -> dict[str, bool]:
         """Send notification via Web Push only"""
         if not notification:
             raise HTTPException(
@@ -409,7 +408,7 @@ def create_app(
     @app.get(
         "/api/stats/placements", dependencies=[Depends(require_api_key)]
     )
-    def get_placement_stats(db=Depends(get_db)) -> Dict[str, Any]:
+    def get_placement_stats(db=Depends(get_db)) -> dict[str, Any]:
         """Get placement statistics"""
         if not db:
             raise HTTPException(status_code=501, detail="Database not configured")
@@ -417,7 +416,7 @@ def create_app(
         return sanitize_api_data(db.get_placement_stats())
 
     @app.get("/api/stats/notices", dependencies=[Depends(require_api_key)])
-    def get_notice_stats(db=Depends(get_db)) -> Dict[str, Any]:
+    def get_notice_stats(db=Depends(get_db)) -> dict[str, Any]:
         """Get notice statistics"""
         if not db:
             raise HTTPException(status_code=501, detail="Database not configured")
@@ -425,7 +424,7 @@ def create_app(
         return sanitize_api_data(db.get_notice_stats())
 
     @app.get("/api/stats/users", dependencies=[Depends(require_api_key)])
-    def get_user_stats(db=Depends(get_db)) -> Dict[str, Any]:
+    def get_user_stats(db=Depends(get_db)) -> dict[str, Any]:
         """Get user statistics"""
         if not db:
             raise HTTPException(status_code=501, detail="Database not configured")
@@ -440,7 +439,7 @@ def create_app(
     def trigger_update(
         notification=Depends(get_notification),
         db=Depends(get_db),
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Trigger update job via webhook"""
         if not notification or not db:
             raise HTTPException(status_code=501, detail="Services not configured")

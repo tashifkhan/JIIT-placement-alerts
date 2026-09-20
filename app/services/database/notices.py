@@ -1,13 +1,16 @@
 """Notice collection repository methods."""
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+import logging
+from datetime import UTC, datetime
+from typing import Any
 
 from pymongo.errors import DuplicateKeyError
 
 from core.config import safe_print
 from model.notices import NoticeDocument
 from services.database.base import RepositoryMixin
+
+logger = logging.getLogger(__name__)
 
 
 class NoticeRepository(RepositoryMixin):
@@ -24,6 +27,7 @@ class NoticeRepository(RepositoryMixin):
             )
         except Exception as e:
             safe_print(f"Error checking notice existence: {e}")
+            logger.exception("Error checking notice existence")
             return False
 
     def get_all_notice_ids(self) -> set:
@@ -35,9 +39,10 @@ class NoticeRepository(RepositoryMixin):
             return {doc.get("id") for doc in cursor if doc.get("id")}
         except Exception as e:
             safe_print(f"Error getting notice IDs: {e}")
+            logger.exception("Error getting notice IDs")
             return set()
 
-    def save_notice(self, notice: Dict[str, Any]) -> Tuple[bool, str]:
+    def save_notice(self, notice: dict[str, Any]) -> tuple[bool, str]:
         """Atomically insert a notice, relying on the unique source-id index."""
         try:
             nid = notice.get("id") if isinstance(notice, dict) else None
@@ -48,7 +53,7 @@ class NoticeRepository(RepositoryMixin):
                 return False, "Notices collection not initialized"
 
             doc = self._validated_doc(NoticeDocument(**notice))
-            doc["saved_at"] = datetime.now(timezone.utc)
+            doc["saved_at"] = datetime.now(UTC)
             doc["sent_to_telegram"] = False
             doc["delivery_status"] = {}
             res = self.notices_collection.insert_one(doc)
@@ -59,9 +64,10 @@ class NoticeRepository(RepositoryMixin):
             return False, "Notice already exists"
         except Exception as e:
             safe_print(f"Error saving notice: {e}")
+            logger.exception("Error saving notice")
             return False, str(e)
 
-    def get_notice_by_id(self, notice_id: str) -> Optional[Dict[str, Any]]:
+    def get_notice_by_id(self, notice_id: str) -> dict[str, Any] | None:
         """Get a notice by its ID."""
         try:
             if self.notices_collection is None:
@@ -69,19 +75,20 @@ class NoticeRepository(RepositoryMixin):
             return self.notices_collection.find_one({"id": notice_id})
         except Exception as e:
             safe_print(f"Error fetching notice {notice_id}: {e}")
+            logger.exception("Error fetching notice %s", notice_id)
             return None
 
     @staticmethod
-    def _pending_channel_query(channel: str) -> Dict[str, Any]:
+    def _pending_channel_query(channel: str) -> dict[str, Any]:
         """Build a backward-compatible query for one pending channel."""
-        clauses: List[Dict[str, Any]] = [
+        clauses: list[dict[str, Any]] = [
             {f"delivery_status.{channel}": {"$ne": True}}
         ]
         if channel == "telegram":
             clauses.append({"sent_to_telegram": {"$ne": True}})
         return {"$and": clauses}
 
-    def get_pending_notices(self, channels: List[str]) -> List[Dict[str, Any]]:
+    def get_pending_notices(self, channels: list[str]) -> list[dict[str, Any]]:
         """Get notices pending delivery for any selected channel."""
         try:
             if self.notices_collection is None:
@@ -103,9 +110,10 @@ class NoticeRepository(RepositoryMixin):
 
         except Exception as e:
             safe_print(f"Error getting pending notices: {e}")
+            logger.exception("Error getting pending notices")
             return []
 
-    def get_unsent_notices(self) -> List[Dict[str, Any]]:
+    def get_unsent_notices(self) -> list[dict[str, Any]]:
         """Get notices not yet sent to Telegram (legacy API)."""
         return self.get_pending_notices(["telegram"])
 
@@ -115,8 +123,8 @@ class NoticeRepository(RepositoryMixin):
             if self.notices_collection is None or not channel:
                 return False
 
-            now = datetime.now(timezone.utc)
-            set_fields: Dict[str, Any] = {
+            now = datetime.now(UTC)
+            set_fields: dict[str, Any] = {
                 f"delivery_status.{channel}": True,
                 f"delivery_timestamps.{channel}": now,
             }
@@ -130,13 +138,14 @@ class NoticeRepository(RepositoryMixin):
             return result.modified_count > 0
         except Exception as e:
             safe_print(f"Error marking {channel} delivery for post: {e}")
+            logger.exception("Error marking %s delivery for post", channel)
             return False
 
     def mark_as_sent(self, post_id: Any) -> bool:
         """Mark a notice as sent to Telegram (legacy API)."""
         return self.mark_channel_delivered(post_id, "telegram")
 
-    def get_all_notices(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_all_notices(self, limit: int = 50) -> list[dict[str, Any]]:
         """Get all notices with optional limit."""
         try:
             if self.notices_collection is None:
@@ -145,9 +154,10 @@ class NoticeRepository(RepositoryMixin):
             return list(cursor)
         except Exception as e:
             safe_print(f"Error getting all notices: {e}")
+            logger.exception("Error getting all notices")
             return []
 
-    def get_notice_stats(self) -> Dict[str, Any]:
+    def get_notice_stats(self) -> dict[str, Any]:
         """Return statistics about the Notices collection."""
         try:
             if self.notices_collection is None:
@@ -173,6 +183,7 @@ class NoticeRepository(RepositoryMixin):
                 ]
                 post_types = list(self.notices_collection.aggregate(pipeline))
             except Exception:
+                logger.exception("Error aggregating notice post types")
                 post_types = []
 
             return {
@@ -183,4 +194,5 @@ class NoticeRepository(RepositoryMixin):
             }
         except Exception as e:
             safe_print(f"Error getting notice stats: {e}")
+            logger.exception("Error getting notice stats")
             return {"error": str(e)}

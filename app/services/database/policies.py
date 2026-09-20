@@ -1,16 +1,19 @@
 """Policies collection repository methods."""
 
-from typing import Any, Dict, List, Optional, Tuple
+import logging
+from typing import Any
 
 from core.config import safe_print
 from model.policies import PolicyDocument
 from services.database.base import RepositoryMixin
 
+logger = logging.getLogger(__name__)
+
 
 class PolicyRepository(RepositoryMixin):
     """Persistence operations for placement policies."""
 
-    def get_policy_by_year(self, year: int) -> Optional[Dict[str, Any]]:
+    def get_policy_by_year(self, year: int) -> dict[str, Any] | None:
         """Get a policy document by year."""
         try:
             if self.policies_collection is None:
@@ -18,9 +21,10 @@ class PolicyRepository(RepositoryMixin):
             return self.policies_collection.find_one({"year": year})
         except Exception as e:
             safe_print(f"Error fetching policy for year {year}: {e}")
+            logger.exception("Error fetching policy for year %s", year)
             return None
 
-    def upsert_policy(self, policy: Dict[str, Any]) -> Tuple[bool, str]:
+    def upsert_policy(self, policy: dict[str, Any]) -> tuple[bool, str]:
         """Insert or update a policy document."""
         try:
             if self.policies_collection is None:
@@ -49,9 +53,10 @@ class PolicyRepository(RepositoryMixin):
 
         except Exception as e:
             safe_print(f"Error upserting policy: {e}")
+            logger.exception("Error upserting policy")
             return False, str(e)
 
-    def get_all_policies(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_all_policies(self, limit: int = 10) -> list[dict[str, Any]]:
         """Get all published policies with optional limit."""
         try:
             if self.policies_collection is None:
@@ -66,4 +71,5 @@ class PolicyRepository(RepositoryMixin):
 
         except Exception as e:
             safe_print(f"Error getting all policies: {e}")
+            logger.exception("Error getting all policies")
             return []

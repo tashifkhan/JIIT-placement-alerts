@@ -1,17 +1,19 @@
 """File storage fallback for placement offer extraction."""
 
 import json
+import logging
 import os
-from datetime import datetime
-from typing import Dict, List, Optional
+from datetime import UTC, datetime
 
 from core.config import safe_print
+
+logger = logging.getLogger(__name__)
 
 
 class PlacementStorageMixin:
     """JSON storage fallback behavior for PlacementService."""
 
-    def save_to_json(self, data: List[Dict], filename: Optional[str] = None) -> None:
+    def save_to_json(self, data: list[dict], filename: str | None = None) -> None:
         """Append placement offers to a JSON file with deduplication."""
         if filename is None:
             filename = self.output_file
@@ -25,15 +27,16 @@ class PlacementStorageMixin:
                     existing = json.load(file)
                     if not isinstance(existing, list):
                         existing = []
-            except (json.JSONDecodeError, IOError) as e:
+            except (OSError, json.JSONDecodeError) as e:
                 safe_print(f"Warning: Could not read existing file {filename}: {e}")
                 backup_file = (
-                    f"{filename}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    f"{filename}.backup_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
                 )
                 try:
                     os.rename(filename, backup_file)
                     safe_print(f"Corrupted file backed up to: {backup_file}")
                 except Exception as backup_error:
+                    logger.exception("Could not back up corrupted file %s", filename)
                     safe_print(
                         f"Warning: Could not back up corrupted file: {backup_error}"
                     )
@@ -63,6 +66,6 @@ class PlacementStorageMixin:
                 json.dump(existing, file, indent=2, ensure_ascii=False)
             safe_print(f"Successfully saved {new_items_added} new offers to {filename}")
             safe_print(f"Total offers in file: {len(existing)}")
-        except IOError as e:
+        except OSError as e:
             safe_print(f"Error saving to file {filename}: {e}")
             raise

@@ -2,7 +2,7 @@
 
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from clients.google_groups_client import GoogleGroupsClient
 from core.config import get_settings, safe_print
@@ -27,14 +27,14 @@ class PlacementService(
 
     def __init__(
         self,
-        email_address: Optional[str] = None,
-        app_password: Optional[str] = None,
-        google_api_key: Optional[str] = None,
-        db_service: Optional[Any] = None,
-        notification_formatter: Optional[Any] = None,
-        email_client: Optional[Any] = None,
+        email_address: str | None = None,
+        app_password: str | None = None,
+        google_api_key: str | None = None,
+        db_service: Any | None = None,
+        notification_formatter: Any | None = None,
+        email_client: Any | None = None,
         model: str = DEFAULT_GEMINI_MODEL,
-        output_file: Optional[str] = None,
+        output_file: str | None = None,
     ):
         """
         Initialize placement service.
@@ -72,7 +72,7 @@ class PlacementService(
 
         self.logger.info("PlacementService initialized")
 
-    def process_email(self, email_data: Dict[str, str]) -> Optional[PlacementOffer]:
+    def process_email(self, email_data: dict[str, str]) -> PlacementOffer | None:
         """Process a single email through the LangGraph pipeline."""
         state: GraphState = {
             "email": email_data,
@@ -88,7 +88,7 @@ class PlacementService(
         result = self.app.invoke(state)
         return result.get("extracted_offer")
 
-    def update_placement_records(self) -> Dict[str, Any]:
+    def update_placement_records(self) -> dict[str, Any]:
         """
         Fetch emails, process them, and save extracted placement offers.
 
@@ -97,7 +97,7 @@ class PlacementService(
         emails_fetched = 0
         offers_extracted = 0
         notices_created = 0
-        extracted_offers: List[Dict[str, Any]] = []
+        extracted_offers: list[dict[str, Any]] = []
 
         if self.email_client:
             safe_print("Fetching unread email IDs...")
@@ -105,6 +105,7 @@ class PlacementService(
                 email_ids = self.email_client.get_unread_message_ids()
             except Exception as e:
                 safe_print(f"Error fetching email IDs: {e}")
+                self.logger.exception("Error fetching email IDs")
                 return {}
 
             safe_print(
@@ -145,6 +146,9 @@ class PlacementService(
                                 save_success = True
                             except Exception as e:
                                 safe_print(f"Error saving to DB: {e}")
+                                self.logger.exception(
+                                    "Error saving placement offer to database"
+                                )
                                 self.save_to_json([offer_data])
                         else:
                             self.save_to_json([offer_data])
@@ -165,6 +169,7 @@ class PlacementService(
 
                 except Exception as e:
                     safe_print(f"Error processing email {email_id}: {e}")
+                    self.logger.exception("Error processing email %s", email_id)
 
         else:
             safe_print("Using legacy bulk processing (no email_client configured)...")
@@ -188,6 +193,7 @@ class PlacementService(
                         events = result.get("events", [])
                     except Exception as e:
                         safe_print(f"Error saving offers: {e}")
+                        self.logger.exception("Error saving extracted offers to database")
                         self.save_to_json(extracted_offers)
                 else:
                     self.save_to_json(extracted_offers)

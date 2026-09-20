@@ -1,54 +1,47 @@
 # JIIT Placements SuperSet Telegram Notification Bot
 
-A bot that scrapes job postings from the JIIT's SuperSet placement portal, saves them to MongoDB, enhances their formatting, and broadcasts them to all registered Telegram users. Eliminates the need to check the portal again and again.
+Scrapes job postings from JIIT's SuperSet placement portal, stores them in MongoDB, and broadcasts them to registered Telegram users, so you don't have to keep refreshing the portal.
 
-## Try the Live Bot
+## Live bot
 
-**The bot is already running and fully functional!** You can start using it immediately:
+The bot runs at [@SupersetNotificationBot](https://t.me/SupersetNotificationBot). Send `/start` to register and you'll get job posting notifications. The companion site is [JIIT Placement Updates](https://jiit-placement-updates.tashif.codes).
 
-**[Start using SuperSet Notification Bot](https://t.me/SupersetNotificationBot)**
-**Live Website:** [JIIT Placement Updates](https://jiit-placement-updates.tashif.codes)
+## Analytics before the shutdown
 
-Simply open the link above, send `/start` to register, and you'll automatically receive job posting notifications from SuperSet. No setup required on your end!
-
-## Analytics (before it got "offically" shut)
-![2025-12-08_02 09 51 copy](https://github.com/user-attachments/assets/8d34bd22-b61e-43ab-8e5c-d72b1682b60c)
-
+![Usage analytics](https://github.com/user-attachments/assets/8d34bd22-b61e-43ab-8e5c-d72b1682b60c)
 
 ## Features
 
-- **User Registration**: Users can register via `/start` command to receive notifications
-- **Automated Scraping**: Logs into SuperSet and extracts latest job postings
-- **Precise Duplicate Detection**: Uses exact content matching to prevent duplicate posts
-- **Enhanced Formatting**: Improves readability of job posts for Telegram
-- **Database-Powered**: MongoDB-based storage for users and posts
-- **Scheduled Broadcasting**: Runs automatically at 12 AM, 12 PM, and 6 PM IST
-- **Multi-User Support**: Broadcasts to all registered users simultaneously
-- **User Management**: Users can start/stop receiving notifications
-- **Daemon Mode**: Run in background with comprehensive logging support
+- Register with `/start`, unsubscribe with `/stop`
+- Logs into SuperSet and pulls the latest job postings
+- Skips duplicates by exact content match
+- Reformats posts for Telegram
+- Stores users and posts in MongoDB
+- Updates hourly from 8 AM to 11 PM IST plus midnight, and scrapes official placement data at 12 PM
+- Sends to every registered user at once
+- Runs in the background with logging
 
-## Bot Commands
+## Bot commands
 
-- `/start` - Register for job posting notifications
-- `/stop` - Unsubscribe from notifications
-- `/status` - Check your subscription status
-- `/stats` - Gives you placement Statistics
-- `/web` - Gives you the links of all the JIIT Tools
+- `/start` register for notifications
+- `/status` check your subscription
+- `/placement_year` choose which placement year you follow
+- `/stats` placement statistics
+- `/noticestats` notice statistics
+- `/web` links to JIIT tools
+- `/help` show help
+- `/stop` unsubscribe
 
-**Live Bot:** [https://t.me/SupersetNotificationBot](https://t.me/SupersetNotificationBot)
+## Run your own instance
 
-## Want to Run Your Own Instance?
+The live bot above works as is. Run your own if you want to customize it or learn from it.
 
-While the live bot above is fully functional and ready to use, you can also run your own instance of the bot for customization or learning purposes. Follow the setup instructions below.
-
-## Prerequisites
+### Prerequisites
 
 - Python 3.12+
-- MongoDB database
-- Telegram Bot Token
-- SuperSet portal credentials
-
-## Setup Instructions
+- MongoDB, local or Atlas
+- Telegram bot token
+- SuperSet credentials
 
 ### Step 1: Clone the repository
 
@@ -59,53 +52,39 @@ cd placement-alerts-superset-telegram-notification-bot
 
 ### Step 2: Install dependencies
 
-The project uses `uv` for dependency management. If you prefer pip:
-
 ```bash
-# Install using pip
-pip intall .
-
-# OR using uv (recommended)
-pip install uv
+cd app
 uv sync
+
+# or with pip
+pip install -r requirements.txt
 ```
 
-### Step 3: Getting your Telegram credentials
+### Step 3: Telegram credentials
 
-#### Creating a Telegram Bot
+Create a bot:
 
-1. Open Telegram and search for `@BotFather`
-2. Send `/newbot` command
-3. Follow prompts to name your bot
-4. BotFather will provide a bot token - copy this into your `.env` file
+1. Message `@BotFather` on Telegram
+2. Send `/newbot`
+3. Pick a name when prompted
+4. Copy the token BotFather returns into `.env`
 
-#### Finding your Chat ID
+Find your chat ID:
 
-1. Method 1 - For personal use:
+- Personal use: message `@userinfobot` and use the `user_id` it replies with as `TELEGRAM_CHAT_ID`.
+- Channel or group: add the bot as an admin, post a message, then open `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates` and look for `"chat":{"id":-1001234567890}`. Group and channel IDs are negative.
 
-   - Message `@userinfobot` on Telegram
-   - It will reply with your user_id - use this as your `TELEGRAM_CHAT_ID`
-
-2. Method 2 - For channels/groups:
-   - Add your bot to the channel/group as an admin
-   - Send a message to the channel/group
-   - Visit `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
-   - Find `"chat":{"id":-1001234567890}` in the response (note: group/channel IDs are negative numbers)
-
-### Step 4: Setting up MongoDB
+### Step 4: Set up MongoDB
 
 1. Create a free [MongoDB Atlas](https://www.mongodb.com/cloud/atlas/register) account
-2. Create a new cluster (free tier is sufficient)
-3. Click "Connect" and select "Connect your application"
-4. Copy the connection string and replace `<username>`, `<password>`, and `<dbname>` with your credentials
-5. Paste the connection string into your `.env` file
+2. Create a cluster; the free tier is enough
+3. Click Connect and choose "Connect your application"
+4. Copy the connection string and fill in your username, password, and database name
+5. Put it in `.env`
 
 ### Step 5: Configure environment variables
 
-Copy `.env.example` to `.env` and replace every placeholder. Protected webhook
-routes fail closed unless `WEBHOOK_API_KEY` is configured. Admin bot commands
-also fail closed unless your Telegram user ID is listed in
-`ADMIN_TELEGRAM_USER_IDS`.
+Copy `.env.example` to `.env` and fill in every placeholder. Protected webhook routes fail closed unless `WEBHOOK_API_KEY` is set. Admin bot commands also fail closed unless your Telegram user ID is listed in `ADMIN_TELEGRAM_USER_IDS`.
 
 ```
 # MongoDB
@@ -130,235 +109,137 @@ WEBHOOK_API_KEY=generate_a_long_random_secret
 CORS_ORIGINS=["https://your-dashboard.example.com"]
 ```
 
-#### Placement-year configuration
+#### Placement-year settings
 
-These settings have different purposes:
+- `PLACEMENT_YEARS` lists the years shown in the bot UI and used for notification routing.
+- `SUPERSET_CREDENTIALS_BY_YEAR` lists the years that `update` and `update-supersets` scrape. Every year you want scraped needs a key here with at least one credential.
+- `ACTIVE_PLACEMENT_YEAR` is the fallback year for operations.
+- `DEFAULT_PLACEMENT_YEAR` is the year assigned to new users until they pick one.
 
-- `PLACEMENT_YEARS` controls which years are available in the bot UI and notification routing.
-- `SUPERSET_CREDENTIALS_BY_YEAR` controls which years `update` and
-  `update-supersets` actually scrape. Each year to be scraped must be a key in
-  this JSON object, with at least one login credential.
-- `ACTIVE_PLACEMENT_YEAR` is the operational fallback year.
-- `DEFAULT_PLACEMENT_YEAR` is the initial year assigned to users who have not
-  selected one.
-
-With no `--year` option, a SuperSet update processes every year present in
-`SUPERSET_CREDENTIALS_BY_YEAR`. To process only one configured year:
+Without `--year`, an update scrapes every year present in `SUPERSET_CREDENTIALS_BY_YEAR`. To scrape one year:
 
 ```bash
 cd app
 uv run main.py update --year 202627
 ```
 
-Email ingestion determines the year from a recipient plus alias such as
-`placement+202627@example.com`. An unread email without a valid year alias is
-stored under `ACTIVE_PLACEMENT_YEAR`, unless `--year` supplies another fallback.
+Email ingestion reads the year from a recipient alias such as `placement+202627@example.com`. An unread email with no valid year alias goes to `ACTIVE_PLACEMENT_YEAR` unless `--year` sets another fallback.
 
-### Step 6: Running the Bot
+### Step 6: Run the bot
 
-#### Option 1: Bot Server with Scheduler (Recommended)
-
-Start the bot server that handles user registration and runs scheduled jobs:
+The bot server handles user commands. The scheduler runs scraping and broadcasting on a timer. Run both for a complete setup.
 
 ```bash
-# Normal mode (with console output)
-python app.py
+cd app
 
-# Daemon mode (background with logging)
-python app.py -d
+python main.py bot                  # bot server, foreground
+python main.py scheduler            # scheduled jobs, foreground
+
+python main.py bot --daemon         # bot server, background
+python main.py scheduler --daemon   # scheduled jobs, background
 ```
 
-**Daemon Mode Features:**
-
-- Runs in background (detached from terminal)
-- All output logged to `logs/superset_bot.log`
-- Perfect for production deployments
-- Use `python daemon_manager.py status` to check if running
-
-**Daemon Management:**
+Daemon control:
 
 ```bash
-# Start daemon
-python daemon_manager.py start
-
-# Stop daemon
-python daemon_manager.py stop
-
-# Check status
-python daemon_manager.py status
-
-# View logs
-python daemon_manager.py logs
+python main.py status               # both daemons
+python main.py stop bot             # stop the bot daemon
+python main.py stop scheduler
 ```
 
-This will:
-
-- Start the Telegram bot server to handle user interactions
-- Schedule automatic scraping and broadcasting 3 times a day (12 AM, 12 PM, 6 PM IST)
-- Allow users to register via `/start` command
-
-#### Option 2: One-time Run (Testing)
-
-Run the scraping and notification process once:
+One-off runs, useful for testing:
 
 ```bash
-python app.py --run-once
+python main.py update               # fetch and process updates
+python main.py send --telegram      # send unsent notices via Telegram
+python main.py send --web           # send unsent notices via Web Push
+python main.py send --both
+python main.py                      # update + send (legacy)
 ```
 
-#### Option 3: Manual Components
-
-Run individual components:
+### Step 7: Test the setup
 
 ```bash
-# Run only scraping
-python -c "from main import run_scraping_only; run_scraping_only()"
-
-# Run only formatting
-python -c "from main import run_formatting_only; run_formatting_only()"
-
-# Run only telegram sending
-python -c "from main import run_telegram_only; run_telegram_only()"
-
-# Run full pipeline once
-python main.py
+cd app
+pytest
 ```
 
-### Step 7: Testing the Setup
+### Step 8: Manage users
 
-Run the test suite to verify everything is configured correctly:
+Users register and unsubscribe through the bot. Admin commands require your Telegram user ID in `ADMIN_TELEGRAM_USER_IDS`.
+
+### Step 9: Deploy
+
+The full guide is in [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md). On a VPS, run both daemons:
 
 ```bash
-python test_setup.py
+cd app
+python main.py bot --daemon
+python main.py scheduler --daemon
+python main.py status
 ```
 
-### Step 8: User Management
-
-#### View and manage users:
+Or supervise them with PM2:
 
 ```bash
-python manage_users.py
+npm install -g pm2
+pm2 start main.py --name superset-bot --interpreter python3.12 -- bot
+pm2 start main.py --name superset-scheduler --interpreter python3.12 -- scheduler
+pm2 save
+pm2 startup
 ```
 
-#### Bot Usage for Users:
+Scheduled scraping and broadcasting run inside `python main.py scheduler`. The workflow files under `.github/workflows/` are disabled (`.legacy`).
 
-**Using the Live Bot (Recommended):**
-
-1. Open [https://t.me/SupersetNotificationBot](https://t.me/SupersetNotificationBot)
-2. Send `/start` to register for notifications
-3. Send `/stop` to unsubscribe
-4. Send `/status` to check subscription status
-
-**Using Your Own Bot Instance:**
-
-1. Users find your bot on Telegram
-2. Send `/start` to register for notifications
-3. Send `/stop` to unsubscribe
-4. Send `/status` to check subscription status
-
-### Step 9: Deploy for Production
-
-#### Option A: Local Server (Recommended for continuous operation)
-
-1. Run the bot server on a VPS or local machine that stays online:
-
-   ```bash
-   python app.py
-   ```
-
-2. For production, use a process manager like PM2:
-   ```bash
-   npm install -g pm2
-   pm2 start app.py --name superset-bot --interpreter python3
-   ```
-
-#### Option B: GitHub Actions (Limited - for periodic runs only)
-
-Note: GitHub Actions has limitations for long-running bot servers. Use for scheduled jobs only.
-
-1. Fork this repository to your GitHub account
-2. Go to your repository's Settings > Secrets and variables > Actions
-3. Add the following repository secrets:
-   - `TELEGRAM_BOT_TOKEN`
-   - `TELEGRAM_CHAT_ID`
-   - `MONGO_CONNECTION_STR`
-   - `USER_ID` (your SuperSet email)
-   - `PASSWORD` (your SuperSet password)
-
-## Customizing GitHub Actions Schedule
-
-The default schedule runs at 12 AM, 12 PM, and 6 PM IST. To modify:
-
-1. Edit `.github/workflows/daily-run.yml`
-2. Update the cron expressions in the `schedule` section
-3. Remember GitHub Actions uses UTC time (IST is UTC+5:30)
-
-Example for different times:
-
-```yaml
-schedule:
-  # Run at 9:00 AM IST (3:30 AM UTC)
-  - cron: "30 3 * * *"
-  # Run at 3:00 PM IST (9:30 AM UTC)
-  - cron: "30 9 * * *"
-```
-
-## Project Structure
+## Project structure
 
 ```
-SuperSet-telegram-notification-bot/
-├── .github/workflows/        # GitHub Actions configuration
-├── modules/                  # Core functionality
-│   ├── database.py           # MongoDB interactions
-│   ├── formatting.py         # Content enhancement
-│   ├── telegram.py           # Telegram bot operations
-│   └── webscraping.py        # Web scraping functionality
-├── scripts/                  # Utility scripts
-├── logs/                     # Log files (daemon mode)
-├── app.py                    # Main bot server with scheduler
-├── main.py                   # Core workflow orchestration
-├── daemon_manager.py         # Daemon management utility
-├── test_daemon.py            # Daemon functionality tests
-├── DAEMON_GUIDE.md           # Detailed daemon mode documentation
-├── requirements.txt          # Python dependencies
-└── .env                      # Environment variables (create this)
+placement-alerts-superset-telegram-notification-bot/
+├── app/
+│   ├── clients/     # External clients (SuperSet, Google Groups, Telegram, DB)
+│   ├── core/        # Settings, logging, LLM helpers, daemon utilities
+│   ├── data/        # JSON fixtures and seed data
+│   ├── model/       # Pydantic document models
+│   ├── runners/     # Update and notification runners
+│   ├── scripts/     # One-off migration scripts
+│   ├── servers/     # Bot, webhook, and scheduler servers
+│   ├── services/    # Business logic
+│   ├── tests/       # pytest suite
+│   ├── main.py      # CLI entry point
+│   ├── pyproject.toml
+│   └── requirements.txt
+├── docs/            # Architecture, config, database, deployment docs
+├── .github/workflows/
+└── README.md
 ```
 
 ## Documentation
 
-- **[DAEMON_GUIDE.md](./DAEMON_GUIDE.md)** - Comprehensive daemon mode documentation
-- **[user_guide.md](./user_guide.md)** - User interaction guide
+- [ARCHITECTURE.md](./docs/ARCHITECTURE.md)
+- [CONFIGURATION.md](./docs/CONFIGURATION.md)
+- [DATABASE.md](./docs/DATABASE.md)
+- [NOTICES_AND_JOBS.md](./docs/NOTICES_AND_JOBS.md)
+- [OFFICIAL_SCRAPER.md](./docs/OFFICIAL_SCRAPER.md)
+- [STATS.md](./docs/STATS.md)
+- [DEPLOYMENT.md](./docs/DEPLOYMENT.md)
+- [API.md](./docs/API.md)
+- [TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md)
+- [DEVELOPMENT.md](./docs/DEVELOPMENT.md)
 
 ## Logging
 
-All operations are logged with timestamps and severity levels:
-
-- **Normal mode**: Console + log file
-- **Daemon mode**: Log file only (`logs/superset_bot.log`)
-
-```
-Log levels: INFO, WARNING, ERROR, DEBUG
-│ ├── telegram.py # Telegram bot integration
-│ └── webscraping.py # SuperSet scraping logic
-├── scripts/ # Utility scripts
-├── .env # Environment variables (create this)
-├── main.py # Main entry point
-└── README.md # Documentation
-
-```
+Logs live in `logs/` at the repo root. Foreground runs print to the console and append to `logs/superset_bot.log`. The bot daemon logs to `logs/superset_bot.log` and captures stdout in `logs/bot.log`; the scheduler daemon logs to `logs/scheduler.log`. Set `LOG_LEVEL` to `DEBUG`, `INFO`, `WARNING`, or `ERROR`.
 
 ## Roadmap
 
-- **MongoDB User Storage**: Store and manage user IDs in MongoDB if demand increases
-- **User Management Form**: Build a web form to handle user registrations for the bot
-- **VPS Hosting**: Host on a VPS for continuous operation and broadcast messaging
-- **Multi-Portal Support**: Extend to other placement portals beyond SuperSet
-- **Customizable Alerts**: Allow users to filter notifications by company/role
-- **Analytics Dashboard**: Track job posting trends and application deadlines
+- Support placement portals beyond SuperSet
+- Alert filters by company or role
+- Web form for user registration
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Pull requests are welcome.
 
 ## License
 
-[GLP 3](./LICENSE)
+[GPL-3.0](./LICENSE)

@@ -8,14 +8,14 @@ Uses VAPID for authentication.
 import json
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any
 from urllib.parse import urlsplit
 
 from core.config import safe_print
 
 # Optional dependency - will gracefully degrade if not installed
 try:
-    from pywebpush import webpush, WebPushException
+    from pywebpush import WebPushException, webpush
 
     WEBPUSH_AVAILABLE = True
 
@@ -37,10 +37,10 @@ class WebPushService:
 
     def __init__(
         self,
-        vapid_private_key: Optional[str] = None,
-        vapid_public_key: Optional[str] = None,
-        vapid_email: Optional[str] = None,
-        db_service: Optional[Any] = None,
+        vapid_private_key: str | None = None,
+        vapid_public_key: str | None = None,
+        vapid_email: str | None = None,
+        db_service: Any | None = None,
     ):
         """
         Initialize Web Push service.
@@ -117,11 +117,11 @@ class WebPushService:
                     successful = False
             return successful
 
-        except Exception as e:
-            self.logger.error(f"Error sending web push to user {user_id}: {e}")
+        except Exception:
+            self.logger.exception("Error sending web push to user %s", user_id)
             return False
 
-    def broadcast_to_all_users(self, message: str, **kwargs) -> Dict[str, Any]:
+    def broadcast_to_all_users(self, message: str, **kwargs) -> dict[str, Any]:
         """Send to all users with push subscriptions"""
         if not self._enabled:
             return {"success": 0, "failed": 0, "total": 0, "disabled": True}
@@ -160,7 +160,7 @@ class WebPushService:
             return result
 
         except Exception:
-            self.logger.error("Error broadcasting web push", exc_info=True)
+            self.logger.exception("Error broadcasting web push")
             return {
                 "success": 0,
                 "failed": 0,
@@ -170,10 +170,10 @@ class WebPushService:
 
     def _send_push(
         self,
-        subscription: Dict[str, Any],
+        subscription: dict[str, Any],
         title: str,
         message: str,
-        user_id: Optional[int] = None,
+        user_id: int | None = None,
     ) -> bool:
         """Send a push notification to a single subscription"""
         if not self._enabled or not webpush:
@@ -207,12 +207,12 @@ class WebPushService:
             if response is not None and getattr(response, "status_code", None) in (404, 410):
                 self._remove_subscription(subscription, user_id=user_id)
             return False
-        except Exception as e:
-            self.logger.error(f"Unexpected web push error: {e}")
+        except Exception:
+            self.logger.exception("Unexpected web push error")
             return False
 
     def _remove_subscription(
-        self, subscription: Dict[str, Any], user_id: Optional[int] = None
+        self, subscription: dict[str, Any], user_id: int | None = None
     ) -> None:
         """Remove an expired/invalid subscription"""
         if not self.db_service:
@@ -232,14 +232,14 @@ class WebPushService:
                         {"push_subscriptions.endpoint": endpoint},
                         {"$pull": {"push_subscriptions": {"endpoint": endpoint}}},
                     )
-        except Exception as e:
-            self.logger.error(f"Error removing subscription: {e}")
+        except Exception:
+            self.logger.exception("Error removing expired subscription")
 
     # =========================================================================
     # Subscription Management (for webhook server)
     # =========================================================================
 
-    def save_subscription(self, user_id: int, subscription: Dict[str, Any]) -> bool:
+    def save_subscription(self, user_id: int, subscription: dict[str, Any]) -> bool:
         """Save a push subscription for a user"""
         if not self.db_service:
             return False
@@ -292,8 +292,8 @@ class WebPushService:
             if saved:
                 self.logger.info("Saved push subscription for user %s", user_id)
             return saved
-        except Exception as e:
-            self.logger.error(f"Error saving subscription: {e}")
+        except Exception:
+            self.logger.exception("Error saving subscription")
             return False
 
     def remove_subscription(self, user_id: int, endpoint: str) -> bool:
@@ -323,11 +323,11 @@ class WebPushService:
             if removed:
                 self.logger.info("Removed push subscription for user %s", user_id)
             return removed
-        except Exception as e:
-            self.logger.error(f"Error removing subscription: {e}")
+        except Exception:
+            self.logger.exception("Error removing subscription")
             return False
 
-    def get_public_key(self) -> Optional[str]:
+    def get_public_key(self) -> str | None:
         """Get VAPID public key for clients"""
         return self.vapid_public_key
 
@@ -340,10 +340,10 @@ class WebPushService:
         return parsed.scheme.lower() == "https" and bool(parsed.netloc)
 
     @classmethod
-    def _validate_subscription(cls, subscription: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_subscription(cls, subscription: dict[str, Any]) -> dict[str, Any]:
         """Validate and normalize browser subscription data."""
         if not isinstance(subscription, dict):
-            raise ValueError("Invalid push subscription")
+            raise TypeError("Invalid push subscription")
 
         endpoint = subscription.get("endpoint")
         keys = subscription.get("keys")

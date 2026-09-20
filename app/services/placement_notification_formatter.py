@@ -6,8 +6,8 @@ Decoupled from database operations for clean separation of concerns.
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Union, Literal
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from rapidfuzz import fuzz, process
@@ -21,8 +21,8 @@ class RoleData(BaseModel):
     """Role information from placement offer"""
 
     role: str = Field(..., description="Role/position title")
-    package: Optional[float] = Field(None, description="Package in numeric form")
-    package_details: Optional[str] = Field(
+    package: float | None = Field(None, description="Package in numeric form")
+    package_details: str | None = Field(
         None, description="Package breakdown details"
     )
 
@@ -31,16 +31,16 @@ class StudentData(BaseModel):
     """Student information from placement offer"""
 
     name: str = Field(..., description="Student name")
-    enrollment_number: Optional[str] = Field(None, description="Enrollment number")
-    email: Optional[str] = Field(None, description="Student email")
-    role: Optional[str] = Field(None, description="Role offered")
-    package: Optional[float] = Field(None, description="Package offered")
-    location: Optional[str] = Field(None, description="Job location")
-    joining_date: Optional[str] = Field(None, description="Joining date")
-    offer_received_at: Optional[Any] = Field(
+    enrollment_number: str | None = Field(None, description="Enrollment number")
+    email: str | None = Field(None, description="Student email")
+    role: str | None = Field(None, description="Role offered")
+    package: float | None = Field(None, description="Package offered")
+    location: str | None = Field(None, description="Job location")
+    joining_date: str | None = Field(None, description="Joining date")
+    offer_received_at: Any | None = Field(
         None, description="When this student received the offer"
     )
-    offerReceivedAt: Optional[int] = Field(
+    offerReceivedAt: int | None = Field(
         None, description="Offer received time in epoch milliseconds"
     )
 
@@ -49,16 +49,16 @@ class OfferData(BaseModel):
     """Placement offer data structure"""
 
     company: str = Field(..., description="Company name")
-    roles: List[RoleData] = Field(default_factory=list, description="Roles offered")
-    job_location: Optional[List[str]] = Field(None, description="Job locations")
-    joining_date: Optional[str] = Field(None, description="Joining date")
-    students_selected: List[StudentData] = Field(
+    roles: list[RoleData] = Field(default_factory=list, description="Roles offered")
+    job_location: list[str] | None = Field(None, description="Job locations")
+    joining_date: str | None = Field(None, description="Joining date")
+    students_selected: list[StudentData] = Field(
         default_factory=list, description="Students selected"
     )
     number_of_offers: int = Field(0, description="Total number of offers")
-    time_sent: Optional[str] = Field(None, description="Time when the email was sent")
-    created_at: Optional[str] = Field(None, description="Source creation time")
-    createdAt: Optional[int] = Field(None, description="Source creation time in ms")
+    time_sent: str | None = Field(None, description="Time when the email was sent")
+    created_at: str | None = Field(None, description="Source creation time")
+    createdAt: int | None = Field(None, description="Source creation time in ms")
 
 
 class NewOfferEvent(BaseModel):
@@ -68,10 +68,10 @@ class NewOfferEvent(BaseModel):
     company: str = Field(..., description="Company name")
     offer_id: str = Field(..., description="Database offer ID")
     offer_data: OfferData = Field(..., description="Full offer data")
-    roles: List[RoleData] = Field(default_factory=list, description="Roles")
+    roles: list[RoleData] = Field(default_factory=list, description="Roles")
     total_students: int = Field(0, description="Total students")
-    time_sent: Optional[str] = Field(None, description="Time when the email was sent")
-    email_sender: Optional[str] = Field(None, description="Original email sender")
+    time_sent: str | None = Field(None, description="Time when the email was sent")
+    email_sender: str | None = Field(None, description="Original email sender")
 
 
 class UpdateOfferEvent(BaseModel):
@@ -80,16 +80,16 @@ class UpdateOfferEvent(BaseModel):
     type: Literal["update_offer"] = Field("update_offer", description="Event type")
     company: str = Field(..., description="Company name")
     offer_id: str = Field(..., description="Database offer ID")
-    newly_added_students: List[StudentData] = Field(
+    newly_added_students: list[StudentData] = Field(
         default_factory=list, description="Newly added students"
     )
-    roles: List[RoleData] = Field(default_factory=list, description="Roles")
+    roles: list[RoleData] = Field(default_factory=list, description="Roles")
     total_students: int = Field(0, description="Total students after update")
-    email_sender: Optional[str] = Field(None, description="Original email sender")
-    time_sent: Optional[str] = Field(None, description="Time when the email was sent")
+    email_sender: str | None = Field(None, description="Original email sender")
+    time_sent: str | None = Field(None, description="Time when the email was sent")
 
 
-PlacementEvent = Union[NewOfferEvent, UpdateOfferEvent]
+PlacementEvent = NewOfferEvent | UpdateOfferEvent
 
 
 # Service
@@ -101,7 +101,7 @@ class PlacementNotificationFormatter:
     decoupled from database storage operations.
     """
 
-    def __init__(self, db_service: Optional[object] = None):
+    def __init__(self, db_service: object | None = None):
         """
         Initialize formatter.
 
@@ -112,7 +112,7 @@ class PlacementNotificationFormatter:
         self.db_service = db_service
 
     @staticmethod
-    def format_package(package: Optional[float]) -> Optional[str]:
+    def format_package(package: float | None) -> str | None:
         """
         Format a package value to human-readable string.
 
@@ -132,7 +132,7 @@ class PlacementNotificationFormatter:
             return str(package) if package is not None else None
 
     @staticmethod
-    def _timestamp_ms(value: Any) -> Optional[int]:
+    def _timestamp_ms(value: Any) -> int | None:
         """Convert source date values to epoch milliseconds."""
         if value in (None, ""):
             return None
@@ -143,25 +143,25 @@ class PlacementNotificationFormatter:
 
             dt = date_parser.parse(str(value).replace(" IST", " +05:30"), fuzzy=True)
             return int(dt.timestamp() * 1000)
-        except Exception:
+        except (TypeError, ValueError, OverflowError):
             return None
 
     @staticmethod
-    def _location_text(locations: Optional[List[str]]) -> Optional[str]:
+    def _location_text(locations: list[str] | None) -> str | None:
         if not locations:
             return None
         return ", ".join(str(location) for location in locations if location)
 
     def _normalize_students(
         self,
-        students: List[StudentData],
-        default_location: Optional[str],
-        default_joining_date: Optional[str],
-    ) -> List[Dict[str, Any]]:
+        students: list[StudentData],
+        default_location: str | None,
+        default_joining_date: str | None,
+    ) -> list[dict[str, Any]]:
         """Build student-based rows for Mongo/UI rendering."""
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         for student in students:
-            row: Dict[str, Any] = {
+            row: dict[str, Any] = {
                 "name": student.name,
                 "enrollment": student.enrollment_number,
                 "enrollment_number": student.enrollment_number,
@@ -175,14 +175,16 @@ class PlacementNotificationFormatter:
             rows.append({k: v for k, v in row.items() if v not in (None, "", [], {})})
         return rows
 
-    def _match_job(self, company: str) -> Optional[Dict[str, Any]]:
+    def _match_job(self, company: str) -> dict[str, Any] | None:
         """Fuzzy-match placement offer company to a stored SuperSet job."""
         if not self.db_service or not hasattr(self.db_service, "get_all_jobs"):
             return None
         try:
             jobs = self.db_service.get_all_jobs() or []
         except Exception as e:
-            self.logger.warning(f"Could not load jobs for placement match: {e}")
+            self.logger.warning(
+                "Could not load jobs for placement match: %s", e, exc_info=True
+            )
             return None
 
         choices = {
@@ -211,8 +213,8 @@ class PlacementNotificationFormatter:
             "package": package,
         }
 
-    def _role_package_breakdown(self, roles: List[RoleData]) -> Optional[str]:
-        lines: List[str] = []
+    def _role_package_breakdown(self, roles: list[RoleData]) -> str | None:
+        lines: list[str] = []
         for role in roles:
             if role.package_details:
                 lines.append(f"- {role.role}: {role.package_details}")
@@ -220,9 +222,9 @@ class PlacementNotificationFormatter:
 
     def _primary_role_and_package(
         self,
-        roles: List[RoleData],
-        students: List[StudentData],
-    ) -> tuple[Optional[str], Optional[str]]:
+        roles: list[RoleData],
+        students: list[StudentData],
+    ) -> tuple[str | None, str | None]:
         role = next((r.role for r in roles if r.role), None)
         packages = [r.package for r in roles if r.package is not None]
         if not packages:
@@ -234,15 +236,15 @@ class PlacementNotificationFormatter:
         self,
         company: str,
         offer_id: str,
-        roles: List[RoleData],
-        students: List[StudentData],
-        time_sent: Optional[str],
-        source_created_at: Optional[Any],
-        joining_date: Optional[str] = None,
-        job_location: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        roles: list[RoleData],
+        students: list[StudentData],
+        time_sent: str | None,
+        source_created_at: Any | None,
+        joining_date: str | None = None,
+        job_location: list[str] | None = None,
+    ) -> dict[str, Any]:
         created_ms = self._timestamp_ms(source_created_at or time_sent)
-        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        now_ms = int(datetime.now(UTC).timestamp() * 1000)
         created_at = created_ms or now_ms
         location = self._location_text(job_location)
         selected_students = self._normalize_students(students, location, joining_date)
@@ -284,8 +286,8 @@ class PlacementNotificationFormatter:
 
     def _build_role_breakdown(
         self,
-        students: List[StudentData],
-        roles: List[RoleData],
+        students: list[StudentData],
+        roles: list[RoleData],
         prefix: str = "",
     ) -> tuple[str, dict[str, int]]:
         """
@@ -301,7 +303,7 @@ class PlacementNotificationFormatter:
         """
         # Build role -> package mapping
         role_names = [r.role for r in roles if r.role]
-        role_pkg: dict[str, Optional[str]] = {}
+        role_pkg: dict[str, str | None] = {}
         for r in roles:
             if r.role:
                 role_pkg[r.role] = self.format_package(r.package)
@@ -314,7 +316,7 @@ class PlacementNotificationFormatter:
             role_counts[rname] = role_counts.get(rname, 0) + 1
 
         # Build breakdown lines
-        lines: List[str] = []
+        lines: list[str] = []
         listed: set[str] = set()
         for rname in role_names:
             cnt = role_counts.get(rname, 0)
@@ -474,9 +476,9 @@ class PlacementNotificationFormatter:
 
     def process_events(
         self,
-        events: List[dict],
+        events: list[dict],
         save_to_db: bool = True,
-    ) -> List[NoticeDocument]:
+    ) -> list[NoticeDocument]:
         """
         Process multiple placement events, format them, and optionally save.
 
@@ -487,7 +489,7 @@ class PlacementNotificationFormatter:
         Returns:
             List of NoticeDocument objects
         """
-        notices: List[NoticeDocument] = []
+        notices: list[NoticeDocument] = []
 
         for event in events:
             try:
@@ -502,7 +504,7 @@ class PlacementNotificationFormatter:
                         safe_print(f"Notice already exists: {notice.id}")
 
             except Exception as e:
-                self.logger.error(f"Error processing event: {e}")
+                self.logger.exception("Error processing placement event")
                 safe_print(f"Error processing placement event: {e}")
 
         return notices

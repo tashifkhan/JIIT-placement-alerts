@@ -7,25 +7,29 @@ The database contract is structured fields; messages are render output.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional
+import logging
+from collections.abc import Iterable
+from datetime import UTC, datetime
+from typing import Any
 from zoneinfo import ZoneInfo
+
+logger = logging.getLogger(__name__)
 
 
 class NoticeMessageBuilder:
     """Render structured notice documents into notification messages."""
 
     @staticmethod
-    def _compact_lines(lines: Iterable[Optional[str]]) -> str:
+    def _compact_lines(lines: Iterable[str | None]) -> str:
         return "\n".join(line for line in lines if line is not None and str(line).strip())
 
     @staticmethod
-    def _category(notice: Dict[str, Any]) -> str:
+    def _category(notice: dict[str, Any]) -> str:
         category = notice.get("category") or notice.get("type") or "announcement"
         return str(category).replace("_", " ").strip().lower()
 
     @staticmethod
-    def _format_date(value: Any) -> Optional[str]:
+    def _format_date(value: Any) -> str | None:
         if value in (None, "", 0):
             return None
 
@@ -34,14 +38,14 @@ class NoticeMessageBuilder:
                 dt = value
             elif isinstance(value, (int, float)):
                 timestamp = float(value) / 1000 if float(value) > 10_000_000_000 else float(value)
-                dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+                dt = datetime.fromtimestamp(timestamp, tz=UTC)
             else:
                 raw = str(value).strip()
                 if raw.isdigit():
                     timestamp = float(raw) / 1000 if len(raw) > 10 else float(raw)
-                    dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+                    dt = datetime.fromtimestamp(timestamp, tz=UTC)
                 else:
-                    dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                    dt = datetime.fromisoformat(raw)
 
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
@@ -49,10 +53,11 @@ class NoticeMessageBuilder:
                 "%B %d, %Y at %I:%M %p IST"
             )
         except Exception:
+            logger.exception("Error formatting notice date: %s", value)
             return str(value)
 
     @staticmethod
-    def _student_label(student: Dict[str, Any]) -> str:
+    def _student_label(student: dict[str, Any]) -> str:
         name = student.get("name") or "Unknown"
         enrollment = (
             student.get("enrollment")
@@ -78,7 +83,7 @@ class NoticeMessageBuilder:
         return f"- {name} ({' | '.join(suffix_parts)})"
 
     @staticmethod
-    def _students(notice: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _students(notice: dict[str, Any]) -> list[dict[str, Any]]:
         details = notice.get("details") if isinstance(notice.get("details"), dict) else {}
         candidates = (
             notice.get("shortlisted_students")
@@ -90,7 +95,7 @@ class NoticeMessageBuilder:
         return [student for student in candidates if isinstance(student, dict)]
 
     @staticmethod
-    def _footer(notice: Dict[str, Any]) -> str:
+    def _footer(notice: dict[str, Any]) -> str:
         author = notice.get("author") or "Placement Updates"
         date_value = (
             notice.get("time_sent")
@@ -106,12 +111,12 @@ class NoticeMessageBuilder:
         return footer
 
     @staticmethod
-    def _job_url(job_id: Optional[str]) -> Optional[str]:
+    def _job_url(job_id: str | None) -> str | None:
         if not job_id:
             return None
         return f"http://jiit-placement-updates.tashif.codes/jobs/{job_id}"
 
-    def build(self, notice: Dict[str, Any]) -> str:
+    def build(self, notice: dict[str, Any]) -> str:
         """Build a message from the structured notice document."""
         category = self._category(notice)
 
@@ -133,7 +138,7 @@ class NoticeMessageBuilder:
             return self._build_update(notice)
         return self._build_generic(notice, f"**🔔 {category.title()}**")
 
-    def _build_job_posting(self, notice: Dict[str, Any]) -> str:
+    def _build_job_posting(self, notice: dict[str, Any]) -> str:
         job_id = notice.get("matched_job_id") or notice.get("related_job_id")
         title = notice.get("title") or "Job Posting"
         company = notice.get("job_company")
@@ -172,7 +177,7 @@ class NoticeMessageBuilder:
         lines.append(f"\n{self._footer(notice)}")
         return self._compact_lines(lines)
 
-    def _build_shortlisting(self, notice: Dict[str, Any]) -> str:
+    def _build_shortlisting(self, notice: dict[str, Any]) -> str:
         job_id = notice.get("matched_job_id") or notice.get("related_job_id")
         title = notice.get("title") or "Shortlisting Update"
         details = notice.get("details") if isinstance(notice.get("details"), dict) else {}
@@ -202,7 +207,7 @@ class NoticeMessageBuilder:
         lines.append(f"\n{self._footer(notice)}")
         return self._compact_lines(lines)
 
-    def _build_placement_offer(self, notice: Dict[str, Any]) -> str:
+    def _build_placement_offer(self, notice: dict[str, Any]) -> str:
         job_id = notice.get("matched_job_id") or notice.get("related_job_id")
         details = notice.get("details") if isinstance(notice.get("details"), dict) else {}
         company = notice.get("job_company") or details.get("company")
@@ -241,7 +246,7 @@ class NoticeMessageBuilder:
         lines.append(f"\n{self._footer(notice)}")
         return self._compact_lines(lines)
 
-    def _build_webinar(self, notice: Dict[str, Any]) -> str:
+    def _build_webinar(self, notice: dict[str, Any]) -> str:
         details = notice.get("details") if isinstance(notice.get("details"), dict) else {}
         event = details.get("event_name") or notice.get("title") or "Webinar"
         date = self._format_date(details.get("date"))
@@ -264,7 +269,7 @@ class NoticeMessageBuilder:
         lines.append(f"\n{self._footer(notice)}")
         return self._compact_lines(lines)
 
-    def _build_hackathon(self, notice: Dict[str, Any]) -> str:
+    def _build_hackathon(self, notice: dict[str, Any]) -> str:
         details = notice.get("details") if isinstance(notice.get("details"), dict) else {}
         event = details.get("event_name") or notice.get("title") or "Hackathon"
         start = self._format_date(details.get("start_date"))
@@ -291,7 +296,7 @@ class NoticeMessageBuilder:
         lines.append(f"\n{self._footer(notice)}")
         return self._compact_lines(lines)
 
-    def _build_student_list(self, notice: Dict[str, Any], heading: str) -> str:
+    def _build_student_list(self, notice: dict[str, Any], heading: str) -> str:
         students = self._students(notice)
         lines = [f"**{notice.get('title') or 'Student List'}**", "", heading]
         if students:
@@ -303,7 +308,7 @@ class NoticeMessageBuilder:
         lines.append(f"\n{self._footer(notice)}")
         return self._compact_lines(lines)
 
-    def _build_update(self, notice: Dict[str, Any]) -> str:
+    def _build_update(self, notice: dict[str, Any]) -> str:
         details = notice.get("details") if isinstance(notice.get("details"), dict) else {}
         company = notice.get("job_company") or details.get("company_name")
         role = notice.get("job_role") or details.get("role")
@@ -320,7 +325,7 @@ class NoticeMessageBuilder:
         lines.append(f"\n{self._footer(notice)}")
         return self._compact_lines(lines)
 
-    def _build_generic(self, notice: Dict[str, Any], heading: str) -> str:
+    def _build_generic(self, notice: dict[str, Any], heading: str) -> str:
         details = notice.get("details") if isinstance(notice.get("details"), dict) else {}
         lines = [f"**{notice.get('title') or 'Notice'}**", "", heading]
         body = details.get("message") or notice.get("content")

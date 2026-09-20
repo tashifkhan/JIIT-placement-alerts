@@ -2,9 +2,10 @@
 
 import hashlib
 import json
+import logging
 import re
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from rapidfuzz import fuzz, process
 
@@ -17,12 +18,14 @@ from core.year_context import (
 from services.email_notice.models import ExtractedNotice, NoticeDocument
 from services.notice_formatter import NoticeFormatterService
 
+logger = logging.getLogger(__name__)
+
 
 class EmailNoticeDocumentMixin:
     """Helpers for matching jobs and building structured NoticeDocument objects."""
 
     @staticmethod
-    def _timestamp_ms_from_date(date_str: Optional[str]) -> Optional[int]:
+    def _timestamp_ms_from_date(date_str: str | None) -> int | None:
         """Convert a date-like string to epoch milliseconds."""
         if not date_str:
             return None
@@ -36,15 +39,16 @@ class EmailNoticeDocumentMixin:
                 dt = dt.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
             return int(dt.timestamp() * 1000)
         except Exception:
+            logger.exception("Error parsing date string: %s", date_str)
             return None
 
     @staticmethod
-    def _normalize_category(notice_type: Optional[str]) -> str:
+    def _normalize_category(notice_type: str | None) -> str:
         """Map the internal notice type to the website-facing category vocabulary."""
         return (notice_type or "announcement").replace("_", " ").strip().lower()
 
     @staticmethod
-    def _notice_id(email_data: Dict[str, str]) -> str:
+    def _notice_id(email_data: dict[str, str]) -> str:
         """Build a stable notice ID from the email's immutable identity."""
         message_id = " ".join(str(email_data.get("message_id") or "").split())
         if message_id:
@@ -67,22 +71,24 @@ class EmailNoticeDocumentMixin:
             identity = json.dumps(identity_fields, sort_keys=True, separators=(",", ":"))
         return f"notice_{hashlib.sha256(identity.encode('utf-8')).hexdigest()}"
 
-    def _get_jobs(self) -> List[Dict[str, Any]]:
+    def _get_jobs(self) -> list[dict[str, Any]]:
         """Return and cache structured jobs from the DB."""
         if self._jobs_cache is not None:
             return self._jobs_cache
 
-        jobs: List[Dict[str, Any]] = []
+        jobs: list[dict[str, Any]] = []
         if self.db_service and hasattr(self.db_service, "get_all_jobs"):
             try:
                 jobs = self.db_service.get_all_jobs() or []
             except Exception as e:  # pragma: no cover - defensive
-                self.logger.warning(f"Could not load jobs for matching: {e}")
+                self.logger.warning(
+                    "Could not load jobs for matching: %s", e, exc_info=True
+                )
                 jobs = []
         self._jobs_cache = jobs
         return jobs
 
-    def _match_job(self, company_name: Optional[str]) -> Optional[Dict[str, Any]]:
+    def _match_job(self, company_name: str | None) -> dict[str, Any] | None:
         """Fuzzy-match a company name to a structured Job and return a summary."""
         if not company_name:
             return None
@@ -119,7 +125,7 @@ class EmailNoticeDocumentMixin:
         }
 
     @staticmethod
-    def _build_details(notice: ExtractedNotice) -> Dict[str, Any]:
+    def _build_details(notice: ExtractedNotice) -> dict[str, Any]:
         """Build a compact structured payload from extracted notice fields."""
         dropped = {"is_notice", "rejection_reason", "title", "content", "type", "source"}
         data = notice.model_dump()
@@ -132,10 +138,10 @@ class EmailNoticeDocumentMixin:
     def _create_notice_document(
         self,
         notice: ExtractedNotice,
-        email_data: Dict[str, str],
+        email_data: dict[str, str],
     ) -> NoticeDocument:
         """Create a structured NoticeDocument from extracted JSON fields."""
-        timestamp = datetime.now(timezone.utc).timestamp()
+        timestamp = datetime.now(UTC).timestamp()
         notice_id = self._notice_id(email_data)
 
         body = email_data.get("body", "")
@@ -155,6 +161,7 @@ class EmailNoticeDocumentMixin:
                 DEFAULT_PLACEMENT_YEAR
             )
         except Exception:
+            logger.exception("Error resolving notice year from email data")
             year = normalize_year(DEFAULT_PLACEMENT_YEAR)
 
         matched_job = self._match_job(notice.company_name)
@@ -170,7 +177,7 @@ class EmailNoticeDocumentMixin:
             package = notice.package
             package_breakdown = None
 
-        matched_job_summary: Optional[Dict[str, Any]] = None
+        matched_job_summary: dict[str, Any] | None = None
         if matched_job:
             matched_job_summary = {
                 "id": matched_job.get("id"),

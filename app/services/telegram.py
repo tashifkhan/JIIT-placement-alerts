@@ -9,11 +9,11 @@ import html
 import logging
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import urlsplit
 
-from core.config import safe_print
 from clients.telegram_client import TelegramClient
+from core.config import safe_print
 
 
 class TelegramService:
@@ -29,9 +29,9 @@ class TelegramService:
 
     def __init__(
         self,
-        bot_token: Optional[str] = None,
-        chat_id: Optional[str] = None,
-        db_service: Optional[Any] = None,
+        bot_token: str | None = None,
+        chat_id: str | None = None,
+        db_service: Any | None = None,
     ):
         """
         Initialize Telegram service.
@@ -94,6 +94,7 @@ class TelegramService:
                 return self._send_single_message(message, parse_mode)
 
         except Exception as e:
+            self.logger.exception("Error sending Telegram message")
             safe_print(f"Error sending Telegram message: {e}")
             return False
 
@@ -140,13 +141,15 @@ class TelegramService:
                 text=formatted_message,
                 chat_id=user_id,
                 parse_mode=parse_mode,
-            ):
-                if not parse_mode or not self.client.send_message(
+            ) and (
+                not parse_mode
+                or not self.client.send_message(
                     text=chunk,
                     chat_id=user_id,
                     parse_mode="",
-                ):
-                    return False
+                )
+            ):
+                return False
             if index < len(chunks) - 1:
                 time.sleep(1)
         return True
@@ -156,7 +159,7 @@ class TelegramService:
         message: str,
         parse_mode: str = "HTML",
         **kwargs,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Send a message to all active users"""
         if not self.db_service:
             safe_print("Database service not available for broadcasting")
@@ -212,6 +215,7 @@ class TelegramService:
                 return self._send_single_html_message(message)
 
         except Exception as e:
+            self.logger.exception("Error sending HTML message")
             safe_print(f"Error sending HTML message: {e}")
             return False
 
@@ -231,7 +235,7 @@ class TelegramService:
             Message Formatting
     """
 
-    def split_long_message(self, message: str, max_length: int = 4000) -> List[str]:
+    def split_long_message(self, message: str, max_length: int = 4000) -> list[str]:
         """Split a long message into smaller chunks"""
         if max_length <= 0:
             raise ValueError("max_length must be positive")

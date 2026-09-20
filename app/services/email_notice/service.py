@@ -1,7 +1,7 @@
 """Email notice service orchestration."""
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from clients.google_groups_client import GoogleGroupsClient
 from core import get_settings, safe_print
@@ -22,10 +22,10 @@ class EmailNoticeService(EmailNoticeGraphMixin, EmailNoticeDocumentMixin):
 
     def __init__(
         self,
-        email_client: Optional[GoogleGroupsClient] = None,
-        google_api_key: Optional[str] = None,
-        db_service: Optional[Any] = None,
-        policy_service: Optional[PlacementPolicyService] = None,
+        email_client: GoogleGroupsClient | None = None,
+        google_api_key: str | None = None,
+        db_service: Any | None = None,
+        policy_service: PlacementPolicyService | None = None,
         model: str = DEFAULT_GEMINI_MODEL,
     ):
         """
@@ -43,7 +43,7 @@ class EmailNoticeService(EmailNoticeGraphMixin, EmailNoticeDocumentMixin):
         settings = get_settings()
         api_key = google_api_key or settings.google_api_key
         self.db_service = db_service
-        self._jobs_cache: Optional[List[Dict[str, Any]]] = None
+        self._jobs_cache: list[dict[str, Any]] | None = None
 
         if policy_service:
             self.policy_service = policy_service
@@ -57,7 +57,7 @@ class EmailNoticeService(EmailNoticeGraphMixin, EmailNoticeDocumentMixin):
 
         self.logger.info("EmailNoticeService initialized")
 
-    def process_emails(self, mark_as_read: bool = True) -> List[NoticeDocument]:
+    def process_emails(self, mark_as_read: bool = True) -> list[NoticeDocument]:
         """
         Fetch and process unread emails for notices sequentially.
 
@@ -71,12 +71,12 @@ class EmailNoticeService(EmailNoticeGraphMixin, EmailNoticeDocumentMixin):
         try:
             email_ids = self.email_client.get_unread_message_ids()
         except Exception as e:
-            self.logger.error(f"Failed to fetch email IDs: {e}")
+            self.logger.exception("Failed to fetch email IDs")
             safe_print(f"Error fetching email IDs: {e}")
             return []
 
         safe_print(f"Found {len(email_ids)} unread emails")
-        notices: List[NoticeDocument] = []
+        notices: list[NoticeDocument] = []
 
         for email_id in email_ids:
             try:
@@ -99,15 +99,15 @@ class EmailNoticeService(EmailNoticeGraphMixin, EmailNoticeDocumentMixin):
                     self.email_client.mark_as_read(email_id)
 
             except Exception as e:
-                self.logger.error(f"Error processing email {email_id}: {e}")
+                self.logger.exception("Error processing email %s", email_id)
                 safe_print(f"Error processing email {email_id}: {e}")
 
         safe_print(f"Processed {len(notices)} notices")
         return notices
 
     def process_single_email(
-        self, email_data: Dict[str, str]
-    ) -> Optional[NoticeDocument]:
+        self, email_data: dict[str, str]
+    ) -> NoticeDocument | None:
         """
         Process a single email through the extraction pipeline.
 

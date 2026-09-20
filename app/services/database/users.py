@@ -1,13 +1,16 @@
 """Users and placement-year repository methods."""
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+import logging
+from datetime import UTC, datetime
+from typing import Any
 
 from core.config import safe_print
 from core.year_context import get_default_year, label_for_year, normalize_year
 from model.placement_years import PlacementYearDocument
 from model.users import UserDocument
 from services.database.base import RepositoryMixin
+
+logger = logging.getLogger(__name__)
 
 
 class UserRepository(RepositoryMixin):
@@ -16,11 +19,11 @@ class UserRepository(RepositoryMixin):
     def add_user(
         self,
         user_id: int,
-        chat_id: Optional[int] = None,
-        username: Optional[str] = None,
-        first_name: Optional[str] = None,
-        last_name: Optional[str] = None,
-    ) -> Tuple[bool, str]:
+        chat_id: int | None = None,
+        username: str | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+    ) -> tuple[bool, str]:
         """Add or reactivate a user."""
         try:
             if self.users_collection is None:
@@ -43,7 +46,7 @@ class UserRepository(RepositoryMixin):
                                 "selected_placement_year": existing_user.get(
                                     "selected_placement_year"
                                 ) or default_year,
-                                "updated_at": datetime.now(timezone.utc),
+                                "updated_at": datetime.now(UTC),
                             }
                         },
                     )
@@ -54,7 +57,7 @@ class UserRepository(RepositoryMixin):
                 safe_print(f"User {user_id} already exists and is active")
                 return False, "User already exists and is active"
 
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             user_data = self._validated_doc(
                 UserDocument(
                     user_id=user_id,
@@ -74,6 +77,7 @@ class UserRepository(RepositoryMixin):
 
         except Exception as e:
             safe_print(f"Error adding user: {e}")
+            logger.exception("Error adding user")
             return False, str(e)
 
     def deactivate_user(self, user_id: int) -> bool:
@@ -86,29 +90,30 @@ class UserRepository(RepositoryMixin):
                 {
                     "$set": {
                         "is_active": False,
-                        "updated_at": datetime.now(timezone.utc),
+                        "updated_at": datetime.now(UTC),
                     }
                 },
             )
             return result.modified_count > 0
         except Exception as e:
             safe_print(f"Error deactivating user: {e}")
+            logger.exception("Error deactivating user")
             return False
 
     def get_active_users(
-        self, placement_year: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        self, placement_year: str | None = None
+    ) -> list[dict[str, Any]]:
         """Get active users, optionally scoped to their selected placement year."""
         try:
             if self.users_collection is None:
                 return []
 
-            query: Dict[str, Any] = {"is_active": True}
+            query: dict[str, Any] = {"is_active": True}
             if placement_year:
                 normalized_year = normalize_year(placement_year)
                 if not normalized_year:
                     return []
-                year_filters: List[Dict[str, Any]] = [
+                year_filters: list[dict[str, Any]] = [
                     {"selected_placement_year": normalized_year}
                 ]
                 default_year = get_default_year(self._settings_for_defaults())
@@ -124,9 +129,10 @@ class UserRepository(RepositoryMixin):
             return list(self.users_collection.find(query))
         except Exception as e:
             safe_print(f"Error getting users: {e}")
+            logger.exception("Error getting users")
             return []
 
-    def get_all_users(self) -> List[Dict[str, Any]]:
+    def get_all_users(self) -> list[dict[str, Any]]:
         """Get all users for admin views."""
         try:
             if self.users_collection is None:
@@ -134,11 +140,12 @@ class UserRepository(RepositoryMixin):
             return list(self.users_collection.find({}))
         except Exception as e:
             safe_print(f"Error getting users: {e}")
+            logger.exception("Error getting all users")
             return []
 
     def import_legacy_users(
         self,
-        users: List[Dict[str, Any]],
+        users: list[dict[str, Any]],
         placement_year: str,
     ) -> int:
         """Insert users missing from the global DB without overwriting preferences."""
@@ -150,7 +157,7 @@ class UserRepository(RepositoryMixin):
             return 0
 
         imported = 0
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for raw_user in users:
             user_id = raw_user.get("user_id")
             if user_id is None:
@@ -186,7 +193,7 @@ class UserRepository(RepositoryMixin):
             safe_print(f"Imported {imported} legacy users into the global database")
         return imported
 
-    def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+    def get_user_by_id(self, user_id: int) -> dict[str, Any] | None:
         """Get a user by their ID."""
         try:
             if self.users_collection is None:
@@ -194,9 +201,10 @@ class UserRepository(RepositoryMixin):
             return self.users_collection.find_one({"user_id": user_id})
         except Exception as e:
             safe_print(f"Error getting user by ID: {e}")
+            logger.exception("Error getting user by ID")
             return None
 
-    def get_users_stats(self) -> Dict[str, Any]:
+    def get_users_stats(self) -> dict[str, Any]:
         """Get user statistics."""
         try:
             if self.users_collection is None:
@@ -210,6 +218,7 @@ class UserRepository(RepositoryMixin):
             }
         except Exception as e:
             safe_print(f"Error getting user stats: {e}")
+            logger.exception("Error getting user stats")
             return {}
 
     def set_user_placement_year(self, user_id: int, placement_year: str) -> bool:
@@ -225,7 +234,7 @@ class UserRepository(RepositoryMixin):
                 {
                     "$set": {
                         "selected_placement_year": normalized_year,
-                        "updated_at": datetime.now(timezone.utc),
+                        "updated_at": datetime.now(UTC),
                     }
                 },
                 upsert=False,
@@ -233,6 +242,7 @@ class UserRepository(RepositoryMixin):
             return result.modified_count > 0 or result.matched_count > 0
         except Exception as e:
             safe_print(f"Error setting user placement year: {e}")
+            logger.exception("Error setting user placement year")
             return False
 
     def get_user_placement_year(self, user_id: int, default_year: str = "202526") -> str:
@@ -244,14 +254,15 @@ class UserRepository(RepositoryMixin):
             return normalize_year(user.get("selected_placement_year") or default_year) or "202526"
         except Exception as e:
             safe_print(f"Error getting user placement year: {e}")
+            logger.exception("Error getting user placement year")
             return normalize_year(default_year) or "202526"
 
-    def upsert_placement_years(self, years: List[str]) -> None:
+    def upsert_placement_years(self, years: list[str]) -> None:
         """Ensure placement year documents exist in the global database."""
         try:
             if self.placement_years_collection is None:
                 return
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             default_year = get_default_year(self._settings_for_defaults())
             for year in years:
                 normalized_year = normalize_year(year)
@@ -277,8 +288,9 @@ class UserRepository(RepositoryMixin):
                 )
         except Exception as e:
             safe_print(f"Error upserting placement years: {e}")
+            logger.exception("Error upserting placement years")
 
-    def get_active_placement_years(self) -> List[Dict[str, Any]]:
+    def get_active_placement_years(self) -> list[dict[str, Any]]:
         """Get active placement year documents from global database."""
         try:
             if self.placement_years_collection is None:
@@ -290,6 +302,7 @@ class UserRepository(RepositoryMixin):
             )
         except Exception as e:
             safe_print(f"Error getting active placement years: {e}")
+            logger.exception("Error getting active placement years")
             return []
 
     def _settings_for_defaults(self):

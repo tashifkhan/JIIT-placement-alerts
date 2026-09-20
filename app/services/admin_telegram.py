@@ -14,7 +14,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from core.config import safe_print
-from core.daemon import stop_daemon, is_running, get_daemon_status
+from core.daemon import get_daemon_status, is_running, stop_daemon
 
 
 class AdminTelegramService:
@@ -47,7 +47,7 @@ class AdminTelegramService:
         try:
             values = json.loads(raw_value) if isinstance(raw_value, str) else raw_value
             if not isinstance(values, list):
-                raise ValueError("ADMIN_TELEGRAM_USER_IDS must be a JSON list")
+                raise TypeError("ADMIN_TELEGRAM_USER_IDS must be a JSON list")
             return {int(value) for value in values if str(value).strip()}
         except (TypeError, ValueError, json.JSONDecodeError):
             self.logger.error("Invalid ADMIN_TELEGRAM_USER_IDS configuration")
@@ -112,10 +112,10 @@ class AdminTelegramService:
             else:
                 await update.message.reply_text(text)
 
-            safe_print(f"Admin requested user list")
+            safe_print("Admin requested user list")
 
         except Exception:
-            self.logger.error("Error getting user list", exc_info=True)
+            self.logger.exception("Error getting user list")
             await update.message.reply_text("❌ Unable to get the user list.")
 
     async def broadcast_command(
@@ -181,7 +181,7 @@ class AdminTelegramService:
                 )
 
         except Exception:
-            self.logger.error("Targeted Telegram send failed", exc_info=True)
+            self.logger.exception("Targeted Telegram send failed")
             await update.message.reply_text("❌ Unable to send the message.")
 
     async def scrape_command(
@@ -198,8 +198,9 @@ class AdminTelegramService:
 
         try:
             def run_legacy_update():
-                from main import cmd_legacy
                 import argparse
+
+                from main import cmd_legacy
 
                 return cmd_legacy(
                     argparse.Namespace(
@@ -222,7 +223,7 @@ class AdminTelegramService:
             )
 
         except Exception:
-            self.logger.error("Admin update workflow failed", exc_info=True)
+            self.logger.exception("Admin update workflow failed")
             await update.message.reply_text("❌ Update workflow failed. Check server logs.")
 
     async def kill_scheduler_command(
@@ -299,8 +300,11 @@ class AdminTelegramService:
         import html
 
         try:
-            with open(log_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
+            def read_log_lines() -> list[str]:
+                with open(log_path, "r", encoding="utf-8") as f:
+                    return f.readlines()
+
+            lines = await asyncio.to_thread(read_log_lines)
 
             # Get last 100 lines first
             last_lines = lines[-100:] if len(lines) >= 100 else lines
@@ -324,5 +328,5 @@ class AdminTelegramService:
             await update.message.reply_text(message, parse_mode="HTML")
 
         except Exception:
-            self.logger.error("Unable to read requested log file", exc_info=True)
+            self.logger.exception("Unable to read requested log file")
             await update.message.reply_text("❌ Unable to read the requested logs.")

@@ -1,20 +1,23 @@
 """PlacementOffers collection repository methods."""
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+import logging
+from datetime import UTC, datetime
+from typing import Any
 
 from core.config import safe_print
 from model.placement_offers import PlacementOfferDocument
 from services.database.base import RepositoryMixin
 
+logger = logging.getLogger(__name__)
+
 
 class PlacementOfferRepository(RepositoryMixin):
     """Persistence and stats operations for placement offer records."""
 
-    STUDENT_OFFER_TIMESTAMP_FIELDS = {"offer_received_at", "offerReceivedAt"}
+    STUDENT_OFFER_TIMESTAMP_FIELDS = frozenset({"offer_received_at", "offerReceivedAt"})
 
     @staticmethod
-    def _student_identity(student: Dict[str, Any]) -> Optional[str]:
+    def _student_identity(student: dict[str, Any]) -> str | None:
         """Build a case-insensitive identity for student merge operations."""
         enrollment = student.get("enrollment_number") or student.get("enrollment")
         if enrollment:
@@ -23,26 +26,26 @@ class PlacementOfferRepository(RepositoryMixin):
         return f"name:{name}" if name else None
 
     @staticmethod
-    def _parse_source_datetime(value: Any) -> Optional[datetime]:
+    def _parse_source_datetime(value: Any) -> datetime | None:
         """Parse source-created timestamps from email/SuperSet data."""
         if value in (None, ""):
             return None
         if isinstance(value, datetime):
             return (
-                value.replace(tzinfo=timezone.utc)
+                value.replace(tzinfo=UTC)
                 if value.tzinfo is None
-                else value.astimezone(timezone.utc)
+                else value.astimezone(UTC)
             )
 
         try:
             if isinstance(value, (int, float)):
                 timestamp = float(value) / 1000 if float(value) > 10_000_000_000 else float(value)
-                return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+                return datetime.fromtimestamp(timestamp, tz=UTC)
 
             raw = str(value).strip()
             if raw.isdigit():
                 timestamp = float(raw) / 1000 if len(raw) > 10 else float(raw)
-                return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+                return datetime.fromtimestamp(timestamp, tz=UTC)
 
             from dateutil import parser as date_parser
 
@@ -51,13 +54,14 @@ class PlacementOfferRepository(RepositoryMixin):
                 fuzzy=True,
             )
             if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            return parsed.astimezone(timezone.utc)
+                parsed = parsed.replace(tzinfo=UTC)
+            return parsed.astimezone(UTC)
         except Exception:
+            logger.exception("Error parsing source datetime: %s", value)
             return None
 
     @classmethod
-    def _source_timestamps(cls, doc: Dict[str, Any]) -> Tuple[Optional[datetime], Optional[int]]:
+    def _source_timestamps(cls, doc: dict[str, Any]) -> tuple[datetime | None, int | None]:
         """Resolve source datetime and epoch-ms from a placement offer document."""
         source_dt = cls._parse_source_datetime(
             doc.get("created_at") or doc.get("time_sent") or doc.get("saved_at")
@@ -76,7 +80,7 @@ class PlacementOfferRepository(RepositoryMixin):
     @classmethod
     def _stamp_student_offer_date(
         cls,
-        student: Dict[str, Any],
+        student: dict[str, Any],
         fallback_dt: datetime,
         fallback_ms: int,
     ) -> None:
@@ -99,12 +103,12 @@ class PlacementOfferRepository(RepositoryMixin):
         student["offer_received_at"] = offer_dt
         student["offerReceivedAt"] = offer_ms
 
-    def save_placement_offers(self, offers: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def save_placement_offers(self, offers: list[dict[str, Any]]) -> dict[str, Any]:
         """Save placement offers with merge logic and emit notice events."""
         inserted = 0
         updated = 0
         skipped = 0
-        events: List[Dict[str, Any]] = []
+        events: list[dict[str, Any]] = []
 
         try:
             if self.placement_offers_collection is None:
@@ -126,7 +130,7 @@ class PlacementOfferRepository(RepositoryMixin):
                 offer["company_key"] = company_key
 
                 source_dt, source_ms = self._source_timestamps(offer)
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 offer_dt = source_dt or now
                 offer_ms = source_ms or int(offer_dt.timestamp() * 1000)
                 for student in offer.get("students_selected", []):
@@ -268,7 +272,7 @@ class PlacementOfferRepository(RepositoryMixin):
                         set_doc["createdAt"] = source_ms
 
                     merged_doc = {**existing_company, **set_doc}
-                    update_doc: Dict[str, Any] = {"$set": {}}
+                    update_doc: dict[str, Any] = {"$set": {}}
                     if not matched_job:
                         for field in (
                             "matched_job_id",
@@ -346,9 +350,10 @@ class PlacementOfferRepository(RepositoryMixin):
 
         except Exception as e:
             safe_print(f"Error saving placement offers: {e}")
+            logger.exception("Error saving placement offers")
             return {"error": str(e)}
 
-    def get_all_offers(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_all_offers(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get all placement offers."""
         try:
             if self.placement_offers_collection is None:
@@ -362,9 +367,10 @@ class PlacementOfferRepository(RepositoryMixin):
             return list(cursor)
         except Exception as e:
             safe_print(f"Error getting all offers: {e}")
+            logger.exception("Error getting all offers")
             return []
 
-    def get_placement_stats(self) -> Dict[str, Any]:
+    def get_placement_stats(self) -> dict[str, Any]:
         """Compute placement statistics."""
         try:
             if self.placement_offers_collection is None:
@@ -382,6 +388,7 @@ class PlacementOfferRepository(RepositoryMixin):
                         return None
                     return value
                 except Exception:
+                    logger.exception("Error converting package value: %s", val)
                     return None
 
             def get_student_package(student, placement):
@@ -460,7 +467,7 @@ class PlacementOfferRepository(RepositoryMixin):
             for stats in company_stats.values():
                 pkgs = stats["packages"]
                 stats["avgPackage"] = sum(pkgs) / len(pkgs) if pkgs else 0.0
-                stats["profiles"] = sorted(list(stats["profiles"]))
+                stats["profiles"] = sorted(stats["profiles"])
 
             return {
                 "placements_count": len(docs),
@@ -474,9 +481,10 @@ class PlacementOfferRepository(RepositoryMixin):
             }
         except Exception as e:
             safe_print(f"Error computing placement stats: {e}")
+            logger.exception("Error computing placement stats")
             return {"error": str(e)}
 
-    def _serialize_doc(self, doc: Dict[str, Any]) -> Dict[str, Any]:
+    def _serialize_doc(self, doc: dict[str, Any]) -> dict[str, Any]:
         """Convert MongoDB document to JSON-serializable format."""
         if not doc:
             return doc

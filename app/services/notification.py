@@ -5,7 +5,7 @@ Unified notification orchestrator that routes messages to multiple channels.
 """
 
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Any
 
 from core.config import safe_print
 from services.notice_message_builder import NoticeMessageBuilder
@@ -21,9 +21,9 @@ class NotificationService:
 
     def __init__(
         self,
-        channels: Optional[List[Any]] = None,
-        db_service: Optional[Any] = None,
-        placement_year: Optional[str] = None,
+        channels: list[Any] | None = None,
+        db_service: Any | None = None,
+        placement_year: str | None = None,
     ):
         """
         Initialize notification service.
@@ -66,9 +66,9 @@ class NotificationService:
     def broadcast(
         self,
         message: str,
-        channels: Optional[List[str]] = None,
+        channels: list[str] | None = None,
         **kwargs,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Broadcast message to specified channels (or all if not specified).
 
@@ -87,11 +87,9 @@ class NotificationService:
                 try:
                     result = channel.broadcast_to_all_users(message, **kwargs)
                     results[channel.channel_name] = result
-                except Exception as e:
-                    self.logger.error(
-                        "Error broadcasting to %s",
-                        channel.channel_name,
-                        exc_info=True,
+                except Exception:
+                    self.logger.exception(
+                        "Error broadcasting to %s", channel.channel_name
                     )
                     results[channel.channel_name] = {"error": "Channel delivery failed"}
 
@@ -101,7 +99,7 @@ class NotificationService:
         self,
         telegram: bool = True,
         web: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Send all unsent notices to specified channels.
 
@@ -151,7 +149,7 @@ class NotificationService:
 
         for post in unsent_posts:
             message = self.message_builder.build(post)
-            post_results: Dict[str, Any] = {}
+            post_results: dict[str, Any] = {}
             all_success = True
 
             for channel_name in target_channels:
@@ -170,11 +168,9 @@ class NotificationService:
                         message,
                         placement_year=self.placement_year,
                     )
-                except Exception as e:
-                    self.logger.error(
-                        "Error broadcasting to %s",
-                        channel_name,
-                        exc_info=True,
+                except Exception:
+                    self.logger.exception(
+                        "Error broadcasting to %s", channel_name
                     )
                     channel_result = {"error": "Channel delivery failed"}
 
@@ -227,7 +223,7 @@ class NotificationService:
         return result
 
     @staticmethod
-    def _was_delivered(post: Dict[str, Any], channel_name: str) -> bool:
+    def _was_delivered(post: dict[str, Any], channel_name: str) -> bool:
         """Read channel state while honoring the persisted Telegram legacy flag."""
         delivery_status = post.get("delivery_status") or {}
         if delivery_status.get(channel_name) is True:
@@ -259,7 +255,7 @@ class NotificationService:
         self,
         telegram: bool = True,
         web: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Send new posts to all registered users via specified channels.
 

@@ -1,12 +1,15 @@
 """Helper methods for SuperSet notice formatting."""
 
-from typing import Any, Dict, List, Optional
+import logging
+from typing import Any
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
 from core.llm import message_text
 from services.notice_formatter.state import Job
+
+logger = logging.getLogger(__name__)
 
 
 class NoticeFormatterHelperMixin:
@@ -18,7 +21,7 @@ class NoticeFormatterHelperMixin:
         return message_text(content)
 
     @staticmethod
-    def _format_package(amount: Any, annum_months: Optional[str] = None) -> str:
+    def _format_package(amount: Any, annum_months: str | None = None) -> str:
         """Format a numeric package amount into a human friendly string."""
         if amount is None:
             return "Not specified"
@@ -26,6 +29,7 @@ class NoticeFormatterHelperMixin:
         try:
             amt = float(amount)
         except Exception:
+            logger.exception("Error formatting package amount: %s", amount)
             return str(amount)
 
         is_monthly = False
@@ -42,13 +46,13 @@ class NoticeFormatterHelperMixin:
         return f"₹{amt:,.2f}"
 
     @staticmethod
-    def format_html_breakdown(html_content: Optional[str]) -> str:
+    def format_html_breakdown(html_content: str | None) -> str:
         """Parse HTML content into a multi-line readable string."""
         if not html_content:
             return ""
 
         soup = BeautifulSoup(html_content, "html.parser")
-        lines: List[str] = []
+        lines: list[str] = []
 
         for table in soup.find_all("table"):
             if not isinstance(table, Tag):
@@ -82,7 +86,7 @@ class NoticeFormatterHelperMixin:
         return f"(\n{result}\n)" if result else ""
 
     @staticmethod
-    def _compact_list(value: Any) -> Optional[List[str]]:
+    def _compact_list(value: Any) -> list[str] | None:
         """Normalize a scalar/list field to a compact string list."""
         if not value:
             return None
@@ -93,12 +97,12 @@ class NoticeFormatterHelperMixin:
         return [text] if text else None
 
     @staticmethod
-    def _normalize_students(students: Any) -> Optional[List[Dict[str, Any]]]:
+    def _normalize_students(students: Any) -> list[dict[str, Any]] | None:
         """Normalize extracted student dictionaries for Mongo/UI consumption."""
         if not isinstance(students, list):
             return None
 
-        normalized: List[Dict[str, Any]] = []
+        normalized: list[dict[str, Any]] = []
         for student in students:
             if not isinstance(student, dict):
                 continue
@@ -110,7 +114,7 @@ class NoticeFormatterHelperMixin:
             )
             if not name and not enrollment:
                 continue
-            row: Dict[str, Any] = {
+            row: dict[str, Any] = {
                 "name": name or "Unknown",
                 "enrollment": enrollment,
                 "enrollment_number": enrollment,
@@ -123,19 +127,19 @@ class NoticeFormatterHelperMixin:
         return normalized or None
 
     @staticmethod
-    def _job_eligibility(job: Optional[Job]) -> Optional[List[str]]:
+    def _job_eligibility(job: Job | None) -> list[str] | None:
         """Build compact eligibility lines from a structured job."""
         if not job:
             return None
 
-        eligibility: List[str] = []
+        eligibility: list[str] = []
         if job.eligibility_courses:
             eligibility.append("Courses: " + ", ".join(job.eligibility_courses))
         for mark in job.eligibility_marks:
             eligibility.append(f"{mark.level}: {mark.criteria} CGPA or equivalent")
         return eligibility or None
 
-    def _matched_job_summary(self, job: Optional[Job]) -> Optional[Dict[str, Any]]:
+    def _matched_job_summary(self, job: Job | None) -> dict[str, Any] | None:
         """Build the embedded related-job summary for Mongo."""
         if not job:
             return None
@@ -152,7 +156,7 @@ class NoticeFormatterHelperMixin:
         }
 
     @staticmethod
-    def _build_details(extracted: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_details(extracted: dict[str, Any]) -> dict[str, Any]:
         """Drop parser control fields and empty values from extracted details."""
         return {
             key: value

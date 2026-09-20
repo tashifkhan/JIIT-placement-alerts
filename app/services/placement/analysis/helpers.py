@@ -1,14 +1,18 @@
 """Helper functions for placement statistics."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from services.placement.analysis.config import ENROLLMENT_RANGES
+from services.placement.analysis.config import (
+    ENROLLMENT_RANGES,
+    get_enrollment_ranges_for_year,
+    normalize_batch_year,
+)
 from services.placement.analysis.models import BranchRange
 
 
 def build_branch_ranges(
-    config: Dict[str, Dict[str, Dict[str, int]]],
-) -> List[BranchRange]:
+    config: dict[str, dict[str, dict[str, int]]],
+) -> list[BranchRange]:
     """
     Build flattened branch ranges from configuration.
 
@@ -18,11 +22,11 @@ def build_branch_ranges(
     Returns:
         Sorted list of BranchRange objects for efficient lookup.
     """
-    ranges: List[BranchRange] = []
+    ranges: list[BranchRange] = []
 
     for branch, data in config.items():
         if branch == "Intg. MTech":
-            for sub_branch, sub_data in data.items():
+            for sub_data in data.values():
                 if (
                     isinstance(sub_data, dict)
                     and "start" in sub_data
@@ -36,7 +40,7 @@ def build_branch_ranges(
                         )
                     )
         elif isinstance(data, dict):
-            for batch, batch_data in data.items():
+            for batch_data in data.values():
                 if (
                     isinstance(batch_data, dict)
                     and "start" in batch_data
@@ -54,7 +58,67 @@ def build_branch_ranges(
     return ranges
 
 
-_BRANCH_RANGES: List[BranchRange] = build_branch_ranges(ENROLLMENT_RANGES)
+_BRANCH_RANGES: list[BranchRange] = build_branch_ranges(ENROLLMENT_RANGES)
+
+_BRANCH_RANGES_BY_YEAR: dict[str, list[BranchRange]] = {}
+
+
+def get_branch_ranges_for_year(year: str | None = None) -> list[BranchRange]:
+    """
+    Get cached branch ranges for a placement year.
+
+    Args:
+        year: Placement year in any accepted format.
+
+    Returns:
+        Sorted list of BranchRange objects for the year.
+    """
+    normalized = normalize_batch_year(year)
+    cached = _BRANCH_RANGES_BY_YEAR.get(normalized)
+    if cached is None:
+        cached = build_branch_ranges(get_enrollment_ranges_for_year(normalized))
+        _BRANCH_RANGES_BY_YEAR[normalized] = cached
+    return cached
+
+
+def get_branch_for_year(enrollment: str, year: str | None = None) -> str:
+    """
+    Resolve branch from enrollment number using a placement year's ranges.
+
+    Logic:
+    - If contains alpha characters or is 9-digit numeric -> "JUIT".
+    - If starts with "24" -> "MTech".
+    - Otherwise, match against the year's configured ranges.
+    - Default: "Other".
+    """
+    if not enrollment:
+        return "Other"
+
+    has_alpha = any(char.isalpha() for char in enrollment)
+    digits = "".join(char for char in enrollment if char.isdigit())
+
+    if has_alpha:
+        return "JUIT"
+
+    if digits.startswith("24"):
+        return "MTech"
+
+    if len(digits) == 9:
+        return "JUIT"
+
+    if not digits:
+        return "Other"
+
+    try:
+        num = int(digits)
+    except ValueError:
+        return "Other"
+
+    for branch_range in get_branch_ranges_for_year(year):
+        if branch_range.start <= num < branch_range.end:
+            return branch_range.branch
+
+    return "Other"
 
 
 def get_branch(enrollment: str) -> str:
@@ -97,7 +161,7 @@ def get_branch(enrollment: str) -> str:
     return "Other"
 
 
-def to_float(val: Any) -> Optional[float]:
+def to_float(val: Any) -> float | None:
     """Convert package values to LPA while rejecting ambiguous large values."""
     if val is None:
         return None
@@ -113,8 +177,8 @@ def to_float(val: Any) -> Optional[float]:
 
 
 def get_student_package(
-    student: Dict[str, Any], placement: Dict[str, Any]
-) -> Optional[float]:
+    student: dict[str, Any], placement: dict[str, Any]
+) -> float | None:
     """
     Get the package for a student from placement data.
 
@@ -149,7 +213,7 @@ def get_student_package(
     return None
 
 
-def calculate_median(values: List[float]) -> float:
+def calculate_median(values: list[float]) -> float:
     """Calculate median of a list of values."""
     if not values:
         return 0.0

@@ -1,15 +1,19 @@
 """Placement statistics calculator service."""
 
 import logging
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from core.config import safe_print
 from services.placement.analysis.aggregations import PlacementStatsAggregationMixin
-from services.placement.analysis.config import ENROLLMENT_RANGES, STUDENT_COUNTS
+from services.placement.analysis.config import (
+    get_enrollment_ranges_for_year,
+    get_student_counts_for_year,
+    normalize_batch_year,
+)
 from services.placement.analysis.filtering import PlacementStatsFilteringMixin
 from services.placement.analysis.helpers import (
-    _BRANCH_RANGES,
     build_branch_ranges,
+    get_branch_ranges_for_year,
     get_student_package,
 )
 from services.placement.analysis.models import PlacementStats
@@ -32,27 +36,35 @@ class PlacementStatsCalculatorService(
 
     def __init__(
         self,
-        db_service: Optional[Any] = None,
-        enrollment_ranges: Optional[Dict] = None,
-        student_counts: Optional[Dict] = None,
+        db_service: Any | None = None,
+        enrollment_ranges: dict | None = None,
+        student_counts: dict | None = None,
+        placement_year: str | None = None,
     ):
         """
         Initialize the stats calculator service.
 
         Args:
             db_service: Optional DatabaseService for fetching placements.
-            enrollment_ranges: Custom enrollment ranges.
-            student_counts: Custom student counts.
+            enrollment_ranges: Custom enrollment ranges (overrides per-year config).
+            student_counts: Custom student counts (overrides per-year config).
+            placement_year: Placement year selecting the batch config
+                (e.g. "202526", "202627"). Defaults to the configured batch.
         """
         self.logger = logging.getLogger(self.__class__.__name__)
         self.db_service = db_service
-        self.enrollment_ranges = enrollment_ranges or ENROLLMENT_RANGES
-        self.student_counts = student_counts or STUDENT_COUNTS
+        self.placement_year = normalize_batch_year(placement_year)
+        self.enrollment_ranges = (
+            enrollment_ranges or get_enrollment_ranges_for_year(self.placement_year)
+        )
+        self.student_counts = (
+            student_counts or get_student_counts_for_year(self.placement_year)
+        )
 
         if enrollment_ranges:
             self._branch_ranges = build_branch_ranges(enrollment_ranges)
         else:
-            self._branch_ranges = _BRANCH_RANGES
+            self._branch_ranges = get_branch_ranges_for_year(self.placement_year)
 
         self.logger.info("PlacementStatsCalculatorService initialized")
 
@@ -83,7 +95,7 @@ class PlacementStatsCalculatorService(
         return "Other"
 
     def calculate_all_stats(
-        self, placements: Optional[List[Dict[str, Any]]] = None
+        self, placements: list[dict[str, Any]] | None = None
     ) -> PlacementStats:
         """
         Calculate comprehensive placement statistics.
@@ -118,14 +130,14 @@ class PlacementStatsCalculatorService(
         all_students = self._flatten_students(placements)
         included_students = self._filter_students(all_students, exclude_branches=True)
 
-        unique_enrollments: Set[str] = set()
+        unique_enrollments: set[str] = set()
         for student in included_students:
             if student.get("enrollment_number"):
                 unique_enrollments.add(student["enrollment_number"])
 
         unique_students_placed = len(unique_enrollments)
         total_offers = len(included_students)
-        unique_companies = len(set(student.get("company") for student in all_students))
+        unique_companies = len({student.get("company") for student in all_students})
 
         _, avg_package, median_package, highest_package = self._calculate_package_stats(
             included_students
@@ -136,7 +148,7 @@ class PlacementStatsCalculatorService(
         total_eligible = sum(branch_totals.values())
 
         tracked_branches = set(branch_totals.keys())
-        unique_in_tracked: Set[str] = set()
+        unique_in_tracked: set[str] = set()
         for student in included_students:
             branch = self._get_branch(student.get("enrollment_number", ""))
             if branch in tracked_branches and student.get("enrollment_number"):
@@ -164,12 +176,12 @@ class PlacementStatsCalculatorService(
 
     def calculate_filtered_stats(
         self,
-        placements: List[Dict[str, Any]],
-        companies: Optional[List[str]] = None,
-        roles: Optional[List[str]] = None,
-        locations: Optional[List[str]] = None,
-        package_range: Optional[Tuple[float, float]] = None,
-        search_query: Optional[str] = None,
+        placements: list[dict[str, Any]],
+        companies: list[str] | None = None,
+        roles: list[str] | None = None,
+        locations: list[str] | None = None,
+        package_range: tuple[float, float] | None = None,
+        search_query: str | None = None,
     ) -> PlacementStats:
         """
         Calculate placement statistics with filters applied.
@@ -196,7 +208,7 @@ class PlacementStatsCalculatorService(
             search_query=search_query,
         )
 
-        unique_enrollments: Set[str] = set()
+        unique_enrollments: set[str] = set()
         for student in filtered:
             if student.get("enrollment_number"):
                 unique_enrollments.add(student["enrollment_number"])
@@ -209,10 +221,10 @@ class PlacementStatsCalculatorService(
         branch_totals = self._get_branch_total_counts()
         total_eligible = sum(branch_totals.values())
 
-        unique_companies = len(set(student.get("company") for student in filtered))
+        unique_companies = len({student.get("company") for student in filtered})
 
         tracked_branches = set(branch_totals.keys())
-        unique_in_tracked: Set[str] = set()
+        unique_in_tracked: set[str] = set()
         for student in filtered:
             branch = self._get_branch(student.get("enrollment_number", ""))
             if branch in tracked_branches and student.get("enrollment_number"):
@@ -240,9 +252,9 @@ class PlacementStatsCalculatorService(
 
     def get_students_by_branch(
         self,
-        placements: List[Dict[str, Any]],
+        placements: list[dict[str, Any]],
         branch: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get all students for a specific branch."""
         all_students = self._flatten_students(placements)
         return [
@@ -253,19 +265,19 @@ class PlacementStatsCalculatorService(
 
     def get_students_by_company(
         self,
-        placements: List[Dict[str, Any]],
+        placements: list[dict[str, Any]],
         company: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get all students for a specific company."""
         all_students = self._flatten_students(placements)
         return [student for student in all_students if student.get("company") == company]
 
     def export_to_csv_data(
         self,
-        placements: List[Dict[str, Any]],
+        placements: list[dict[str, Any]],
         filtered: bool = False,
         **filter_kwargs,
-    ) -> List[List[str]]:
+    ) -> list[list[str]]:
         """Generate CSV-ready rows with a header row."""
         all_students = self._flatten_students(placements)
 

@@ -12,7 +12,6 @@ from services.email_notice.document_builder import EmailNoticeDocumentMixin
 from services.email_notice.graph import EmailNoticeGraphMixin
 from services.email_notice.models import ExtractedNotice
 
-
 RAW_EMAIL = b"""From: Placement Cell <placement@example.edu>
 To: alerts+202526@example.com
 Subject: =?utf-8?Q?Placement_=E2=80=93_?= =?iso-8859-1?Q?Caf=E9?=
@@ -107,7 +106,7 @@ def test_fetch_uses_body_peek_and_preserves_unseen(monkeypatch):
     email_data = client.fetch_email("42", mark_as_read=False)
 
     connection = FakeIMAP.instances[0]
-    assert ("fetch", (b"42", "(BODY.PEEK[])")) in connection.commands
+    assert ("fetch", ("42", "(BODY.PEEK[])")) in connection.commands
     assert not any(command == "store" for command, _ in connection.commands)
     assert email_data["email_id"] == "42"
     assert email_data["imap_uid"] == "42"

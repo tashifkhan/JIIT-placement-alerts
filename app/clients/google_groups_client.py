@@ -9,10 +9,11 @@ import email
 import imaplib
 import logging
 import re
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import timedelta, timezone
 from email.header import decode_header
-from typing import Dict, Iterator, List, Optional
+from email.message import Message
 
 from core import get_settings
 
@@ -30,8 +31,8 @@ class GoogleGroupsClient:
 
     def __init__(
         self,
-        email_address: Optional[str] = None,
-        app_password: Optional[str] = None,
+        email_address: str | None = None,
+        app_password: str | None = None,
         imap_server: str = "imap.gmail.com",
         timeout_seconds: float = 30.0,
     ):
@@ -49,7 +50,7 @@ class GoogleGroupsClient:
         self.app_password = app_password or get_settings().placement_app_password
         self.imap_server = imap_server
         self.timeout_seconds = max(1.0, min(float(timeout_seconds), 120.0))
-        self._connection: Optional[imaplib.IMAP4_SSL] = None
+        self._connection: imaplib.IMAP4_SSL | None = None
         self._session_depth = 0
 
         self.logger.info("GoogleGroupsClient initialized")
@@ -74,7 +75,7 @@ class GoogleGroupsClient:
         if self._connection is not None:
             return self._connection
 
-        connection: Optional[imaplib.IMAP4_SSL] = None
+        connection: imaplib.IMAP4_SSL | None = None
         try:
             connection = imaplib.IMAP4_SSL(
                 self.imap_server,
@@ -85,6 +86,7 @@ class GoogleGroupsClient:
             self._connection = connection
             self.logger.info(f"Connected to {self.imap_server}")
             return connection
+
         except (imaplib.IMAP4.error, OSError, RuntimeError) as e:
             if connection is not None:
                 try:
@@ -106,7 +108,7 @@ class GoogleGroupsClient:
                 self._connection = None
 
     @contextmanager
-    def session(self) -> Iterator["GoogleGroupsClient"]:
+    def session(self) -> Generator["GoogleGroupsClient"]:
         """Reuse one authenticated connection across multiple public operations."""
         owns_connection = self._connection is None
         self.connect()
@@ -119,7 +121,7 @@ class GoogleGroupsClient:
                 self.disconnect()
 
     @contextmanager
-    def _connection_scope(self) -> Iterator[imaplib.IMAP4_SSL]:
+    def _connection_scope(self) -> Generator[imaplib.IMAP4_SSL]:
         """Provide a connection and clean it up unless a session owns it."""
         owns_connection = self._connection is None
         connection = self.connect()
@@ -142,7 +144,7 @@ class GoogleGroupsClient:
         status, _ = connection.select(folder)
         cls._require_ok(status, f"select {folder}")
 
-    def get_unread_message_ids(self, folder: str = "inbox") -> List[str]:
+    def get_unread_message_ids(self, folder: str = "inbox") -> list[str]:
         """
         Get list of unread email IDs.
 
@@ -154,7 +156,7 @@ class GoogleGroupsClient:
         """
         with self._connection_scope() as connection:
             self._select_folder(connection, folder)
-            status, messages = connection.uid("search", None, "UNSEEN")
+            status, messages = connection.uid("search", "UNSEEN")
             self._require_ok(status, "UID search")
             if not messages or messages[0] is None:
                 return []
@@ -166,7 +168,7 @@ class GoogleGroupsClient:
 
     def fetch_email(
         self, email_id: str, folder: str = "inbox", mark_as_read: bool = False
-    ) -> Optional[Dict[str, str]]:
+    ) -> dict[str, str] | None:
         """
         Fetch a specific email by ID.
 
@@ -182,11 +184,11 @@ class GoogleGroupsClient:
             with self._connection_scope() as connection:
                 self._select_folder(connection, folder)
 
-                email_data = self._parse_email(connection, email_id.encode())
+                email_data = self._parse_email(connection, email_id)
 
                 if email_data and mark_as_read:
                     status, _ = connection.uid(
-                        "store", email_id.encode(), "+FLAGS", "\\Seen"
+                        "store", email_id, "+FLAGS", "\\Seen"
                     )
                     self._require_ok(status, "UID store")
 
@@ -199,7 +201,7 @@ class GoogleGroupsClient:
         self,
         folder: str = "inbox",
         mark_as_read: bool = True,
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         """
         Fetch unread emails from specified folder.
 
@@ -227,8 +229,8 @@ class GoogleGroupsClient:
     def _parse_email(
         self,
         connection: imaplib.IMAP4_SSL,
-        email_id: bytes,
-    ) -> Optional[Dict[str, str]]:
+        email_id: str,
+    ) -> dict[str, str] | None:
         """
         Parse a single email message.
 
@@ -273,12 +275,12 @@ class GoogleGroupsClient:
             body = self._extract_body(msg)
 
             # Extract time: first try forwarded date from body, then fall back to email Date header
-            time_sent = self.extract_forwarded_date(body)
+            time_sent = self.extract_forwarded_date(body) or ""
             if not time_sent:
                 # Not a forwarded email, get actual email Date header
                 email_date = msg.get("Date", "")
                 if email_date:
-                    time_sent = self._format_email_date(email_date)
+                    time_sent = self._format_email_date(email_date) or ""
 
             return {
                 "subject": subject or "",
@@ -292,12 +294,8 @@ class GoogleGroupsClient:
                 ),
                 "body": body,
                 "message_id": msg.get("Message-ID", "").strip(),
-                "imap_uid": (
-                    email_id.decode() if isinstance(email_id, bytes) else str(email_id)
-                ),
-                "email_id": (
-                    email_id.decode() if isinstance(email_id, bytes) else str(email_id)
-                ),
+                "imap_uid": email_id,
+                "email_id": email_id,
                 "time_sent": time_sent,
             }
 
@@ -319,7 +317,7 @@ class GoogleGroupsClient:
                 fragments.append(fragment)
         return "".join(fragments)
 
-    def _extract_body(self, msg: email.message.Message) -> str:
+    def _extract_body(self, msg: Message) -> str:
         """Extract body content from email message."""
         body = ""
 
@@ -351,7 +349,7 @@ class GoogleGroupsClient:
         return body
 
     @staticmethod
-    def extract_forwarded_date(text: str) -> Optional[str]:
+    def extract_forwarded_date(text: str) -> str | None:
         """
         Extract the date from forwarded message headers and convert to ISO format.
 
@@ -396,8 +394,9 @@ class GoogleGroupsClient:
             return None
 
         try:
-            from dateutil import parser as date_parser
             import unicodedata
+
+            from dateutil import parser as date_parser
 
             # Normalize Unicode whitespace (including \u202f narrow no-break space)
             # Replace all Unicode whitespace with regular space
@@ -425,7 +424,7 @@ class GoogleGroupsClient:
             return None
 
     @staticmethod
-    def _format_email_date(date_str: str) -> Optional[str]:
+    def _format_email_date(date_str: str) -> str | None:
         """
         Format the email Date header to ISO format.
 
@@ -460,7 +459,7 @@ class GoogleGroupsClient:
             return None
 
     @staticmethod
-    def extract_forwarded_sender(text: str) -> Optional[str]:
+    def extract_forwarded_sender(text: str) -> str | None:
         """
         Extract the original sender from forwarded message headers.
 
@@ -515,9 +514,7 @@ class GoogleGroupsClient:
         try:
             with self._connection_scope() as connection:
                 self._select_folder(connection, "inbox")
-                status, _ = connection.uid(
-                    "store", email_id.encode(), "+FLAGS", "\\Seen"
-                )
+                status, _ = connection.uid("store", email_id, "+FLAGS", "\\Seen")
                 self._require_ok(status, "UID store")
                 return True
         except (imaplib.IMAP4.error, OSError, RuntimeError):
@@ -537,11 +534,10 @@ class GoogleGroupsClient:
         try:
             with self._connection_scope() as connection:
                 self._select_folder(connection, "inbox")
-                status, _ = connection.uid(
-                    "store", email_id.encode(), "-FLAGS", "\\Seen"
-                )
+                status, _ = connection.uid("store", email_id, "-FLAGS", "\\Seen")
                 self._require_ok(status, "UID store")
                 return True
+
         except (imaplib.IMAP4.error, OSError, RuntimeError):
             self.logger.error("Failed to mark IMAP message as unread", exc_info=True)
             return False

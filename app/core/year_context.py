@@ -10,7 +10,6 @@ import re
 from typing import Any, Optional
 
 
-YEAR_ALIAS_PATTERN = re.compile(r"\+(\d{6})@", re.IGNORECASE)
 DEFAULT_PLACEMENT_YEAR = "202526"
 
 
@@ -29,6 +28,10 @@ def normalize_year(year: Optional[str]) -> Optional[str]:
 
     digits = re.sub(r"\D", "", str(year))
     if len(digits) != 6:
+        raise ValueError(f"Invalid placement year: {year}")
+    start_year = int(digits[:4])
+    end_year = int(digits[4:])
+    if not 2000 <= start_year <= 2099 or end_year != (start_year + 1) % 100:
         raise ValueError(f"Invalid placement year: {year}")
     return digits
 
@@ -146,9 +149,8 @@ def get_database_name(settings: Any, year: str) -> str:
     Returns:
         Database name.
     """
-    explicit_name = getattr(settings, "mongo_database_name", "")
-    if explicit_name:
-        return explicit_name
+    # Explicit legacy database names are only appropriate when no year context
+    # exists. A year-aware caller must never collapse multiple years into one DB.
     return database_name_for_year(year)
 
 
@@ -223,6 +225,34 @@ def get_superset_credentials_by_year(
     return {normalized: get_superset_credentials_for_year(settings, normalized)}
 
 
+def _year_from_plus_alias(text: str) -> Optional[str]:
+    """
+    Extract a placement year from a Gmail plus-alias suffix without regex.
+
+    Handles all separator styles, e.g. ``+2025_26@``, ``+2026-27@`` and
+    ``+202526@``. Scans each ``+suffix@`` occurrence and returns the first that
+    normalizes to a valid 6-digit year.
+
+    Args:
+        text: A string that may contain one or more email addresses.
+
+    Returns:
+        Normalized placement year if a valid alias is found, otherwise None.
+    """
+    # Walk every '+...' segment and inspect the chunk up to the next '@'.
+    for segment in text.split("+")[1:]:
+        suffix = segment.split("@", 1)[0]
+        if not suffix:
+            continue
+        try:
+            normalized = normalize_year(suffix)
+        except ValueError:
+            continue
+        if normalized:
+            return normalized
+    return None
+
+
 def extract_year_from_email_data(email_data: dict[str, Any]) -> Optional[str]:
     """
     Extract placement year from Gmail plus alias headers.
@@ -239,10 +269,6 @@ def extract_year_from_email_data(email_data: dict[str, Any]) -> Optional[str]:
         "delivered_to",
         "x_original_to",
         "recipients",
-        "body",
     ]
     haystack = "\n".join(str(email_data.get(field, "")) for field in fields)
-    match = YEAR_ALIAS_PATTERN.search(haystack)
-    if not match:
-        return None
-    return normalize_year(match.group(1))
+    return _year_from_plus_alias(haystack)

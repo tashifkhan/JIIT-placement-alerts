@@ -120,13 +120,13 @@ def cmd_update_emails(args):
        d. Mark as read after processing
     """
     from clients.db_client import DBClient
-    from services.database_service import DatabaseService
-    from services.placement_service import PlacementService
+    from services.database import DatabaseService
+    from services.placement import PlacementService
     from services.placement_notification_formatter import PlacementNotificationFormatter
     from clients.google_groups_client import GoogleGroupsClient
 
-    from services.email_notice_service import EmailNoticeService
-    from services.placement_policy_service import PlacementPolicyService
+    from services.email_notice import EmailNoticeService
+    from services.placement_policy import PlacementPolicyService
 
     logger = logging.getLogger(__name__)
     settings = get_settings()
@@ -151,6 +151,7 @@ def cmd_update_emails(args):
         placement_service = PlacementService(
             db_service=db,
             notification_formatter=notification_formatter,
+            email_client=email_client,
         )
         notice_service = EmailNoticeService(
             email_client=email_client,
@@ -174,9 +175,13 @@ def cmd_update_emails(args):
     # ─────────────────────────────────────────────────────────────────────────
     safe_print("\n━━━ Fetching Unread Emails ━━━")
     try:
+        # Keep one authenticated IMAP session for the entire batch. Individual
+        # fetches use BODY.PEEK[] and are explicitly marked read only on success.
+        email_client.connect()
         email_ids = email_client.get_unread_message_ids()
     except Exception as e:
         safe_print(f"Error fetching email IDs: {e}")
+        email_client.disconnect()
         return {"error": str(e)}
 
     safe_print(f"Found {len(email_ids)} unread emails")
@@ -223,6 +228,8 @@ def cmd_update_emails(args):
 
                 try:
                     result = db.save_placement_offers([offer_data])
+                    if result.get("error"):
+                        raise RuntimeError("Placement offer persistence failed")
                     events = result.get("events", [])
 
                     # Create notifications
@@ -241,10 +248,11 @@ def cmd_update_emails(args):
                 if notice_doc:
                     safe_print(f"  ✓ Notice detected: {notice_doc.type}")
                     try:
-                        success, _ = db.save_notice(notice_doc.model_dump())
+                        success, save_result = db.save_notice(notice_doc.model_dump())
                         if success:
                             notice_count += 1
                             year_counts["notices"] += 1
+                        if success or save_result == "Notice already exists":
                             processed = True
                     except Exception as e:
                         safe_print(f"  ⚠ Error saving notice: {e}")
@@ -267,6 +275,7 @@ def cmd_update_emails(args):
     # ─────────────────────────────────────────────────────────────────────────
     for services in services_by_year.values():
         services["db_client"].close_connection()
+    email_client.disconnect()
 
     combined_result = {
         "emails_processed": len(email_ids),
@@ -298,7 +307,7 @@ def cmd_update(args):
     return {
         "notices": ss_result.get("notices", 0) if isinstance(ss_result, dict) else 0,
         "jobs": ss_result.get("jobs", 0) if isinstance(ss_result, dict) else 0,
-        "placements": email_result if email_result else False,
+        "placements": email_result or {},
     }
 
 
@@ -323,14 +332,14 @@ def cmd_send(args):
 
 def cmd_official(args):
     """Update official placement data"""
-    from services.official_placement_service import OfficialPlacementService
-    from services.database_service import DatabaseService
+    from services.database import DatabaseService
+    from services.official_placement import OfficialPlacementService
     from clients.db_client import DBClient
 
     db_client = None
     db_service = None
     if not args.dry_run:
-        db_client = DBClient()
+        db_client = DBClient(use_global_database=True)
         db_client.connect()
         db_service = DatabaseService(db_client)
 
@@ -344,16 +353,17 @@ def cmd_official(args):
             safe_print("Scraping and updating official placement data...")
             data = service.scrape_and_save()
 
-        if db_client:
-            db_client.close_connection()
+        if data is None:
+            safe_print("Official placement update failed.")
 
         return data
 
     except Exception as e:
         safe_print(f"Error updating official placement: {e}")
+        return None
+    finally:
         if db_client:
             db_client.close_connection()
-        return None
 
 
 def cmd_legacy(args):
@@ -527,7 +537,7 @@ EXAMPLES
     )
     webhook_parser.add_argument(
         "--host",
-        default="0.0.0.0",
+        default="127.0.0.1",
         help="Host",
     )
     webhook_parser.add_argument(
@@ -549,7 +559,11 @@ EXAMPLES
     )
     update_parser.add_argument(
         "--year",
-        help="Only ingest one placement year, e.g. 202526 or 2025-26",
+        help=(
+            "Only scrape one SuperSet year and use it as the email fallback "
+            "(e.g. 202627 or 2026-27). Without this option, SuperSet scrapes "
+            "every year configured in SUPERSET_CREDENTIALS_BY_YEAR"
+        ),
     )
 
     # Send command
@@ -593,7 +607,11 @@ EXAMPLES
     )
     update_supersets_parser.add_argument(
         "--year",
-        help="Only ingest one SuperSet placement year, e.g. 202526 or 2025-26",
+        help=(
+            "Only scrape one SuperSet placement year (e.g. 202627 or 2026-27). "
+            "Without this option, every year configured in "
+            "SUPERSET_CREDENTIALS_BY_YEAR is scraped"
+        ),
     )
 
     # Update Emails command (placement offers + general notices)
@@ -603,7 +621,10 @@ EXAMPLES
     )
     update_emails_parser.add_argument(
         "--year",
-        help="Fallback placement year when an email has no plus alias, default 202526",
+        help=(
+            "Fallback placement year when an email has no valid plus alias; "
+            "defaults to ACTIVE_PLACEMENT_YEAR"
+        ),
     )
 
     # Stop daemon command

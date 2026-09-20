@@ -118,8 +118,8 @@ class BotServer:
     def _create_year_services(self, placement_year: str) -> tuple[Any, Any, Any]:
         """Create year-scoped DB and stats services."""
         from clients.db_client import DBClient
-        from services.database_service import DatabaseService
-        from services.placement_stats_calculator_service import (
+        from services.database import DatabaseService
+        from services.placement import (
             PlacementStatsCalculatorService,
         )
 
@@ -314,9 +314,9 @@ The bot automatically sends:
         try:
             db_client, _, stats_service = self._create_year_services(placement_year)
             stats = stats_service.calculate_all_stats()
-        except Exception as e:
-            self.logger.error(f"Error calculating stats: {e}")
-            await update.message.reply_text(f"Error calculating stats: {e}")
+        except Exception:
+            self.logger.error("Error calculating stats", exc_info=True)
+            await update.message.reply_text("Unable to calculate statistics right now.")
             return
         finally:
             if db_client:
@@ -372,6 +372,12 @@ The bot automatically sends:
         try:
             db_client, year_db_service, _ = self._create_year_services(placement_year)
             stats = year_db_service.get_notice_stats()
+        except Exception:
+            self.logger.error("Error calculating notice stats", exc_info=True)
+            await update.message.reply_text(
+                "Unable to calculate notice statistics right now."
+            )
+            return
         finally:
             if db_client:
                 db_client.close_connection()
@@ -447,6 +453,9 @@ The bot automatically sends:
     ) -> None:
         """Handle /userstats command (admin)"""
         if not update.message:
+            return
+
+        if not self.admin_service or not await self.admin_service._is_admin(update):
             return
 
         if not self.db_service:
@@ -614,13 +623,13 @@ def create_bot_server(
     Note: Scheduler-related services (scraper, formatter) have been moved
     to create_scheduler_server() in scheduler_server.py
     """
-    from services.database_service import DatabaseService
-    from services.notification_service import NotificationService
-    from services.telegram_service import TelegramService
-    from services.admin_telegram_service import AdminTelegramService
-    from services.placement_stats_calculator_service import (
+    from services.admin_telegram import AdminTelegramService
+    from services.database import DatabaseService
+    from services.notification import NotificationService
+    from services.placement import (
         PlacementStatsCalculatorService,
     )
+    from services.telegram import TelegramService
     from clients.db_client import DBClient
 
     settings = settings or get_settings()
@@ -639,6 +648,10 @@ def create_bot_server(
     year_db_client = DBClient(connection_string=settings.mongo_connection_str)
     year_db_client.connect()
     year_db_service = DatabaseService(year_db_client)
+    global_db_service.import_legacy_users(
+        year_db_service.get_all_users(),
+        get_default_year(settings),
+    )
 
     # Setup notification channels
     telegram_service = TelegramService(

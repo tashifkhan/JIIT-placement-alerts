@@ -11,7 +11,7 @@ from typing import Optional
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import AliasChoices, Field
 
 
@@ -85,6 +85,18 @@ class Settings(BaseSettings):
         validation_alias="GOOGLE_API_KEY",
         description="Google API key for Gemini LLM",
     )
+    llm_timeout_seconds: float = Field(
+        default=60.0,
+        validation_alias="LLM_TIMEOUT_SECONDS",
+        gt=0,
+        description="Maximum seconds to wait for one LLM request",
+    )
+    llm_max_retries: int = Field(
+        default=2,
+        validation_alias="LLM_MAX_RETRIES",
+        ge=0,
+        description="Maximum automatic retries for one LLM request",
+    )
 
     # Placement Email (for reading offer letters)
     placement_email: str = Field(
@@ -122,9 +134,24 @@ class Settings(BaseSettings):
         description="Port for webhook server",
     )
     webhook_host: str = Field(
-        default="0.0.0.0",
+        default="127.0.0.1",
         validation_alias="WEBHOOK_HOST",
         description="Host for webhook server",
+    )
+    webhook_api_key: str = Field(
+        default="",
+        validation_alias="WEBHOOK_API_KEY",
+        description="API key required by protected webhook endpoints",
+    )
+    cors_origins: str = Field(
+        default="[]",
+        validation_alias="CORS_ORIGINS",
+        description="JSON list of origins allowed to access the webhook API",
+    )
+    admin_telegram_user_ids: str = Field(
+        default="[]",
+        validation_alias="ADMIN_TELEGRAM_USER_IDS",
+        description="JSON list of Telegram user IDs allowed to use admin features",
     )
 
     # Daemon Mode
@@ -151,10 +178,11 @@ class Settings(BaseSettings):
         description="Log file path (Scheduler)",
     )
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        extra = "ignore"  # Ignore extra env vars
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 # Global daemon mode flag (for backward compatibility)

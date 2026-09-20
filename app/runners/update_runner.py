@@ -15,9 +15,9 @@ from core.year_context import (
     get_superset_credentials_by_year,
     get_superset_credentials_for_year,
 )
-from services.database_service import DatabaseService
+from services.database import DatabaseService
 from clients.superset_client import SupersetClientService
-from services.notice_formatter_service import NoticeFormatterService
+from services.notice_formatter import NoticeFormatterService
 
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,9 @@ class UpdateRunner:
             self._owns_db = True
 
         self.scraper = scraper_service or SupersetClientService()
-        self.formatter = formatter_service or NoticeFormatterService()
+        self.formatter = formatter_service or NoticeFormatterService(
+            placement_year=self.placement_year
+        )
 
     def fetch_and_process_updates(self) -> dict:
         """
@@ -210,20 +212,20 @@ class UpdateRunner:
 
         for notice in notices:
             try:
-                # Format notice with enricher callback
+                # Extract structured notice fields with an enricher callback.
                 # The LLM will identify the matching job, and if found,
-                # the enricher is called mid-pipeline before formatting
-                formatted = self.formatter.format_notice(
+                # the enricher is called mid-pipeline before output mapping.
+                structured_notice = self.formatter.format_notice(
                     notice,
                     list(jobs_by_id.values()),
                     job_enricher=job_enricher,
                 )
-                matched_job_id = formatted.get("matched_job_id")
+                matched_job_id = structured_notice.get("matched_job_id")
 
                 if matched_job_id:
                     matched_job_ids.add(matched_job_id)
 
-                success, _ = self.db.save_notice(formatted)
+                success, _ = self.db.save_notice(structured_notice)
                 if success:
                     new_notices += 1
 

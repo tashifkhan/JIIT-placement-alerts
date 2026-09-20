@@ -7,7 +7,7 @@ Decoupled from the business logic service.
 
 import logging
 from typing import Optional
-from pymongo import MongoClient
+from pymongo import ASCENDING, MongoClient
 
 from core.config import get_settings, safe_print
 from core.year_context import database_name_for_year, normalize_year
@@ -85,6 +85,7 @@ class DBClient:
 
             # Test connection
             self.client.admin.command("ping")
+            self._ensure_indexes()
             success_msg = "Successfully connected to MongoDB"
             self.logger.info(success_msg)
             safe_print(success_msg)
@@ -94,6 +95,72 @@ class DBClient:
             self.logger.error(error_msg, exc_info=True)
             safe_print(error_msg)
             raise
+
+    def _ensure_indexes(self) -> None:
+        """Create integrity indexes without making legacy duplicates fatal at startup."""
+        index_specs = [
+            (
+                self._notices_collection,
+                [("id", ASCENDING)],
+                {
+                    "unique": True,
+                    "name": "notices_id_unique",
+                    "partialFilterExpression": {"id": {"$type": "string"}},
+                },
+            ),
+            (
+                self._jobs_collection,
+                [("id", ASCENDING)],
+                {
+                    "unique": True,
+                    "name": "jobs_id_unique",
+                    "partialFilterExpression": {"id": {"$type": "string"}},
+                },
+            ),
+            (
+                self._users_collection,
+                [("user_id", ASCENDING)],
+                {
+                    "unique": True,
+                    "name": "users_user_id_unique",
+                    "partialFilterExpression": {"user_id": {"$type": "number"}},
+                },
+            ),
+            (
+                self._placement_offers_collection,
+                [("company_key", ASCENDING)],
+                {
+                    "unique": True,
+                    "name": "placement_offers_company_key_unique",
+                    "partialFilterExpression": {
+                        "company_key": {"$type": "string"}
+                    },
+                },
+            ),
+            (
+                self._placement_years_collection,
+                [("year", ASCENDING)],
+                {
+                    "unique": True,
+                    "name": "placement_years_year_unique",
+                    "partialFilterExpression": {"year": {"$type": "string"}},
+                },
+            ),
+        ]
+
+        for collection, keys, options in index_specs:
+            try:
+                collection.create_index(keys, **options)
+            except Exception as e:
+                index_name = options["name"]
+                self.logger.error(
+                    "Could not create MongoDB index %s in %s: %s. "
+                    "Check this collection for historical duplicate values and retry.",
+                    index_name,
+                    self.database_name,
+                    e,
+                    exc_info=True,
+                )
 
     def close_connection(self) -> None:
         """Close MongoDB connection"""

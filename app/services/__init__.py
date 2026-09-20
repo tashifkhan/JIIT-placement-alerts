@@ -1,14 +1,13 @@
 # Services Layer
 # This module provides all service implementations
 
-from .database_service import DatabaseService
-from .telegram_service import TelegramService
-from .notification_service import NotificationService
-from .notice_formatter_service import NoticeFormatterService
-from .placement_service import PlacementService
+from .database import DatabaseService
+from .notification import NotificationService
+from .notice_formatter import NoticeFormatterService
+from .placement import PlacementService, PlacementStatsCalculatorService
 from .placement_notification_formatter import PlacementNotificationFormatter
-from .official_placement_service import OfficialPlacementService
-from .placement_stats_calculator_service import PlacementStatsCalculatorService
+from .official_placement import OfficialPlacementService
+from .telegram import TelegramService
 
 __all__ = [
     "DatabaseService",

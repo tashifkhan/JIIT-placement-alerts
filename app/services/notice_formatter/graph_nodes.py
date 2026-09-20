@@ -9,7 +9,6 @@ from rapidfuzz import fuzz, process
 
 from services.notice_formatter.state import PostState
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -31,23 +30,25 @@ class NoticeFormatterGraphNodeMixin:
             [
                 (
                     "system",
-                    "You are a strict single-label classifier. Read the notice and output ONLY one lowercase label from this set (no punctuation, no extra words):\n"
-                    "update, shortlisting, announcement, hackathon, webinar, job posting\n\n"
-                    "Definitions / decision guide:\n"
-                    "- update: Minor operational / procedural info, timetable shifts, portal status, brief changes with no list of selected students and not primarily event-focused. especially for ongoing placement / job drives.\n"
-                    "- shortlisting: Contains a list (or table) of selected / shortlisted candidate names, rolls, or enrollments for a role, round, or company.\n"
-                    "- announcement: General broad notice to all students (holiday, policy, generic info) that is not a job posting, not a shortlist, and not clearly an event (webinar/hackathon).\n"
-                    "- hackathon: Describes a hackathon / coding competition (often includes theme, duration, prizes, team size).\n"
-                    "- webinar: Describes an online/offline seminar / session with a speaker, topic, time (learning / informational session).\n"
-                    "- job posting: Describes an opportunity to apply for a job/internship/placement including company + role (and often CTC, eligibility, deadline).\n\n"
-                    "Tie-break rules:\n"
-                    "1. If it has a shortlist table/list of names -> shortlisting.\n"
-                    "2. If it is clearly a job opportunity with application instructions -> job posting (even if called announcement).\n"
-                    "3. If it invites to a hackathon competition -> hackathon.\n"
-                    "4. If it invites to a talk/session/seminar -> webinar.\n"
-                    "5. If it is a generic info broadcast with broad audience and no action list -> announcement.\n"
-                    "6. Minor status/info changes -> update.\n\n"
-                    "Respond with ONLY the label (e.g., job posting).",
+                    (
+                        "Classify the notice with exactly one lowercase label from this list, no punctuation and no extra words:\n"
+                        "update, shortlisting, announcement, hackathon, webinar, job posting\n\n"
+                        "Definitions:\n"
+                        "- update: minor operational or procedural info, timetable shifts, portal status, or brief changes with no list of selected students and not primarily an event. Common for ongoing placement and job drives.\n"
+                        "- shortlisting: contains a list or table of selected or shortlisted candidate names, rolls, or enrollments for a role, round, or company.\n"
+                        "- announcement: a general notice to all students (holiday, policy, generic info) that is not a job posting, not a shortlist, and not clearly an event (webinar or hackathon).\n"
+                        "- hackathon: describes a hackathon or coding competition, often with theme, duration, prizes, and team size.\n"
+                        "- webinar: describes an online or offline seminar or session with a speaker, topic, and time.\n"
+                        "- job posting: describes an opportunity to apply for a job, internship, or placement, including company and role, often with CTC, eligibility, and deadline.\n\n"
+                        "Tie-break rules:\n"
+                        "1. A shortlist table or list of names means shortlisting.\n"
+                        "2. A clear job opportunity with application instructions means job posting, even if it is called an announcement.\n"
+                        "3. A hackathon competition means hackathon.\n"
+                        "4. A talk, session, or seminar means webinar.\n"
+                        "5. A generic info broadcast with no action list means announcement.\n"
+                        "6. A minor status or info change means update.\n\n"
+                        "Reply with the label only, for example: job posting"
+                    ),
                 ),
                 (
                     "human",
@@ -72,7 +73,7 @@ class NoticeFormatterGraphNodeMixin:
             [
                 (
                     "system",
-                    "You are an expert entity extractor. Your task is to identify and extract any company names mentioned in the text. List them separated by commas. If no company is mentioned, return an empty string.",
+                    "Extract every company name mentioned in the text. Return them as a comma-separated list. If there are none, return an empty string.",
                 ),
                 (
                     "human",
@@ -143,8 +144,8 @@ class NoticeFormatterGraphNodeMixin:
                         enriched_job if j.id == matched_job.id else j for j in jobs
                     ]
                     logger.debug("Matched job enriched successfully")
-            except Exception as e:
-                logger.warning("Failed to enrich matched job", exc_info=True)
+            except Exception:
+                logger.exception("Failed to enrich matched job")
 
         return state
 
@@ -154,20 +155,22 @@ class NoticeFormatterGraphNodeMixin:
             [
                 (
                     "system",
-                    "You extract structured JSON for MongoDB notice documents. "
-                    "Return ONLY one valid JSON object, with no markdown, no prose, and no formatted notification text. "
-                    "Use null for unknown scalar fields and [] for unknown list fields. "
-                    "Do not include email headers, sender email addresses, phone numbers, or forwarding metadata.\n\n"
-                    "Allowed keys by category:\n"
-                    "- shortlisting: company_name, role, round, venue, interview_date, total_shortlisted, students. "
-                    "students must be an array of objects with name and enrollment only.\n"
-                    "- job posting: company_name, role, package, deadline, location, hiring_flow, eligibility_criteria, links. "
-                    "hiring_flow and eligibility_criteria must be arrays of strings.\n"
-                    "- webinar: event_name, topic, speaker, date, time, venue, registration_link, deadline, links.\n"
-                    "- hackathon: event_name, theme, start_date, end_date, registration_deadline, registration_link, prize_pool, team_size, venue, organizer, links.\n"
-                    "- update, announcement, reminder: message, deadline, links, company_name, role when present.\n\n"
-                    "Date-like values should be ISO strings when possible. Links must be arrays of URL strings. "
-                    "The response is a data object only; it must not contain formatted_message or Telegram/Markdown-rendered content.",
+                    (
+                        "You extract structured JSON for MongoDB notice documents. "
+                        "Return one valid JSON object only, with no markdown, no prose, and no formatted notification text. "
+                        "Use null for unknown scalar fields and [] for unknown list fields. "
+                        "Do not include email headers, sender email addresses, phone numbers, or forwarding metadata.\n\n"
+                        "Allowed keys by category:\n"
+                        "- shortlisting: company_name, role, round, venue, interview_date, total_shortlisted, students. "
+                        "students must be an array of objects with name and enrollment only.\n"
+                        "- job posting: company_name, role, package, deadline, location, hiring_flow, eligibility_criteria, links. "
+                        "hiring_flow and eligibility_criteria must be arrays of strings.\n"
+                        "- webinar: event_name, topic, speaker, date, time, venue, registration_link, deadline, links.\n"
+                        "- hackathon: event_name, theme, start_date, end_date, registration_deadline, registration_link, prize_pool, team_size, venue, organizer, links.\n"
+                        "- update, announcement, reminder: message, deadline, links, company_name, role when present.\n\n"
+                        "Date-like values should be ISO strings when possible. Links must be arrays of URL strings. "
+                        "Never return a formatted_message field or Telegram/Markdown-rendered content."
+                    ),
                 ),
                 (
                     "human",

@@ -4,6 +4,7 @@ from model.jobs import EligibilityMark, JobDocument, JobDocumentAttachment
 from model.notices import MatchedJobSummary, NoticeDocument, StudentNoticeRow
 from model.official_placement import (
     BatchInfo,
+    OfficialPlacementBatchDocument,
     OfficialPlacementDataDocument,
     PackageDistribution,
     PlacementHighlight,
@@ -25,6 +26,7 @@ __all__ = [
     "JobDocumentAttachment",
     "MatchedJobSummary",
     "NoticeDocument",
+    "OfficialPlacementBatchDocument",
     "OfficialPlacementDataDocument",
     "PackageDistribution",
     "PlacementHighlight",

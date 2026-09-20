@@ -3,7 +3,6 @@
 import logging
 
 from clients.db_client import DBClient
-
 from services.database.jobs import JobRepository
 from services.database.notices import NoticeRepository
 from services.database.official_placement import OfficialPlacementRepository
@@ -27,7 +26,7 @@ class DatabaseService(
     - NoticeRepository: Notices collection
     - JobRepository: Jobs collection
     - PlacementOfferRepository: PlacementOffers collection and stats
-    - OfficialPlacementRepository: OfficialPlacementData collection
+    - OfficialPlacementRepository: OfficialPlacementData and OfficialPlacementBatches
     - UserRepository: Users and PlacementYears collections
     - PolicyRepository: Policies collection
     """
@@ -49,6 +48,9 @@ class DatabaseService(
         self.policies_collection = db_client.policies_collection
         self.official_placement_data_collection = (
             db_client.official_placement_data_collection
+        )
+        self.official_placement_batches_collection = (
+            db_client.official_placement_batches_collection
         )
         self.placement_years_collection = db_client.placement_years_collection
 

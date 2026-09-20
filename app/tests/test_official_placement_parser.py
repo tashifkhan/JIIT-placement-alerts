@@ -3,7 +3,7 @@
 import json
 
 from model.official_placement import OfficialPlacementDataDocument
-from services.official_placement import OfficialPlacementService, TARGET_URL
+from services.official_placement import TARGET_URL, OfficialPlacementService
 
 
 def _next_script(fragment: str) -> str:

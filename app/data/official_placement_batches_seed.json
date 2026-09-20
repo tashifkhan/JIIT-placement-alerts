@@ -1,0 +1,89 @@
+{
+  "seed_version": "1",
+  "batches": [
+    {
+      "batch_name": "2025",
+      "provenance": "https://www.jiit.ac.in/student-placement (archived Graduating Batch 2025 highlights; also cited on JIIT brochure/department pages)",
+      "highlights": [
+        {
+          "title": "260+",
+          "description": "Quality Companies Visited So Far"
+        },
+        {
+          "title": "Rs. 62.00 Lacs",
+          "description": "Highest Package by Atlassian (1 Offer)"
+        },
+        {
+          "title": "Rs. 55.38 Lacs",
+          "description": "2nd Highest Package by Microsoft India (1 Offer)"
+        },
+        {
+          "title": "Rs. 52.75 Lacs",
+          "description": "3rd Highest Package by Google India (6 Offers)"
+        },
+        {
+          "title": "Rs. 13.00 to Rs. 52.74 Lacs",
+          "description": "Package (41 Companies - 178 Offers)"
+        },
+        {
+          "title": "Rs. 6.00 to Rs. 12.99 Lacs",
+          "description": "Package (94 Companies - 350 Offers)"
+        },
+        {
+          "title": "Upto Rs. 5.99 Lacs",
+          "description": "Package (67 Companies - 406 Offers)"
+        },
+        {
+          "title": "Rs. 11.13 Lacs",
+          "description": "Average Package"
+        },
+        {
+          "title": "Rs. 7.93 Lacs",
+          "description": "Median Package"
+        }
+      ]
+    },
+    {
+      "batch_name": "2024",
+      "provenance": "JIIT Annual Report 2023-24 (https://www.jiit.ac.in/uploads/JIIT_Annual_Report_2023_24_1b8f143aca.pdf) placement highlights for June 2024 graduated batches",
+      "highlights": [
+        {
+          "title": "252+",
+          "description": "Quality Companies Visited So Far"
+        },
+        {
+          "title": "Rs. 60.71 Lacs",
+          "description": "Highest Package by LinkedIn (2 Offers)"
+        },
+        {
+          "title": "Rs. 52.00 Lacs",
+          "description": "2nd Highest Package by Microsoft India (2 Offers)"
+        },
+        {
+          "title": "Rs. 37.37 Lacs",
+          "description": "3rd Highest Package by CISCO (1 Offer)"
+        },
+        {
+          "title": "Rs. 13.00 to Rs. 37.36 Lacs",
+          "description": "Package (24 Companies - 101 Offers)"
+        },
+        {
+          "title": "Rs. 6.00 to Rs. 12.99 Lacs",
+          "description": "Package (106 Companies - 399 Offers)"
+        },
+        {
+          "title": "Upto Rs. 5.99 Lacs",
+          "description": "Package (69 Companies - 305 Offers)"
+        },
+        {
+          "title": "Rs. 8.62 Lacs",
+          "description": "Average Package"
+        },
+        {
+          "title": "Rs. 6.50 Lacs",
+          "description": "Median Package"
+        }
+      ]
+    }
+  ]
+}

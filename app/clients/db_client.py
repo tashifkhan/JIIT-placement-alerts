@@ -6,11 +6,14 @@ Decoupled from the business logic service.
 """
 
 import logging
-from typing import Optional
+from typing import Any
+
 from pymongo import ASCENDING, MongoClient
+from pymongo.collection import Collection
+from pymongo.database import Database
 
 from core.config import get_settings, safe_print
-from core.year_context import database_name_for_year, normalize_year
+from core.year_context import database_name_for_year, get_active_year
 
 
 class DBClient:
@@ -20,9 +23,9 @@ class DBClient:
 
     def __init__(
         self,
-        connection_string: Optional[str] = None,
-        database_name: Optional[str] = None,
-        placement_year: Optional[str] = None,
+        connection_string: str | None = None,
+        database_name: str | None = None,
+        placement_year: str | None = None,
         use_global_database: bool = False,
     ):
         """
@@ -40,7 +43,7 @@ class DBClient:
         if use_global_database:
             self.database_name = database_name or settings.global_database_name
         else:
-            resolved_year = normalize_year(placement_year or settings.active_placement_year)
+            resolved_year = get_active_year(settings, placement_year)
             if placement_year:
                 self.database_name = database_name or database_name_for_year(resolved_year)
             else:
@@ -50,17 +53,18 @@ class DBClient:
                     or database_name_for_year(resolved_year)
                 )
 
-        self.client: Optional[MongoClient] = None
-        self.db = None
+        self.client: MongoClient | None = None
+        self.db: Database[Any] | None = None
 
         # Collections
-        self._notices_collection = None
-        self._jobs_collection = None
-        self._placement_offers_collection = None
-        self._users_collection = None
-        self._policies_collection = None
-        self._official_placement_data_collection = None
-        self._placement_years_collection = None
+        self._notices_collection: Collection[Any] | None = None
+        self._jobs_collection: Collection[Any] | None = None
+        self._placement_offers_collection: Collection[Any] | None = None
+        self._users_collection: Collection[Any] | None = None
+        self._policies_collection: Collection[Any] | None = None
+        self._official_placement_data_collection: Collection[Any] | None = None
+        self._official_placement_batches_collection: Collection[Any] | None = None
+        self._placement_years_collection: Collection[Any] | None = None
 
     def connect(self) -> None:
         """Establish database connection"""
@@ -81,6 +85,7 @@ class DBClient:
             self._users_collection = self.db["Users"]
             self._policies_collection = self.db["Policies"]
             self._official_placement_data_collection = self.db["OfficialPlacementData"]
+            self._official_placement_batches_collection = self.db["OfficialPlacementBatches"]
             self._placement_years_collection = self.db["PlacementYears"]
 
             # Test connection
@@ -146,9 +151,20 @@ class DBClient:
                     "partialFilterExpression": {"year": {"$type": "string"}},
                 },
             ),
+            (
+                self._official_placement_batches_collection,
+                [("batch_name", ASCENDING)],
+                {
+                    "unique": True,
+                    "name": "official_placement_batches_batch_name_unique",
+                    "partialFilterExpression": {"batch_name": {"$type": "string"}},
+                },
+            ),
         ]
 
         for collection, keys, options in index_specs:
+            if collection is None:
+                continue
             try:
                 collection.create_index(keys, **options)
             except Exception as e:
@@ -170,29 +186,33 @@ class DBClient:
             safe_print("MongoDB connection closed")
 
     @property
-    def notices_collection(self):
+    def notices_collection(self) -> Collection[Any] | None:
         return self._notices_collection
 
     @property
-    def jobs_collection(self):
+    def jobs_collection(self) -> Collection[Any] | None:
         return self._jobs_collection
 
     @property
-    def placement_offers_collection(self):
+    def placement_offers_collection(self) -> Collection[Any] | None:
         return self._placement_offers_collection
 
     @property
-    def users_collection(self):
+    def users_collection(self) -> Collection[Any] | None:
         return self._users_collection
 
     @property
-    def policies_collection(self):
+    def policies_collection(self) -> Collection[Any] | None:
         return self._policies_collection
 
     @property
-    def official_placement_data_collection(self):
+    def official_placement_data_collection(self) -> Collection[Any] | None:
         return self._official_placement_data_collection
 
     @property
-    def placement_years_collection(self):
+    def official_placement_batches_collection(self) -> Collection[Any] | None:
+        return self._official_placement_batches_collection
+
+    @property
+    def placement_years_collection(self) -> Collection[Any] | None:
         return self._placement_years_collection

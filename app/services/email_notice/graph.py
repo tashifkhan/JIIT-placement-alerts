@@ -7,6 +7,7 @@ from langgraph.graph import END, StateGraph
 from pydantic import ValidationError
 
 from core import safe_print
+from core.llm import message_text
 from services.email_notice.models import ExtractedNotice, NoticeGraphState
 from services.email_notice.prompts import NOTICE_EXTRACTION_PROMPT
 from services.placement_policy import ExtractedPolicyUpdate, POLICY_EXTRACTION_PROMPT
@@ -99,7 +100,7 @@ class EmailNoticeGraphMixin:
                 }
             )
 
-            json_content = self._extract_json(str(response.content))
+            json_content = self._extract_json(message_text(response))
             data = json.loads(json_content)
 
             if data.get("is_policy_update"):
@@ -164,7 +165,7 @@ class EmailNoticeGraphMixin:
         )
 
         policy_response = policy_chain.invoke({"email_content": email_content})
-        policy_json = self._extract_json(str(policy_response.content))
+        policy_json = self._extract_json(message_text(policy_response))
         policy_docs = json.loads(policy_json)
 
         if isinstance(policy_docs, list) and len(policy_docs) > 0:

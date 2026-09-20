@@ -2,10 +2,10 @@
 
 from typing import Any, Dict, List, Optional, Sequence
 
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import END, StateGraph
 
 from core import get_settings
+from core.llm import DEFAULT_GEMINI_MODEL, build_chat_model
 from core.year_context import DEFAULT_PLACEMENT_YEAR, normalize_year
 
 from services.notice_formatter.graph_nodes import NoticeFormatterGraphNodeMixin
@@ -22,7 +22,7 @@ class NoticeFormatterService(
     def __init__(
         self,
         google_api_key: Optional[str] = None,
-        model: str = "gemini-2.5-flash-lite",
+        model: str = DEFAULT_GEMINI_MODEL,
         temperature: float = 0,
         placement_year: Optional[str] = None,
     ):
@@ -32,12 +32,10 @@ class NoticeFormatterService(
             or getattr(settings, "active_placement_year", None)
             or DEFAULT_PLACEMENT_YEAR
         )
-        self.llm = ChatGoogleGenerativeAI(
+        self.llm = build_chat_model(
             model=model,
             temperature=temperature,
-            google_api_key=google_api_key or settings.google_api_key,
-            timeout=settings.llm_timeout_seconds,
-            max_retries=settings.llm_max_retries,
+            api_key=google_api_key,
         )
         self.app = self._build_graph()
 

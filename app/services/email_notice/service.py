@@ -3,10 +3,9 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-
 from clients.google_groups_client import GoogleGroupsClient
 from core import get_settings, safe_print
+from core.llm import DEFAULT_GEMINI_MODEL, build_chat_model
 from services.email_notice.document_builder import EmailNoticeDocumentMixin
 from services.email_notice.graph import EmailNoticeGraphMixin
 from services.email_notice.models import NoticeDocument, NoticeGraphState
@@ -27,7 +26,7 @@ class EmailNoticeService(EmailNoticeGraphMixin, EmailNoticeDocumentMixin):
         google_api_key: Optional[str] = None,
         db_service: Optional[Any] = None,
         policy_service: Optional[PlacementPolicyService] = None,
-        model: str = "gemini-2.5-pro",
+        model: str = DEFAULT_GEMINI_MODEL,
     ):
         """
         Initialize email notice service.
@@ -53,13 +52,7 @@ class EmailNoticeService(EmailNoticeGraphMixin, EmailNoticeDocumentMixin):
                 db_service=db_service, google_api_key=api_key
             )
 
-        self.llm = ChatGoogleGenerativeAI(
-            model=model,
-            temperature=0,
-            google_api_key=api_key,
-            timeout=settings.llm_timeout_seconds,
-            max_retries=settings.llm_max_retries,
-        )
+        self.llm = build_chat_model(model=model, api_key=api_key)
         self.app = self._build_graph()
 
         self.logger.info("EmailNoticeService initialized")

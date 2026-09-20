@@ -1,6 +1,6 @@
 """LLM prompts for email notice extraction."""
 
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 
 
 NOTICE_EXTRACTION_PROMPT = ChatPromptTemplate.from_template(

@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
+from core.llm import message_text
 from services.notice_formatter.state import Job
 
 
@@ -14,19 +15,7 @@ class NoticeFormatterHelperMixin:
     @staticmethod
     def _ensure_str_content(content: Any) -> str:
         """Normalize LLM message content to a string."""
-        if isinstance(content, str):
-            return content
-
-        if isinstance(content, list):
-            parts: List[str] = []
-            for part in content:
-                if isinstance(part, str):
-                    parts.append(part)
-                elif isinstance(part, dict) and "text" in part:
-                    parts.append(str(part["text"]))
-            return "\n".join(parts)
-
-        return str(content)
+        return message_text(content)
 
     @staticmethod
     def _format_package(amount: Any, annum_months: Optional[str] = None) -> str:

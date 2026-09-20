@@ -81,6 +81,8 @@ class NoticeDocument(MongoModel):
     matched_job_id: str | None = None
     related_job_id: str | None = None
     matched_job: MatchedJobSummary | None = None
+    likely_on_campus: bool = False
+    on_campus_confidence: float | None = Field(default=None, ge=0, le=1)
 
     @field_validator("selected_students", "shortlisted_students", mode="before")
     @classmethod

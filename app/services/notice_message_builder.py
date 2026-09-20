@@ -121,22 +121,40 @@ class NoticeMessageBuilder:
         category = self._category(notice)
 
         if category == "placement offer" or notice.get("type") == "placement_offer":
-            return self._build_placement_offer(notice)
-        if category == "job posting":
-            return self._build_job_posting(notice)
-        if category == "shortlisting":
-            return self._build_shortlisting(notice)
-        if category == "webinar":
-            return self._build_webinar(notice)
-        if category == "hackathon":
-            return self._build_hackathon(notice)
-        if category == "internship noc":
-            return self._build_student_list(notice, "**📋 Internship NOC List**")
-        if category == "reminder":
-            return self._build_generic(notice, "**⏰ Reminder**")
-        if category == "update":
-            return self._build_update(notice)
-        return self._build_generic(notice, f"**🔔 {category.title()}**")
+            message = self._build_placement_offer(notice)
+        elif category == "job posting":
+            message = self._build_job_posting(notice)
+        elif category == "shortlisting":
+            message = self._build_shortlisting(notice)
+        elif category == "webinar":
+            message = self._build_webinar(notice)
+        elif category == "hackathon":
+            message = self._build_hackathon(notice)
+        elif category == "internship noc":
+            message = self._build_student_list(notice, "**📋 Internship NOC List**")
+        elif category == "reminder":
+            message = self._build_generic(notice, "**⏰ Reminder**")
+        elif category == "update":
+            message = self._build_update(notice)
+        else:
+            message = self._build_generic(notice, f"**🔔 {category.title()}**")
+        return self._with_likely_on_campus_tag(message, notice)
+
+    @staticmethod
+    def _with_likely_on_campus_tag(
+        message: str, notice: dict[str, Any]
+    ) -> str:
+        """Add the campus estimate to notification text when the tag is set."""
+        if not notice.get("likely_on_campus"):
+            return message
+        confidence = notice.get("on_campus_confidence")
+        try:
+            percent = round(float(confidence) * 100)
+        except (TypeError, ValueError):
+            return message
+        lines = message.splitlines()
+        lines.insert(1, f"**Likely on campus · {percent}%**")
+        return "\n".join(lines)
 
     def _build_job_posting(self, notice: dict[str, Any]) -> str:
         job_id = notice.get("matched_job_id") or notice.get("related_job_id")

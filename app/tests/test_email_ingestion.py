@@ -11,6 +11,7 @@ from services.email_notice import document_builder
 from services.email_notice.document_builder import EmailNoticeDocumentMixin
 from services.email_notice.graph import EmailNoticeGraphMixin
 from services.email_notice.models import ExtractedNotice
+from services.notice_message_builder import NoticeMessageBuilder
 
 RAW_EMAIL = b"""From: Placement Cell <placement@example.edu>
 To: alerts+202526@example.com
@@ -62,6 +63,16 @@ class NoticeBuilder(EmailNoticeDocumentMixin):
     db_service = None
     _jobs_cache = None
     logger = SimpleNamespace(warning=lambda *args, **kwargs: None)
+
+
+class JobDB:
+    def __init__(self, jobs):
+        self.jobs = jobs
+        self.limits = []
+
+    def get_all_jobs(self, limit=300):
+        self.limits.append(limit)
+        return self.jobs
 
 
 class FixedDateTimeOne:
@@ -139,6 +150,129 @@ def test_notice_id_is_stable_across_processing_times(monkeypatch):
     assert first.createdAt != second.createdAt
     assert first.model_dump()["id"] == first.id
     assert "_id" not in first.model_dump()
+
+
+def test_candidate_matching_reads_all_jobs_and_expands_company_acronym():
+    builder = NoticeBuilder()
+    builder._jobs_cache = None
+    builder.db_service = JobDB(
+        [
+            {
+                "id": "tcs-sde",
+                "company": "Tata Consultancy Services",
+                "job_profile": "Software Development Engineer",
+            },
+            {
+                "id": "other-sde",
+                "company": "Other Company",
+                "job_profile": "Software Development Engineer",
+            },
+        ]
+    )
+    notice = ExtractedNotice(
+        is_notice=True,
+        title="TCS shortlist",
+        content="TCS shortlisted students for the SDE role.",
+        type="shortlisting",
+        company_name="TCS",
+        role="SDE",
+    )
+
+    candidates = builder._find_job_candidates(notice)
+
+    assert builder.db_service.limits == [0]
+    assert candidates[0]["id"] == "tcs-sde"
+    assert candidates[0]["acronym_match"] is True
+
+
+def test_notice_document_persists_likely_tag_confidence_and_selected_job():
+    builder = NoticeBuilder()
+    matched_job = {
+        "id": "job-1",
+        "company": "Acme",
+        "job_profile": "Engineer",
+        "location": "Noida",
+    }
+
+    result = builder._create_notice_document(
+        _notice(),
+        _email_data(),
+        matched_job=matched_job,
+        likely_on_campus=True,
+        on_campus_confidence=0.87,
+    )
+
+    assert result.likely_on_campus is True
+    assert result.on_campus_confidence == 0.87
+    assert result.matched_job_id == "job-1"
+
+
+def test_notification_includes_likely_tag_with_confidence():
+    message = NoticeMessageBuilder().build(
+        {
+            "title": "Interview update",
+            "category": "update",
+            "content": "Interview tomorrow.",
+            "likely_on_campus": True,
+            "on_campus_confidence": 0.874,
+        }
+    )
+
+    assert "**Likely on campus · 87%**" in message
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_likely"),
+    [
+        (
+            '{"likely_on_campus": true, "confidence": 0.87, '
+            '"best_job_id": "job-1"}',
+            True,
+        ),
+        (
+            '{"likely_on_campus": true, "confidence": 0.95, '
+            '"best_job_id": "invented"}',
+            False,
+        ),
+        (
+            '{"likely_on_campus": true, "confidence": 0.69, '
+            '"best_job_id": "job-1"}',
+            False,
+        ),
+    ],
+)
+def test_likely_classifier_validates_job_id_and_threshold(
+    monkeypatch, payload, expected_likely
+):
+    class FakePrompt:
+        def __or__(self, llm):
+            return self
+
+        def invoke(self, values):
+            return SimpleNamespace(content=payload)
+
+    monkeypatch.setattr(
+        "services.email_notice.graph.LIKELY_ON_CAMPUS_PROMPT", FakePrompt()
+    )
+    graph = EmailNoticeGraphMixin()
+    graph.llm = object()
+    graph.likely_on_campus_min_confidence = 0.7
+    graph.logger = SimpleNamespace(
+        warning=lambda *args, **kwargs: None,
+        exception=lambda *args, **kwargs: None,
+    )
+    state = {
+        "email": {"subject": "Acme interview", "body": "Interview details"},
+        "extracted_notice": _notice(),
+        "job_candidates": [
+            {"id": "job-1", "company": "Acme", "job_profile": "Engineer"}
+        ],
+    }
+
+    result = graph._classify_likely_on_campus(state)
+
+    assert result["likely_on_campus"] is expected_likely
+    assert (result["selected_job"] is not None) is expected_likely
 
 
 def test_distinct_message_ids_produce_distinct_notice_ids():

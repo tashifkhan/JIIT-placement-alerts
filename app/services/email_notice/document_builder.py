@@ -7,7 +7,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-from rapidfuzz import fuzz, process
+from rapidfuzz import fuzz
 
 from clients.google_groups_client import GoogleGroupsClient
 from core.year_context import (
@@ -79,7 +79,7 @@ class EmailNoticeDocumentMixin:
         jobs: list[dict[str, Any]] = []
         if self.db_service and hasattr(self.db_service, "get_all_jobs"):
             try:
-                jobs = self.db_service.get_all_jobs() or []
+                jobs = self.db_service.get_all_jobs(limit=0) or []
             except Exception as e:  # pragma: no cover - defensive
                 self.logger.warning(
                     "Could not load jobs for matching: %s", e, exc_info=True
@@ -88,41 +88,93 @@ class EmailNoticeDocumentMixin:
         self._jobs_cache = jobs
         return jobs
 
-    def _match_job(self, company_name: str | None) -> dict[str, Any] | None:
-        """Fuzzy-match a company name to a structured Job and return a summary."""
-        if not company_name:
-            return None
-
-        jobs = self._get_jobs()
-        if not jobs:
-            return None
-
-        choices = {
-            index: str(job.get("company", ""))
-            for index, job in enumerate(jobs)
-            if job.get("company")
+    @staticmethod
+    def _company_acronym(value: str) -> str:
+        """Build a conservative acronym from a company name."""
+        ignored = {
+            "and",
+            "company",
+            "corporation",
+            "global",
+            "group",
+            "india",
+            "limited",
+            "llc",
+            "llp",
+            "of",
+            "private",
+            "pvt",
+            "the",
         }
-        if not choices:
-            return None
+        words = [
+            word
+            for word in re.findall(r"[a-z0-9]+", value.casefold())
+            if word not in ignored
+        ]
+        return "".join(word[0] for word in words).upper() if len(words) > 1 else ""
 
-        match = process.extractOne(company_name, choices, scorer=fuzz.token_set_ratio)
-        if not match:
-            return None
+    def _find_job_candidates(
+        self, notice: ExtractedNotice, limit: int = 8
+    ) -> list[dict[str, Any]]:
+        """Rank year-scoped jobs by company and role text for the LLM judge."""
+        company = " ".join((notice.company_name or "").split())
+        role = " ".join((notice.role or "").split())
+        if not company and not role:
+            return []
 
-        _, score, index = match
-        if score <= 80:
-            return None
+        candidates: list[dict[str, Any]] = []
+        for job in self._get_jobs():
+            job_id = str(job.get("id") or job.get("_id") or "")
+            job_company = " ".join(str(job.get("company") or "").split())
+            job_role = " ".join(str(job.get("job_profile") or "").split())
+            if not job_id or not job_company:
+                continue
 
-        job = jobs[index]
-        return {
-            "id": str(job.get("id") or job.get("_id") or ""),
-            "company": job.get("company"),
-            "job_profile": job.get("job_profile"),
-            "location": job.get("location"),
-            "package": job.get("package"),
-            "annum_months": job.get("annum_months"),
-            "package_info": job.get("package_info"),
-        }
+            company_score = 0.0
+            acronym_match = False
+            if company:
+                company_score = fuzz.WRatio(company, job_company) / 100
+                company_token = re.sub(r"[^A-Za-z0-9]", "", company).upper()
+                acronym_match = (
+                    len(company_token) >= 2
+                    and company_token == self._company_acronym(job_company)
+                )
+                if acronym_match:
+                    company_score = 1.0
+
+            role_score = fuzz.WRatio(role, job_role) / 100 if role and job_role else 0.0
+            if company and role:
+                rank_score = 0.6 * company_score + 0.4 * role_score
+                eligible = company_score >= 0.55 or acronym_match
+            elif company:
+                rank_score = company_score
+                eligible = company_score >= 0.55 or acronym_match
+            else:
+                rank_score = role_score
+                eligible = role_score >= 0.7
+
+            if not eligible:
+                continue
+            candidates.append(
+                {
+                    "id": job_id,
+                    "company": job_company,
+                    "job_profile": job_role,
+                    "location": job.get("location"),
+                    "package": job.get("package"),
+                    "annum_months": job.get("annum_months"),
+                    "package_info": job.get("package_info"),
+                    "deadline": job.get("deadline"),
+                    "placement_type": job.get("placement_type"),
+                    "company_score": round(company_score, 4),
+                    "role_score": round(role_score, 4),
+                    "rank_score": round(rank_score, 4),
+                    "acronym_match": acronym_match,
+                }
+            )
+
+        candidates.sort(key=lambda item: item["rank_score"], reverse=True)
+        return candidates[:limit]
 
     @staticmethod
     def _build_details(notice: ExtractedNotice) -> dict[str, Any]:
@@ -139,6 +191,10 @@ class EmailNoticeDocumentMixin:
         self,
         notice: ExtractedNotice,
         email_data: dict[str, str],
+        *,
+        matched_job: dict[str, Any] | None = None,
+        likely_on_campus: bool = False,
+        on_campus_confidence: float | None = None,
     ) -> NoticeDocument:
         """Create a structured NoticeDocument from extracted JSON fields."""
         timestamp = datetime.now(UTC).timestamp()
@@ -164,7 +220,6 @@ class EmailNoticeDocumentMixin:
             logger.exception("Error resolving notice year from email data")
             year = normalize_year(DEFAULT_PLACEMENT_YEAR)
 
-        matched_job = self._match_job(notice.company_name)
         matched_job_id = matched_job.get("id") if matched_job else None
         if matched_job and matched_job.get("package") is not None:
             package = NoticeFormatterService._format_package(
@@ -217,4 +272,6 @@ class EmailNoticeDocumentMixin:
             matched_job_id=matched_job_id,
             related_job_id=matched_job_id,
             matched_job=matched_job_summary,
+            likely_on_campus=likely_on_campus,
+            on_campus_confidence=on_campus_confidence,
         )

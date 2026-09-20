@@ -106,6 +106,13 @@ class Settings(BaseSettings):
         ge=0,
         description="Maximum automatic retries for one LLM request",
     )
+    likely_on_campus_min_confidence: float = Field(
+        default=0.7,
+        validation_alias="LIKELY_ON_CAMPUS_MIN_CONFIDENCE",
+        ge=0,
+        le=1,
+        description="Minimum model confidence required for the likely-on-campus tag",
+    )
 
     # Placement Email (for reading offer letters)
     placement_email: str = Field(

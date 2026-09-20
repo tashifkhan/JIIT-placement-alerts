@@ -1,6 +1,6 @@
 """Models for email notice extraction."""
 
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -84,3 +84,7 @@ class NoticeGraphState(TypedDict):
     retry_count: int | None
     extracted_policy: ExtractedPolicyUpdate | None
     is_policy_update: bool | None
+    job_candidates: list[dict[str, Any]]
+    likely_on_campus: bool | None
+    on_campus_confidence: float | None
+    selected_job: dict[str, Any] | None

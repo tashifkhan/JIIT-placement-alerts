@@ -44,6 +44,9 @@ class EmailNoticeService(EmailNoticeGraphMixin, EmailNoticeDocumentMixin):
         api_key = google_api_key or settings.google_api_key
         self.db_service = db_service
         self._jobs_cache: list[dict[str, Any]] | None = None
+        self.likely_on_campus_min_confidence = (
+            settings.likely_on_campus_min_confidence
+        )
 
         if policy_service:
             self.policy_service = policy_service
@@ -128,6 +131,10 @@ class EmailNoticeService(EmailNoticeGraphMixin, EmailNoticeDocumentMixin):
             "retry_count": 0,
             "extracted_policy": None,
             "is_policy_update": False,
+            "job_candidates": [],
+            "likely_on_campus": None,
+            "on_campus_confidence": None,
+            "selected_job": None,
         }
 
         result = self.app.invoke(initial_state)
@@ -142,4 +149,10 @@ class EmailNoticeService(EmailNoticeGraphMixin, EmailNoticeDocumentMixin):
         if not notice or not result.get("is_relevant"):
             return None
 
-        return self._create_notice_document(notice, email_data)
+        return self._create_notice_document(
+            notice,
+            email_data,
+            matched_job=result.get("selected_job"),
+            likely_on_campus=bool(result.get("likely_on_campus")),
+            on_campus_confidence=result.get("on_campus_confidence"),
+        )

@@ -1,6 +1,7 @@
 """LangGraph nodes for email notice extraction."""
 
 import json
+import math
 import re
 
 from langgraph.graph import END, StateGraph
@@ -9,7 +10,10 @@ from pydantic import ValidationError
 from core import safe_print
 from core.llm import message_text
 from services.email_notice.models import ExtractedNotice, NoticeGraphState
-from services.email_notice.prompts import NOTICE_EXTRACTION_PROMPT
+from services.email_notice.prompts import (
+    LIKELY_ON_CAMPUS_PROMPT,
+    NOTICE_EXTRACTION_PROMPT,
+)
 from services.placement_policy import POLICY_EXTRACTION_PROMPT, ExtractedPolicyUpdate
 
 
@@ -23,13 +27,24 @@ class EmailNoticeGraphMixin:
         workflow.add_node("classify", self._classify_email)
         workflow.add_node("extract_notice", self._extract_notice)
         workflow.add_node("validate", self._validate_notice)
+        workflow.add_node("find_job_candidates", self._find_on_campus_candidates)
+        workflow.add_node("classify_likely_on_campus", self._classify_likely_on_campus)
         workflow.add_node("display_results", self._display_results)
 
         workflow.set_entry_point("classify")
 
         workflow.add_conditional_edges("classify", self._decide_to_extract)
         workflow.add_conditional_edges("extract_notice", self._should_retry)
-        workflow.add_edge("validate", "display_results")
+        workflow.add_conditional_edges(
+            "validate",
+            self._decide_to_match_job,
+            {
+                "find_job_candidates": "find_job_candidates",
+                "display_results": "display_results",
+            },
+        )
+        workflow.add_edge("find_job_candidates", "classify_likely_on_campus")
+        workflow.add_edge("classify_likely_on_campus", "display_results")
         workflow.add_edge("display_results", END)
 
         return workflow.compile()
@@ -246,6 +261,77 @@ class EmailNoticeGraphMixin:
 
         return state
 
+    def _find_on_campus_candidates(
+        self, state: NoticeGraphState
+    ) -> NoticeGraphState:
+        """Find plausible year-scoped jobs for a validated email notice."""
+        notice = state.get("extracted_notice")
+        if not notice:
+            return {**state, "job_candidates": []}
+        try:
+            candidates = self._find_job_candidates(notice)
+        except Exception:
+            self.logger.exception("Failed to build likely-on-campus candidates")
+            candidates = []
+        return {**state, "job_candidates": candidates}
+
+    def _classify_likely_on_campus(
+        self, state: NoticeGraphState
+    ) -> NoticeGraphState:
+        """Ask the LLM whether the notice likely matches a campus job."""
+        notice = state.get("extracted_notice")
+        candidates = state.get("job_candidates") or []
+        if not notice or not candidates:
+            return {
+                **state,
+                "likely_on_campus": False,
+                "on_campus_confidence": None,
+                "selected_job": None,
+            }
+
+        email_data = state["email"]
+        candidate_by_id = {str(candidate["id"]): candidate for candidate in candidates}
+        chain = LIKELY_ON_CAMPUS_PROMPT | self.llm
+        try:
+            response = chain.invoke(
+                {
+                    "subject": email_data.get("subject", ""),
+                    "body": email_data.get("body", "")[:6000],
+                    "notice": json.dumps(notice.model_dump(), default=str),
+                    "candidates": json.dumps(candidates, default=str),
+                }
+            )
+            data = json.loads(self._extract_json(message_text(response)))
+            confidence = float(data.get("confidence", 0))
+            if not math.isfinite(confidence):
+                raise ValueError("confidence must be finite")
+            confidence = min(1.0, max(0.0, confidence))
+            selected_job = candidate_by_id.get(str(data.get("best_job_id") or ""))
+            model_likely = data.get("likely_on_campus") is True
+            if model_likely and selected_job is None:
+                raise ValueError("likely result must select a supplied job id")
+            likely = model_likely and selected_job is not None
+            likely = likely and confidence >= self.likely_on_campus_min_confidence
+            return {
+                **state,
+                "likely_on_campus": likely,
+                "on_campus_confidence": confidence,
+                "selected_job": selected_job if likely else None,
+            }
+        except (TypeError, ValueError, json.JSONDecodeError):
+            self.logger.warning(
+                "Likely-on-campus classifier returned invalid output", exc_info=True
+            )
+        except Exception:
+            self.logger.exception("Likely-on-campus classifier failed")
+
+        return {
+            **state,
+            "likely_on_campus": False,
+            "on_campus_confidence": None,
+            "selected_job": None,
+        }
+
     def _decide_to_extract(self, state: NoticeGraphState) -> str:
         """Decide whether to proceed with extraction."""
         if state.get("is_relevant", False):
@@ -261,6 +347,13 @@ class EmailNoticeGraphMixin:
         if not errors or notice is not None or retry_count >= 2:
             return "validate"
         return "extract_notice"
+
+    @staticmethod
+    def _decide_to_match_job(state: NoticeGraphState) -> str:
+        """Run campus matching only for a valid extracted notice."""
+        if state.get("extracted_notice") and not state.get("validation_errors"):
+            return "find_job_candidates"
+        return "display_results"
 
     @staticmethod
     def _extract_json(response_content: str) -> str:

@@ -1,84 +1,84 @@
-# AGENTS.md - Development Guidelines for Agentic Coding
+# AGENTS.md
 
-This guide provides essential information for agentic coding systems operating in the SuperSet Telegram Notification Bot repository.
+Working notes for coding agents on the SuperSet Telegram notification bot.
 
-## Project Overview
+## Project overview
 
-A Python 3.12+ bot that scrapes job postings from JIIT's SuperSet placement portal, saves them to MongoDB, and broadcasts them to registered Telegram users. Tech stack: FastAPI, Pydantic, Telegram Bot API, MongoDB, LangChain/LangGraph.
+A Python 3.12+ bot that scrapes job postings from JIIT's SuperSet placement portal, saves them to MongoDB, and broadcasts them to registered Telegram users. Stack: FastAPI, Pydantic, Telegram Bot API, MongoDB, LangChain/LangGraph.
 
-## Build, Test & Development Commands
+## Commands
 
-### Environment Setup
+### Setup
+
 ```bash
-# Install dependencies using uv (recommended)
 cd app && uv sync
 
-# Or using pip
+# or with pip
 pip install -r requirements.txt
-
-# Source the virtual environment
 source .venv/bin/activate
 ```
 
-### Running the Application
-```bash
-# Run main entry point with available commands:
-python main.py bot                    # Run Telegram bot server
-python main.py webhook                # Run webhook/API server
-python main.py update                 # Fetch and process job postings
-python main.py send --telegram        # Send unsent notices via Telegram
-python main.py send --web             # Send via Web Push
-python main.py send --both            # Send via both channels
-python main.py official               # Update official placement data
+### Running
 
-# Legacy (runs update + send)
-python main.py
+```bash
+python main.py bot                  # Telegram bot server (commands only)
+python main.py scheduler            # Scheduled jobs only
+python main.py webhook              # Webhook/API server
+python main.py update               # Fetch and process updates
+python main.py send --telegram      # Send unsent notices via Telegram
+python main.py send --web           # Send unsent notices via Web Push
+python main.py send --both          # Send via both channels
+python main.py official             # Update official placement data
+python main.py official-seed        # Seed frozen prior-year official batches
+python main.py stop [bot|scheduler] # Stop a running daemon
+python main.py status [name]        # Check daemon status
+python main.py                      # Legacy: update + send once
 ```
 
-### Testing
+`bot` and `scheduler` accept `--daemon` to run in the background.
+
+### Tests
+
 ```bash
-# Run all tests
-pytest
-
-# Run single test file
-pytest tests/test_file.py
-
-# Run specific test
-pytest tests/test_file.py::test_function_name
-
-# Run with verbose output
+pytest                              # all tests
+pytest tests/test_file.py           # one file
+pytest tests/test_file.py::test_name
 pytest -v tests/
-
-# Run with coverage
 pytest --cov=. tests/
 ```
 
-### Database Management
-- MongoDB Atlas connection string: `MONGO_CONNECTION_STR` in `.env`
-- Database name: `SupersetPlacement`
-- Collections: `Notices`, `Jobs`, `PlacementOffers`, `Users`
+### Database
 
-### Environment Variables
-See `/app/.env` - Required: `MONGO_CONNECTION_STR`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `GOOGLE_API_KEY`, `SUPERSET_CREDENTIALS` (JSON), `PLACEMENT_EMAIL`, `PLACEMENT_PASSWORD`
+- Connection string: `MONGO_CONNECTION_STR` in `.env`
+- Year databases are named `YYYY-YY` (compact `202526` maps to `2025-26`) and hold `Notices`, `Jobs`, `PlacementOffers`, `Policies`, `OfficialPlacementData`, `OfficialPlacementBatches`.
+- The global database (`GLOBAL_DATABASE_NAME`, default `PlacementBotGlobal`) holds `Users` and `PlacementYears`.
+- `DBClient(use_global_database=True)` selects the global database. `DBClient(placement_year="202526")` or `DBClient(database_name=database_name_for_year(year))` selects a year database.
+- Schemas and indexes: `docs/DATABASE.md`.
 
-## Code Style Guidelines
+### Environment variables
 
-### Python Version & Format
-- **Python Version**: 3.12+
-- **Line Length**: No strict limit enforced (code examples suggest ~90-100 chars)
-- **Indentation**: 4 spaces (no tabs)
-- **String Quotes**: Double quotes preferred for docstrings and user-facing strings
+See `app/.env`. Required: `MONGO_CONNECTION_STR`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `GOOGLE_API_KEY`, `SUPERSET_CREDENTIALS` (JSON), `PLACEMENT_EMAIL`, `PLACEMENT_PASSWORD`.
+
+## Code style
+
+### Python version and format
+
+- Python 3.12+.
+- 4 spaces, no tabs.
+- Double quotes for docstrings and user-facing strings.
+- No strict line limit, but keep lines around 90-100 characters.
 
 ### Imports
-- Organize in three groups: standard library, third-party, local imports (separated by blank lines)
-- Use explicit imports, avoid `import *`
-- Sort imports alphabetically within groups
-- Example:
+
+- Three groups separated by blank lines: standard library, third-party, local.
+- Explicit imports only, no `import *`.
+- Alphabetical within each group.
+
 ```python
-import os
 import logging
-from typing import Dict, List, Optional
+import os
 from datetime import datetime
+from typing import Any
 
 from pymongo import MongoClient
 from pydantic_settings import BaseSettings
@@ -87,78 +87,82 @@ from telegram import Update
 from core.config import safe_print
 ```
 
-### Type Hints
-- Use type hints for all function parameters and return types
-- Use `typing` module: `Optional`, `Dict`, `List`, `Any`, `Tuple`
-- Use `|` syntax only when targeting Python 3.10+ (use `Union` for broader compatibility)
-- Example:
+### Type hints
+
+- Annotate every function parameter and return type.
+- Use builtin generics and PEP 604 unions: `list[str]`, `dict[str, Any]`, `tuple[int, ...]`, `set[str]`, `type[X]`, `str | None`, `int | str`.
+- Import abstract container types (`Iterable`, `Iterator`, `Sequence`, `Mapping`, `Callable`) from `collections.abc`.
+- Import from `typing` only what has no builtin form: `Any`, `Literal`, `TypedDict`, `Required`, `cast`, `Protocol`, `TypeVar`, `overload`, `TYPE_CHECKING`, `Final`, `ClassVar`.
+
 ```python
-def process_notice(notice_id: str, user_count: int) -> Dict[str, Any]:
+def process_notice(notice_id: str, user_count: int) -> dict[str, Any]:
     """Process a notice for all users."""
     pass
 ```
 
-### Naming Conventions
-- **Classes**: PascalCase (e.g., `DatabaseService`, `NoticeFormatterService`)
-- **Functions/Methods**: snake_case (e.g., `send_message`, `get_user_count`)
-- **Constants**: UPPER_SNAKE_CASE (e.g., `MAX_RETRIES`, `DEFAULT_TIMEOUT`)
-- **Private Methods**: Prefix with `_` (e.g., `_validate_connection`)
-- **Module Names**: snake_case (e.g., `database_service.py`, `telegram_service.py`)
+### Naming
 
-### Documentation
-- Use triple-quoted docstrings for modules, classes, and functions
-- Include Args, Returns sections for functions
-- First line is a summary (one sentence)
-- Example:
+- Classes: PascalCase (`DatabaseService`, `NoticeFormatterService`)
+- Functions and methods: snake_case (`send_message`, `get_user_count`)
+- Constants: UPPER_SNAKE_CASE (`MAX_RETRIES`, `DEFAULT_TIMEOUT`)
+- Private methods: leading underscore (`_validate_connection`)
+- Modules: snake_case (`database_service.py`, `telegram_service.py`)
+
+### Docstrings
+
+Triple-quoted, with Args and Returns for functions. The first line is a one-sentence summary.
+
 ```python
 def create_bot_server(settings: Settings, daemon_mode: bool) -> BotServer:
     """
     Create and configure the Telegram bot server.
-    
+
     Args:
         settings: Application settings configuration
         daemon_mode: Whether to run in background daemon mode
-    
+
     Returns:
         Initialized BotServer instance
     """
     pass
 ```
 
-### Class Structure
-- Service classes use dependency injection (services passed to __init__)
-- Logger initialized as `self.logger = logging.getLogger(self.__class__.__name__)`
-- Service methods organized into logical sections with comment headers
-- Example:
+### Class layout
+
+- Services take their dependencies in `__init__`.
+- Logger: `self.logger = logging.getLogger(self.__class__.__name__)`.
+- Group methods under comment headers.
+
 ```python
 class SomeService:
     def __init__(self, dependency: Any):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.dependency = dependency
-    
+
     # =========================================================================
     # Public Methods
     # =========================================================================
-    
+
     def public_method(self) -> None:
         """Do something."""
         pass
-    
+
     # =========================================================================
     # Private Methods
     # =========================================================================
-    
+
     def _private_method(self) -> None:
         """Internal helper."""
         pass
 ```
 
-### Error Handling
-- Log errors with context using `self.logger.error(msg, exc_info=True)`
-- Use `safe_print()` from `core.config` for user-facing messages (handles daemon mode)
-- Wrap external API calls (MongoDB, Telegram) in try-except with proper logging
-- Raise meaningful exceptions with descriptive messages
-- Example:
+### Errors
+
+- Log with context: `self.logger.error(msg, exc_info=True)`.
+- Use `safe_print()` from `core.config` for user-facing output. It handles daemon mode.
+- Wrap MongoDB and Telegram calls in try/except.
+- Raise exceptions with descriptive messages.
+
 ```python
 try:
     result = self.db.find_one({"id": doc_id})
@@ -170,9 +174,10 @@ except Exception as e:
 ```
 
 ### Logging
-- Use `logging.getLogger(self.__class__.__name__)` in class constructors
-- Log at appropriate levels: INFO (important actions), ERROR (failures), DEBUG (detailed traces)
-- Example:
+
+- `logging.getLogger(self.__class__.__name__)` in constructors.
+- INFO for actions, ERROR for failures, DEBUG for traces.
+
 ```python
 self.logger.info("Successfully connected to MongoDB")
 self.logger.error("Connection failed", exc_info=True)
@@ -180,53 +185,51 @@ self.logger.debug("Processing notice ID: %s", notice_id)
 ```
 
 ### Configuration
-- Use Pydantic `BaseSettings` with `pydantic_settings` for config management
-- All settings from environment variables with `Field(validation_alias="ENV_VAR_NAME")`
-- Provide defaults and descriptions for all settings
-- Load configuration using `@lru_cache` decorated function
 
-### Project Structure
+- Pydantic `BaseSettings` from `pydantic_settings`.
+- Env vars via `Field(validation_alias="ENV_VAR_NAME")`.
+- Give every setting a default and a description.
+- Load settings through an `@lru_cache` function.
+
+### Layout
+
 ```
 app/
-├── core/              # Core config and utilities
-│   └── config.py      # Pydantic Settings, logging setup
-├── services/          # Service layer (business logic)
-│   ├── database_service.py
-│   ├── telegram_service.py
-│   └── ...
-├── servers/           # API/Bot servers (Flask, FastAPI, Telegram)
-│   ├── bot_server.py
-│   ├── webhook_server.py
-│   └── ...
-├── data/              # Data models and schemas
-├── tests/             # Test files (pytest format)
-├── main.py            # CLI entry point
-├── requirements.txt   # Python dependencies
-└── pyproject.toml     # Project configuration
+├── clients/     # External clients (SuperSet, Google Groups, Telegram, DB)
+├── core/        # Settings, logging, LLM helpers, daemon utilities
+├── data/        # JSON fixtures and seed data
+├── model/       # Pydantic document models
+├── runners/     # Update and notification runners
+├── scripts/     # One-off migration scripts
+├── servers/     # Bot, webhook, and scheduler servers
+├── services/    # Business logic
+├── tests/       # pytest suite
+└── main.py      # CLI entry point
 ```
 
-### Best Practices
-- Keep services focused on single responsibility
-- Use type hints throughout for IDE support and clarity
-- Validate user input and external data early
-- Close resources properly (database connections, file handles)
-- Avoid global state; use dependency injection
-- Create helper methods for repeated patterns
-- Add comments explaining "why" not "what"
+### Conventions
 
-## Key Dependencies
-- **FastAPI**: Web framework for webhook server
-- **python-telegram-bot**: Telegram Bot API wrapper
-- **pymongo**: MongoDB driver
-- **pydantic & pydantic-settings**: Data validation and config
-- **langchain & langgraph**: LLM integration for notice formatting
-- **apscheduler**: Job scheduling for periodic tasks
-- **beautifulsoup4**: HTML parsing for scraping
+- One responsibility per service; pass dependencies in.
+- Validate external data at the boundary.
+- Close DB connections and file handles.
+- No global state.
+- Comments explain why, not what.
 
-## Notes for Agents
-- Always check `.env` and configuration for required credentials before running
-- MongoDB collections must exist; no automatic schema creation
-- Telegram bot requires valid token and chat ID configured
-- Service classes use explicit dependency injection - pass dependencies to __init__
-- Use `safe_print()` instead of print() to handle daemon mode logging
-- Run tests in `/app` directory: `cd app && pytest`
+## Dependencies
+
+- FastAPI for the webhook server
+- python-telegram-bot for Telegram
+- pymongo for MongoDB
+- pydantic and pydantic-settings for models and config
+- langchain and langgraph for notice formatting
+- apscheduler for scheduled jobs
+- beautifulsoup4 for scraping
+
+## Notes
+
+- Check `.env` for credentials before running anything.
+- Collections must exist. Nothing creates them automatically.
+- Telegram needs a valid token and chat ID.
+- Services take dependencies explicitly in `__init__`.
+- Use `safe_print()` instead of `print()`.
+- Run tests from `app/`: `cd app && pytest`.

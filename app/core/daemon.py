@@ -7,18 +7,18 @@ Provides functions for:
 - Daemon lifecycle management (start/stop/status)
 """
 
-import os
 import atexit
 import json
 import logging
+import os
 import shlex
 import signal
+
 # Process inspection uses a fixed absolute executable and never invokes a shell.
 import subprocess  # nosec B404
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 PS_EXECUTABLE = "/bin/ps"
@@ -67,7 +67,7 @@ def cleanup_pid_file(name: str) -> None:
         metadata_file.unlink()
 
 
-def read_pid_file(name: str) -> Optional[int]:
+def read_pid_file(name: str) -> int | None:
     """Read the PID from a daemon's PID file."""
     pid_file = get_pid_file(name)
     if not pid_file.exists():
@@ -145,7 +145,7 @@ def stop_daemon(name: str) -> bool:
         return False
 
 
-def _get_process_command(pid: int) -> Optional[str]:
+def _get_process_command(pid: int) -> str | None:
     """Read a process command line without interpolating the PID into a shell."""
     try:
         result = subprocess.run(  # nosec B603
@@ -162,7 +162,7 @@ def _get_process_command(pid: int) -> Optional[str]:
     return None
 
 
-def _get_process_start(pid: int) -> Optional[str]:
+def _get_process_start(pid: int) -> str | None:
     """Read a stable process start timestamp for PID reuse protection."""
     try:
         result = subprocess.run(  # nosec B603
@@ -179,7 +179,7 @@ def _get_process_start(pid: int) -> Optional[str]:
     return None
 
 
-def _read_pid_metadata(name: str) -> Optional[dict]:
+def _read_pid_metadata(name: str) -> dict | None:
     """Read daemon identity metadata, tolerating legacy PID-only files."""
     try:
         value = json.loads(get_pid_metadata_file(name).read_text())

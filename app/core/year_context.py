@@ -7,13 +7,12 @@ database names like 2025-26.
 
 import json
 import re
-from typing import Any, Optional
-
+from typing import Any
 
 DEFAULT_PLACEMENT_YEAR = "202526"
 
 
-def normalize_year(year: Optional[str]) -> Optional[str]:
+def normalize_year(year: str | None) -> str | None:
     """
     Normalize a placement year to compact YYYYYY format.
 
@@ -65,7 +64,7 @@ def label_for_year(year: str) -> str:
     return database_name_for_year(year)
 
 
-def get_active_year(settings: Any, override: Optional[str] = None) -> str:
+def get_active_year(settings: Any, override: str | None = None) -> str:
     """
     Resolve active placement year from override or settings.
 
@@ -184,7 +183,7 @@ def get_superset_credentials_for_year(settings: Any, year: str) -> list[dict[str
 
 def get_superset_credentials_by_year(
     settings: Any,
-    year: Optional[str] = None,
+    year: str | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """
     Resolve SuperSet credentials grouped by placement year.
@@ -225,7 +224,7 @@ def get_superset_credentials_by_year(
     return {normalized: get_superset_credentials_for_year(settings, normalized)}
 
 
-def _year_from_plus_alias(text: str) -> Optional[str]:
+def _year_from_plus_alias(text: str) -> str | None:
     """
     Extract a placement year from a Gmail plus-alias suffix without regex.
 
@@ -253,7 +252,7 @@ def _year_from_plus_alias(text: str) -> Optional[str]:
     return None
 
 
-def extract_year_from_email_data(email_data: dict[str, Any]) -> Optional[str]:
+def extract_year_from_email_data(email_data: dict[str, Any]) -> str | None:
     """
     Extract placement year from Gmail plus alias headers.
 

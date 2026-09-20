@@ -10,7 +10,7 @@ from core import safe_print
 from core.llm import message_text
 from services.email_notice.models import ExtractedNotice, NoticeGraphState
 from services.email_notice.prompts import NOTICE_EXTRACTION_PROMPT
-from services.placement_policy import ExtractedPolicyUpdate, POLICY_EXTRACTION_PROMPT
+from services.placement_policy import POLICY_EXTRACTION_PROMPT, ExtractedPolicyUpdate
 
 
 class EmailNoticeGraphMixin:

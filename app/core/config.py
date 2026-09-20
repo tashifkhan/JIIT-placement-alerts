@@ -5,14 +5,13 @@ This module provides type-safe configuration using Pydantic Settings.
 All environment variables are validated and typed.
 """
 
-import os
 import logging
-from typing import Optional
+import os
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import AliasChoices, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -228,8 +227,9 @@ def get_settings() -> Settings:
 
     Settings are loaded once and cached for the lifetime of the process.
     """
-    from dotenv import load_dotenv
     from pathlib import Path
+
+    from dotenv import load_dotenv
 
     # Determine paths relative to this file
     # file at: app/core/config.py
@@ -253,7 +253,7 @@ def get_settings() -> Settings:
     return Settings()
 
 
-def setup_logging(settings: Optional[Settings] = None) -> logging.Logger:
+def setup_logging(settings: Settings | None = None) -> logging.Logger:
     """
     Setup logging configuration.
 

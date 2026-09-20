@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 from core.config import Settings
 from servers.webhook_server import APP_VERSION, create_app
 
-
 API_KEY = "test-webhook-key"
 ALLOWED_ORIGIN = "https://dashboard.example.com"
 NOTIFY_BODY = {"message": "Test notification"}

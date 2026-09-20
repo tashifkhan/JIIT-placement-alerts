@@ -1,7 +1,6 @@
 """Schemas for the Policies collection."""
 
 from datetime import datetime
-from typing import List, Optional
 
 from pydantic import Field
 
@@ -19,10 +18,10 @@ class TOCItem(MongoModel):
 class PolicySource(MongoModel):
     """Original source metadata for extracted policies."""
 
-    from_: Optional[str] = Field(default=None, alias="from")
-    subject: Optional[str] = None
-    date: Optional[str] = None
-    audience: Optional[str] = None
+    from_: str | None = Field(default=None, alias="from")
+    subject: str | None = None
+    date: str | None = None
+    audience: str | None = None
 
 
 class PolicyDocument(MongoModel):
@@ -33,12 +32,12 @@ class PolicyDocument(MongoModel):
     description: str = ""
     badge: str = ""
     year: int
-    updatedDates: List[str] = Field(default_factory=list)
+    updatedDates: list[str] = Field(default_factory=list)
     published: bool = True
     contentFormat: str = "markdown"
     content: str
-    toc: List[TOCItem] = Field(default_factory=list)
-    source: Optional[PolicySource] = None
-    notes: List[str] = Field(default_factory=list)
-    createdAt: Optional[datetime] = None
-    updatedAt: Optional[datetime] = None
+    toc: list[TOCItem] = Field(default_factory=list)
+    source: PolicySource | None = None
+    notes: list[str] = Field(default_factory=list)
+    createdAt: datetime | None = None
+    updatedAt: datetime | None = None

@@ -1,13 +1,12 @@
 """Serialization helpers for placement statistics."""
 
-from typing import Dict
 
 from services.placement.analysis.models import BranchStats, CompanyStats
 
 
 def serialize_branch_stats(
-    branch_stats: Dict[str, BranchStats],
-) -> Dict[str, Dict[str, object]]:
+    branch_stats: dict[str, BranchStats],
+) -> dict[str, dict[str, object]]:
     """Convert BranchStats objects to serializable dictionaries."""
     return {
         key: {
@@ -25,8 +24,8 @@ def serialize_branch_stats(
 
 
 def serialize_company_stats(
-    company_stats: Dict[str, CompanyStats],
-) -> Dict[str, Dict[str, object]]:
+    company_stats: dict[str, CompanyStats],
+) -> dict[str, dict[str, object]]:
     """Convert CompanyStats objects to serializable dictionaries."""
     return {
         key: {

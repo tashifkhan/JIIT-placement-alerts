@@ -10,7 +10,7 @@ Responsible for:
 import logging
 import os
 import time
-from typing import Any, Optional
+from typing import Any
 
 import requests
 
@@ -22,7 +22,7 @@ class TelegramClient:
     Low-level client for Telegram Bot API.
     """
 
-    def __init__(self, bot_token: Optional[str] = None, chat_id: Optional[str] = None):
+    def __init__(self, bot_token: str | None = None, chat_id: str | None = None):
         """
         Initialize Telegram Client.
 
@@ -41,7 +41,7 @@ class TelegramClient:
     def send_message(
         self,
         text: str,
-        chat_id: Optional[str] = None,
+        chat_id: str | None = None,
         parse_mode: str = "HTML",
         disable_web_page_preview: bool = True,
         retries: int = 3,

@@ -8,10 +8,9 @@ Wraps the existing SupersetClient functionality.
 import base64
 import json
 import logging
-import rsa
-from typing import List, Optional, Union
 
 import requests
+import rsa
 from pydantic import BaseModel, Field
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -26,12 +25,12 @@ class User(BaseModel):
     emailHash: str
     sessionKey: str
     uuid: str
-    refreshToken: Optional[str] = None
-    userProfilePhotoId: Optional[str] = None
-    userModes: List[str] = Field(default_factory=list)
-    permissions: List[str] = Field(default_factory=list)
+    refreshToken: str | None = None
+    userProfilePhotoId: str | None = None
+    userModes: list[str] = Field(default_factory=list)
+    permissions: list[str] = Field(default_factory=list)
     emailVerified: bool = False
-    message: Optional[str] = None
+    message: str | None = None
     enableMfa: bool = False
 
 
@@ -42,8 +41,8 @@ class Notice(BaseModel):
     title: str
     content: str
     author: str
-    updatedAt: Optional[int] = None
-    createdAt: Optional[int] = None
+    updatedAt: int | None = None
+    createdAt: int | None = None
 
 
 class EligibilityMark(BaseModel):
@@ -58,7 +57,7 @@ class Document(BaseModel):
 
     name: str
     identifier: str
-    url: Optional[str] = None
+    url: str | None = None
 
 
 class Job(BaseModel):
@@ -70,20 +69,20 @@ class Job(BaseModel):
     placement_category_code: int
     placement_category: str
     content: str
-    createdAt: Optional[int] = None
-    deadline: Optional[int] = None
-    eligibility_marks: List[EligibilityMark]
-    eligibility_courses: List[str]
-    allowed_genders: List[str]
+    createdAt: int | None = None
+    deadline: int | None = None
+    eligibility_marks: list[EligibilityMark]
+    eligibility_courses: list[str]
+    allowed_genders: list[str]
     job_description: str
     location: str
     package: float
-    annum_months: Optional[str] = None
+    annum_months: str | None = None
     package_info: str
-    required_skills: List[str]
-    hiring_flow: List[str]
-    placement_type: Optional[str] = None
-    documents: List[Document] = Field(default_factory=list)
+    required_skills: list[str]
+    hiring_flow: list[str]
+    placement_type: str | None = None
+    documents: list[Document] = Field(default_factory=list)
 
 
 class SupersetClientService:
@@ -146,7 +145,7 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
             "Connection": "keep-alive",
         }
 
-    def login(self, email: Optional[str], password: Optional[str]) -> User:
+    def login(self, email: str | None, password: str | None) -> User:
         """
         Login to SuperSet and return user session.
 
@@ -189,7 +188,7 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
         self.logger.info("SuperSet login succeeded")
         return User(**response.json())
 
-    def login_multiple(self, credentials: List[dict]) -> List[User]:
+    def login_multiple(self, credentials: list[dict]) -> list[User]:
         """
         Login multiple users.
 
@@ -222,9 +221,9 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
 
     def get_notices(
         self,
-        users: Union[User, List[User]],
+        users: User | list[User],
         num_posts: int = 10000,
-    ) -> List[Notice]:
+    ) -> list[Notice]:
         """
         Fetch notices from SuperSet.
 
@@ -241,7 +240,7 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
         if any(not user or not user.uuid or not user.sessionKey for user in users):
             raise ValueError("User must be logged in to fetch notices")
 
-        final_notices: List[dict] = []
+        final_notices: list[dict] = []
         seen_notice_ids = set()
 
         for user in users:
@@ -281,7 +280,7 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
         )
 
         # Structure into Notice objects
-        structured_notices: List[Notice] = []
+        structured_notices: list[Notice] = []
         for notice in notices_sorted:
             tmp = {
                 "id": notice.get("identifier"),
@@ -329,7 +328,7 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
         user: User,
         job_id: str,
         document_id: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Fetch URL for a job document"""
         if not user or not user.uuid or not user.sessionKey:
             raise ValueError("User must be logged in to fetch document URLs")
@@ -487,9 +486,9 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
 
     def get_job_listings_basic(
         self,
-        users: Union[User, List[User]],
-        limit: Optional[int] = None,
-    ) -> List[dict]:
+        users: User | list[User],
+        limit: int | None = None,
+    ) -> list[dict]:
         """
         Fetch basic job listings from SuperSet WITHOUT detailed information.
 
@@ -510,7 +509,7 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
         if not users or not all(user.uuid and user.sessionKey for user in users):
             raise ValueError("User must be logged in to fetch job listings")
 
-        all_job_listings: List[dict] = []
+        all_job_listings: list[dict] = []
         seen_job_ids = set()
 
         for u in users:
@@ -583,8 +582,8 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
     def enrich_jobs(
         self,
         user: User,
-        jobs: List[dict],
-    ) -> List[Job]:
+        jobs: list[dict],
+    ) -> list[Job]:
         """
         Enrich multiple jobs with detailed information.
 
@@ -595,7 +594,7 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
         Returns:
             List of fully structured Job objects
         """
-        enriched_jobs: List[Job] = []
+        enriched_jobs: list[Job] = []
         for job in jobs:
             try:
                 enriched = self.enrich_job(user, job)
@@ -610,9 +609,9 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
 
     def get_job_listings(
         self,
-        users: Union[User, List[User]],
-        limit: Optional[int] = None,
-    ) -> List[Job]:
+        users: User | list[User],
+        limit: int | None = None,
+    ) -> list[Job]:
         """
         Fetch job listings from SuperSet with full details.
 

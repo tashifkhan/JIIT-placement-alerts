@@ -1,80 +1,86 @@
 """Models for email notice extraction."""
 
-from typing import Dict, List, Optional, TypedDict
+from typing import TypedDict
 
 from pydantic import BaseModel, Field
 
 from model.notices import NoticeDocument
 from services.placement_policy import ExtractedPolicyUpdate
 
+__all__ = [
+    "ExtractedNotice",
+    "NoticeDocument",
+    "NoticeGraphState",
+]
+
 
 class ExtractedNotice(BaseModel):
     """Structured notice data extracted from email."""
 
     is_notice: bool = Field(..., description="Whether this is a valid notice")
-    rejection_reason: Optional[str] = Field(None, description="Reason for rejection")
-    title: Optional[str] = Field(None, description="Notice title")
-    content: Optional[str] = Field(None, description="Notice content")
-    type: Optional[str] = Field(
+    rejection_reason: str | None = Field(None, description="Reason for rejection")
+    title: str | None = Field(None, description="Notice title")
+    content: str | None = Field(None, description="Notice content")
+    type: str | None = Field(
         None,
         description="Notice type: announcement, hackathon, job_posting, shortlisting, update, webinar, reminder, internship_noc",
     )
-    source: Optional[str] = Field(None, description="Source organization")
-    deadline: Optional[str] = Field(None, description="Deadline if applicable")
-    links: Optional[List[str]] = Field(None, description="Relevant URLs")
-    additional_info: Optional[str] = Field(None, description="Other details")
+    source: str | None = Field(None, description="Source organization")
+    deadline: str | None = Field(None, description="Deadline if applicable")
+    links: list[str] | None = Field(None, description="Relevant URLs")
+    additional_info: str | None = Field(None, description="Other details")
 
-    students: Optional[List[Dict[str, Optional[str]]]] = Field(
+    students: list[dict[str, str | None]] | None = Field(
         None,
         description="List of students with name, enrollment, and optionally company",
     )
-    company_name: Optional[str] = Field(
+    company_name: str | None = Field(
         None, description="Company name for shortlisting/job posting"
     )
-    role: Optional[str] = Field(None, description="Job role/profile")
-    total_shortlisted: Optional[int] = Field(
+    role: str | None = Field(None, description="Job role/profile")
+    total_shortlisted: int | None = Field(
         None, description="Total number of shortlisted students"
     )
-    round: Optional[str] = Field(None, description="Interview round name")
-    interview_date: Optional[str] = Field(None, description="Interview date")
-    venue: Optional[str] = Field(None, description="Interview/event venue")
+    round: str | None = Field(None, description="Interview round name")
+    interview_date: str | None = Field(None, description="Interview date")
+    venue: str | None = Field(None, description="Interview/event venue")
 
-    package: Optional[str] = Field(None, description="CTC/stipend")
-    location: Optional[str] = Field(None, description="Job location")
-    eligibility_criteria: Optional[List[str]] = Field(
+    package: str | None = Field(None, description="CTC/stipend")
+    location: str | None = Field(None, description="Job location")
+    eligibility_criteria: list[str] | None = Field(
         None, description="Eligibility requirements"
     )
-    hiring_flow: Optional[List[str]] = Field(None, description="Selection process steps")
-    job_type: Optional[str] = Field(None, description="Full-time or Internship")
+    hiring_flow: list[str] | None = Field(None, description="Selection process steps")
+    job_type: str | None = Field(None, description="Full-time or Internship")
 
-    event_name: Optional[str] = Field(None, description="Event name")
-    topic: Optional[str] = Field(None, description="Topic/theme")
-    theme: Optional[str] = Field(None, description="Hackathon theme")
-    speaker: Optional[str] = Field(None, description="Speaker name(s)")
-    date: Optional[str] = Field(None, description="Event date")
-    time: Optional[str] = Field(None, description="Event time")
-    registration_link: Optional[str] = Field(None, description="Registration URL")
+    event_name: str | None = Field(None, description="Event name")
+    topic: str | None = Field(None, description="Topic/theme")
+    theme: str | None = Field(None, description="Hackathon theme")
+    speaker: str | None = Field(None, description="Speaker name(s)")
+    date: str | None = Field(None, description="Event date")
+    time: str | None = Field(None, description="Event time")
+    registration_link: str | None = Field(None, description="Registration URL")
 
-    start_date: Optional[str] = Field(None, description="Start date")
-    end_date: Optional[str] = Field(None, description="End date")
-    registration_deadline: Optional[str] = Field(
+    start_date: str | None = Field(None, description="Start date")
+    end_date: str | None = Field(None, description="End date")
+    registration_deadline: str | None = Field(
         None, description="Registration deadline"
     )
-    prize_pool: Optional[str] = Field(None, description="Prize details")
-    team_size: Optional[str] = Field(None, description="Team size requirements")
-    organizer: Optional[str] = Field(None, description="Organizing body")
+    prize_pool: str | None = Field(None, description="Prize details")
+    team_size: str | None = Field(None, description="Team size requirements")
+    organizer: str | None = Field(None, description="Organizing body")
 
 
 class NoticeGraphState(TypedDict):
     """LangGraph state for email notice processing."""
 
-    email: Dict[str, str]
-    is_relevant: Optional[bool]
-    confidence_score: Optional[float]
-    classification_reason: Optional[str]
-    rejection_reason: Optional[str]
-    extracted_notice: Optional[ExtractedNotice]
-    validation_errors: Optional[List[str]]
-    retry_count: Optional[int]
-    extracted_policy: Optional[ExtractedPolicyUpdate]
-    is_policy_update: Optional[bool]
+    email: dict[str, str]
+    is_relevant: bool | None
+    confidence_score: float | None
+    classification_reason: str | None
+    rejection_reason: str | None
+    extracted_notice: ExtractedNotice | None
+    validation_errors: list[str] | None
+    retry_count: int | None
+    extracted_policy: ExtractedPolicyUpdate | None
+    is_policy_update: bool | None

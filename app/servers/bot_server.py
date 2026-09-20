@@ -7,7 +7,7 @@ Dedicated Telegram bot server with:
 
 import asyncio
 import logging
-from typing import Optional, Any
+from typing import Any
 
 import pytz
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -23,8 +23,8 @@ from telegram.ext import (
 from core.config import (
     Settings,
     get_settings,
-    set_daemon_mode,
     safe_print,
+    set_daemon_mode,
     setup_logging,
 )
 from core.year_context import (
@@ -47,11 +47,11 @@ class BotServer:
 
     def __init__(
         self,
-        settings: Optional[Settings] = None,
-        db_service: Optional[Any] = None,
-        notification_service: Optional[Any] = None,
-        admin_service: Optional[Any] = None,
-        stats_service: Optional[Any] = None,
+        settings: Settings | None = None,
+        db_service: Any | None = None,
+        notification_service: Any | None = None,
+        admin_service: Any | None = None,
+        stats_service: Any | None = None,
         daemon_mode: bool = False,
     ):
         """
@@ -77,7 +77,7 @@ class BotServer:
 
         # Bot setup
         self.bot_token = self.settings.telegram_bot_token
-        self.application: Optional[Application] = None
+        self.application: Application | None = None
 
         # Timezone
         self.ist = pytz.timezone("Asia/Kolkata")
@@ -614,7 +614,7 @@ The bot automatically sends:
 
 
 def create_bot_server(
-    settings: Optional[Settings] = None,
+    settings: Settings | None = None,
     daemon_mode: bool = False,
 ) -> BotServer:
     """
@@ -623,6 +623,7 @@ def create_bot_server(
     Note: Scheduler-related services (scraper, formatter) have been moved
     to create_scheduler_server() in scheduler_server.py
     """
+    from clients.db_client import DBClient
     from services.admin_telegram import AdminTelegramService
     from services.database import DatabaseService
     from services.notification import NotificationService
@@ -630,7 +631,6 @@ def create_bot_server(
         PlacementStatsCalculatorService,
     )
     from services.telegram import TelegramService
-    from clients.db_client import DBClient
 
     settings = settings or get_settings()
 

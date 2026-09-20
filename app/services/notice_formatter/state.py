@@ -1,6 +1,6 @@
 """Shared state and type exports for notice formatting."""
 
-from typing import Any, Dict, List, Optional, Required, TypedDict
+from typing import Any, Required, TypedDict
 
 from clients.superset_client import EligibilityMark, Job, Notice
 
@@ -9,16 +9,16 @@ class PostState(TypedDict, total=False):
     """LangGraph state for SuperSet notice formatting."""
 
     notice: Required[Notice]
-    jobs: Required[List[Job]]
-    job_enricher: Optional[Any]
+    jobs: Required[list[Job]]
+    job_enricher: Any | None
 
     id: str
     raw_text: str
     category: str
-    matched_job: Optional[Job]
-    matched_job_id: Optional[str]
-    job_location: Optional[str]
-    extracted: Dict[str, Any]
+    matched_job: Job | None
+    matched_job_id: str | None
+    job_location: str | None
+    extracted: dict[str, Any]
 
 
 __all__ = ["EligibilityMark", "Job", "Notice", "PostState"]

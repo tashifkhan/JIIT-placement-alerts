@@ -16,7 +16,6 @@ Usage:
 import argparse
 import asyncio
 import logging
-from typing import Optional
 
 import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -24,8 +23,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from core.config import (
     Settings,
     get_settings,
-    set_daemon_mode,
     safe_print,
+    set_daemon_mode,
     setup_logging,
 )
 
@@ -43,7 +42,7 @@ class SchedulerServer:
 
     def __init__(
         self,
-        settings: Optional[Settings] = None,
+        settings: Settings | None = None,
         daemon_mode: bool = False,
     ):
         """
@@ -58,7 +57,7 @@ class SchedulerServer:
         self.daemon_mode = daemon_mode
 
         # Scheduler setup
-        self.scheduler: Optional[AsyncIOScheduler] = None
+        self.scheduler: AsyncIOScheduler | None = None
 
         # Timezone
         self.ist = pytz.timezone("Asia/Kolkata")
@@ -238,7 +237,7 @@ class SchedulerServer:
 
 
 def create_scheduler_server(
-    settings: Optional[Settings] = None,
+    settings: Settings | None = None,
     daemon_mode: bool = False,
 ) -> SchedulerServer:
     """

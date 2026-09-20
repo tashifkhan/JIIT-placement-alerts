@@ -6,8 +6,8 @@ Uses dependency injection for testability.
 """
 
 import logging
-from typing import Optional
 
+from clients.superset_client import SupersetClientService
 from core.config import get_settings, safe_print
 from core.year_context import (
     database_name_for_year,
@@ -16,9 +16,7 @@ from core.year_context import (
     get_superset_credentials_for_year,
 )
 from services.database import DatabaseService
-from clients.superset_client import SupersetClientService
 from services.notice_formatter import NoticeFormatterService
-
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +30,10 @@ class UpdateRunner:
 
     def __init__(
         self,
-        db_service: Optional[DatabaseService] = None,
-        scraper_service: Optional[SupersetClientService] = None,
-        formatter_service: Optional[NoticeFormatterService] = None,
-        placement_year: Optional[str] = None,
+        db_service: DatabaseService | None = None,
+        scraper_service: SupersetClientService | None = None,
+        formatter_service: NoticeFormatterService | None = None,
+        placement_year: str | None = None,
     ):
         """
         Initialize UpdateRunner with dependencies.
@@ -266,10 +264,10 @@ class UpdateRunner:
 
 
 def fetch_and_process_updates(
-    db_service: Optional[DatabaseService] = None,
-    scraper_service: Optional[SupersetClientService] = None,
-    formatter_service: Optional[NoticeFormatterService] = None,
-    placement_year: Optional[str] = None,
+    db_service: DatabaseService | None = None,
+    scraper_service: SupersetClientService | None = None,
+    formatter_service: NoticeFormatterService | None = None,
+    placement_year: str | None = None,
 ) -> dict:
     """
     Convenience function to fetch and process updates.

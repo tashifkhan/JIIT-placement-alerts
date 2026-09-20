@@ -7,11 +7,12 @@ Responsible for:
 - Managing Request exceptions
 """
 
-import os
-import requests
 import logging
+import os
 import time
-from typing import Optional, Dict, Any
+from typing import Any, Optional
+
+import requests
 
 from core.config import safe_print
 
@@ -32,6 +33,7 @@ class TelegramClient:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN")
         self.default_chat_id = chat_id or os.getenv("TELEGRAM_CHAT_ID")
+        self.session = requests.Session()
 
         if not self.bot_token:
             self.logger.warning("TELEGRAM_BOT_TOKEN not provided or set in env.")
@@ -82,26 +84,31 @@ class TelegramClient:
 
         for attempt in range(retries):
             try:
-                response = requests.post(url, json=payload, timeout=10)
+                response = self.session.post(url, json=payload, timeout=10)
 
                 if response.status_code == 200:
                     return True
 
                 # Handle rate limiting (429)
                 if response.status_code == 429:
-                    retry_after = int(response.headers.get("Retry-After", 1))
+                    retry_after = self._get_retry_after(response)
                     self.logger.warning(f"Rate limited. Waiting {retry_after}s.")
                     time.sleep(retry_after)
                     continue
 
-                # Log other errors
                 self.logger.warning(
-                    f"Attempt {attempt + 1}/{retries} failed. Status: {response.status_code}, Response: {response.text}"
+                    "Telegram send attempt %s/%s failed with HTTP %s",
+                    attempt + 1,
+                    retries,
+                    response.status_code,
                 )
 
             except requests.RequestException as e:
                 self.logger.warning(
-                    f"Attempt {attempt + 1}/{retries} failed with error: {e}"
+                    "Telegram send attempt %s/%s failed (%s)",
+                    attempt + 1,
+                    retries,
+                    type(e).__name__,
                 )
 
             # exponential backoff if retrying
@@ -110,6 +117,27 @@ class TelegramClient:
 
         return False
 
+    @staticmethod
+    def _get_retry_after(response: requests.Response) -> int:
+        """Read Telegram's retry delay without assuming one response format."""
+        retry_after: Any = None
+        try:
+            body = response.json()
+            if isinstance(body, dict):
+                parameters = body.get("parameters")
+                if isinstance(parameters, dict):
+                    retry_after = parameters.get("retry_after")
+        except (ValueError, requests.JSONDecodeError):
+            pass
+
+        if retry_after is None:
+            retry_after = response.headers.get("Retry-After", 1)
+
+        try:
+            return max(1, int(retry_after))
+        except (TypeError, ValueError):
+            return 1
+
     def test_connection(self) -> bool:
         """Test authentication by calling getMe."""
         if not self.bot_token:
@@ -117,9 +145,11 @@ class TelegramClient:
 
         try:
             url = f"https://api.telegram.org/bot{self.bot_token}/getMe"
-            response = requests.get(url, timeout=10)
+            response = self.session.get(url, timeout=10)
             return response.status_code == 200
 
         except Exception as e:
-            self.logger.error(f"Test connection failed: {e}")
+            self.logger.error(
+                "Telegram connection test failed (%s)", type(e).__name__
+            )
             return False

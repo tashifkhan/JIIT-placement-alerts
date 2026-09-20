@@ -4,10 +4,11 @@ Admin Telegram Service
 Handles administrative commands for the Telegram bot.
 """
 
-import os
-import logging
 import asyncio
-from typing import Any, Optional
+import json
+import logging
+import os
+from typing import Any
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -37,20 +38,32 @@ class AdminTelegramService:
         self.db_service = db_service
         self.telegram_service = telegram_service
 
-        # Admin authentication
-        self.admin_chat_id = str(settings.telegram_chat_id)
+        self.admin_user_ids = self._parse_admin_user_ids(
+            getattr(settings, "admin_telegram_user_ids", "")
+        )
+
+    def _parse_admin_user_ids(self, raw_value: Any) -> set[int]:
+        """Parse the dedicated admin ID setting and fail closed on bad input."""
+        try:
+            values = json.loads(raw_value) if isinstance(raw_value, str) else raw_value
+            if not isinstance(values, list):
+                raise ValueError("ADMIN_TELEGRAM_USER_IDS must be a JSON list")
+            return {int(value) for value in values if str(value).strip()}
+        except (TypeError, ValueError, json.JSONDecodeError):
+            self.logger.error("Invalid ADMIN_TELEGRAM_USER_IDS configuration")
+            return set()
 
     async def _is_admin(self, update: Update) -> bool:
         """Check if the user is the admin"""
-        if not update.effective_chat or not update.message:
+        if not update.effective_user or not update.message:
             return False
 
-        chat_id = str(update.effective_chat.id)
-        if chat_id != self.admin_chat_id:
+        user_id = update.effective_user.id
+        if user_id not in self.admin_user_ids:
             await update.message.reply_text(
                 "❌ This command is only available to administrators."
             )
-            self.logger.warning(f"Unauthorized admin command attempt by {chat_id}")
+            self.logger.warning("Unauthorized admin command attempt by user %s", user_id)
             return False
         return True
 
@@ -101,10 +114,9 @@ class AdminTelegramService:
 
             safe_print(f"Admin requested user list")
 
-        except Exception as e:
-            error_msg = f"Error getting user list: {e}"
-            await update.message.reply_text(f"❌ {error_msg}")
-            safe_print(error_msg)
+        except Exception:
+            self.logger.error("Error getting user list", exc_info=True)
+            await update.message.reply_text("❌ Unable to get the user list.")
 
     async def broadcast_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -142,28 +154,9 @@ class AdminTelegramService:
                 )
                 return
 
-            # Use telegram_service to broadcast
-            # Note: telegram_service.broadcast_to_all_users is synchronous or async?
-            # Looking at telegram_service.py outline (Step 31), it seems synchronous using requests?
-            # Let's check if it returns a coroutine. It imports 'requests', likely sync.
-            # But we are in an async handler. It's better if we run it in a thread or if it's fast enough.
-            # Given it loops over users and sends requests, it might block.
-            # Ideally should be async, but for now we call it directly as per existing design.
-
-            # Since telegram_service methods seem to be synchronous (using `requests`),
-            # we might block the event loop. However, to keep it simple and consistent:
-            success_count = 0
-            # We assume broadcast_to_all_users returns a dict or similar from NotificationService,
-            # BUT wait, TelegramService.broadcast_to_all_users (Step 31) doesn't return count directly?
-            # Step 31: broadcast_to_all_users(self, message: str, parse_mode="HTML", **kwargs)
-            # It seems to loop and print. logic in telegram_handeller.py line 900 returns boolean (successful_sends > 0).
-
-            # Let's check telegram_service.py again.
-            # It has `broadcast_to_all_users`.
-
-            result = self.telegram_service.broadcast_to_all_users(broadcast_msg)
-            # Steps 31 output doesn't show return type but usually implies dict or bool.
-            # Let's assume it works like the one in notification service which wraps it.
+            result = await asyncio.to_thread(
+                self.telegram_service.broadcast_to_all_users, broadcast_msg
+            )
 
             await update.message.reply_text(f"✅ Broadcast processed. Result: {result}")
             return
@@ -187,8 +180,9 @@ class AdminTelegramService:
                     f"❌ Failed to send message to {target_chat_id}"
                 )
 
-        except Exception as e:
-            await update.message.reply_text(f"❌ Error: {e}")
+        except Exception:
+            self.logger.error("Targeted Telegram send failed", exc_info=True)
+            await update.message.reply_text("❌ Unable to send the message.")
 
     async def scrape_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -203,39 +197,23 @@ class AdminTelegramService:
         await update.message.reply_text("⏳ Running main workflow (main.py)...")
 
         try:
-            # We need to run this in a separate thread to avoid blocking the bot loop
-            loop = asyncio.get_event_loop()
-
-            # Function to run the legacy command
             def run_legacy_update():
                 from main import cmd_legacy
                 import argparse
 
-                # Mock args for legacy mode (update + send telegram)
-                # cmd_legacy expects args object with specific attributes used in cmd_update/cmd_send
-                # Looking at main.py:
-                # cmd_legacy calls cmd_update(args) -> cmd_update_supersets(args), cmd_update_emails(args)
-                # cmd_legacy calls send_updates(telegram=True...)
-
-                # We can use a simple namespace class or argparse.Namespace
-                mock_args = argparse.Namespace()
-                # Default args needed by callees
-                mock_args.dry_run = False
-                mock_args.telegram = True
-                mock_args.web = False
-                mock_args.both = False
-                mock_args.fetch = True  # cmd_legacy does update+send
-                mock_args.verbose = False
-
-                try:
-                    return cmd_legacy(mock_args)
-                except Exception as e:
-                    logging.getLogger("AdminTelegramService").error(
-                        f"Legacy update failed: {e}"
+                return cmd_legacy(
+                    argparse.Namespace(
+                        dry_run=False,
+                        telegram=True,
+                        web=False,
+                        both=False,
+                        fetch=True,
+                        verbose=False,
+                        year=None,
                     )
-                    raise e
+                )
 
-            result = await loop.run_in_executor(None, run_legacy_update)
+            result = await asyncio.to_thread(run_legacy_update)
 
             await update.message.reply_text(
                 f"✅ Update workflow completed!\n"
@@ -243,8 +221,9 @@ class AdminTelegramService:
                 f"Send: {result.get('send')}"
             )
 
-        except Exception as e:
-            await update.message.reply_text(f"❌ Error running update: {e}")
+        except Exception:
+            self.logger.error("Admin update workflow failed", exc_info=True)
+            await update.message.reply_text("❌ Update workflow failed. Check server logs.")
 
     async def kill_scheduler_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -344,5 +323,6 @@ class AdminTelegramService:
 
             await update.message.reply_text(message, parse_mode="HTML")
 
-        except Exception as e:
-            await update.message.reply_text(f"❌ Error reading logs: {e}")
+        except Exception:
+            self.logger.error("Unable to read requested log file", exc_info=True)
+            await update.message.reply_text("❌ Unable to read the requested logs.")

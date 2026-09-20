@@ -7,13 +7,16 @@ FastAPI-based server for:
 - API endpoints for external integrations
 """
 
+import json
 import logging
+import secrets
 from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.security import APIKeyHeader
+from pydantic import BaseModel, Field
 
 from core.config import Settings, get_settings, setup_logging
 
@@ -22,12 +25,14 @@ from core.config import Settings, get_settings, setup_logging
 # Request/Response Models
 # ============================================================================
 
+APP_VERSION = "1.2.1"
+
 
 class HealthResponse(BaseModel):
     """Health check response"""
 
     status: str
-    version: str = "1.2.1"
+    version: str = APP_VERSION
 
 
 class PushSubscription(BaseModel):
@@ -35,7 +40,7 @@ class PushSubscription(BaseModel):
 
     endpoint: str
     keys: Dict[str, str]
-    user_id: Optional[int] = None
+    user_id: int = Field(..., gt=0)
 
 
 class NotifyRequest(BaseModel):
@@ -50,15 +55,15 @@ class NotifyResponse(BaseModel):
     """Notification response"""
 
     success: bool
-    results: Dict[str, Any] = {}
+    results: Dict[str, Any] = Field(default_factory=dict)
 
 
 class StatsResponse(BaseModel):
     """Statistics response"""
 
-    placement_stats: Dict[str, Any] = {}
-    notice_stats: Dict[str, Any] = {}
-    user_stats: Dict[str, Any] = {}
+    placement_stats: Dict[str, Any] = Field(default_factory=dict)
+    notice_stats: Dict[str, Any] = Field(default_factory=dict)
+    user_stats: Dict[str, Any] = Field(default_factory=dict)
 
 
 # ============================================================================
@@ -85,42 +90,109 @@ def create_app(
         Configured FastAPI app
     """
     settings = settings or get_settings()
+    logger = logging.getLogger("WebhookServer")
+    injected_db_service = db_service is not None
+
+    try:
+        configured_origins = json.loads(settings.cors_origins)
+    except (json.JSONDecodeError, TypeError):
+        logger.error("CORS_ORIGINS must be a JSON list", exc_info=True)
+        configured_origins = []
+
+    if not isinstance(configured_origins, list):
+        logger.error("CORS_ORIGINS must be a JSON list")
+        configured_origins = []
+
+    cors_origins = list(
+        dict.fromkeys(
+            origin.strip()
+            for origin in configured_origins
+            if isinstance(origin, str) and origin.strip() and origin.strip() != "*"
+        )
+    )
+
+    api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+    def require_api_key(api_key: Optional[str] = Depends(api_key_header)) -> None:
+        """Require the configured API key and fail closed when it is absent."""
+        if not settings.webhook_api_key:
+            raise HTTPException(status_code=503, detail="Service unavailable")
+        if api_key is None or not secrets.compare_digest(
+            api_key, settings.webhook_api_key
+        ):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+    def sanitize_api_data(value: Any) -> Any:
+        """Copy nested API data while removing private and internal details."""
+        if isinstance(value, dict):
+            return {
+                key: (
+                    "Operation failed"
+                    if key == "error"
+                    else sanitize_api_data(item)
+                )
+                for key, item in value.items()
+                if key != "placements_raw"
+            }
+        if isinstance(value, list):
+            return [sanitize_api_data(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(sanitize_api_data(item) for item in value)
+        return value
 
     # App state for dependency injection
     app_state = {
         "settings": settings,
         "db_service": db_service,
+        "global_db_service": None,
         "notification_service": notification_service,
         "web_push_service": web_push_service,
+        "owned_db_services": [],
     }
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """App lifecycle management"""
-        logger = logging.getLogger("WebhookServer")
         logger.info("Starting webhook server...")
 
         # Setup services if not provided
         if app_state["db_service"] is None:
-            from services.database_service import DatabaseService
+            from services.database import DatabaseService
             from clients.db_client import DBClient
 
             db_client = DBClient()
             db_client.connect()
             app_state["db_service"] = DatabaseService(db_client)
+            app_state["owned_db_services"].append(app_state["db_service"])
+
+        if app_state["global_db_service"] is None:
+            if injected_db_service:
+                # Tests and embedded deployments may intentionally provide one
+                # combined repository facade.
+                app_state["global_db_service"] = app_state["db_service"]
+            else:
+                from services.database import DatabaseService
+                from clients.db_client import DBClient
+
+                global_db_client = DBClient(use_global_database=True)
+                global_db_client.connect()
+                app_state["global_db_service"] = DatabaseService(global_db_client)
+                app_state["owned_db_services"].append(
+                    app_state["global_db_service"]
+                )
 
         if app_state["web_push_service"] is None:
-            from services.web_push_service import WebPushService
+            from services.web_push import WebPushService
 
             app_state["web_push_service"] = WebPushService(
-                db_service=app_state["db_service"]
+                db_service=app_state["global_db_service"]
             )
 
         if app_state["notification_service"] is None:
-            from services.notification_service import NotificationService
-            from services.telegram_service import TelegramService
+            from services.notification import NotificationService
+            from services.telegram import TelegramService
 
-            telegram = TelegramService(db_service=app_state["db_service"])
+            telegram = TelegramService(db_service=app_state["global_db_service"])
             app_state["notification_service"] = NotificationService(
                 channels=[telegram, app_state["web_push_service"]],
                 db_service=app_state["db_service"],
@@ -132,24 +204,26 @@ def create_app(
         yield
 
         # Cleanup
-        if app_state["db_service"]:
-            app_state["db_service"].close_connection()
+        for owned_db_service in reversed(app_state["owned_db_services"]):
+            owned_db_service.close_connection()
         logger.info("Webhook server stopped")
 
     app = FastAPI(
         title="SuperSet Webhook Server",
         description="Webhook and API server for SuperSet notifications",
-        version="1.0.0",
+        version=APP_VERSION,
         lifespan=lifespan,
     )
 
     # CORS middleware
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Configure for production
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=cors_origins,
+        allow_credentials=bool(cors_origins),
+        allow_methods=["GET", "POST", "OPTIONS"] if cors_origins else [],
+        allow_headers=["Accept", "Content-Type", "X-API-Key"]
+        if cors_origins
+        else [],
     )
 
     # ========================================================================
@@ -170,12 +244,12 @@ def create_app(
     # ========================================================================
 
     @app.get("/", response_model=HealthResponse)
-    async def root():
+    async def root() -> HealthResponse:
         """Root endpoint - health check"""
         return HealthResponse(status="ok")
 
     @app.get("/health", response_model=HealthResponse)
-    async def health():
+    async def health() -> HealthResponse:
         """Health check endpoint"""
         return HealthResponse(status="healthy")
 
@@ -183,11 +257,11 @@ def create_app(
     # Push Subscription Endpoints
     # ========================================================================
 
-    @app.post("/api/push/subscribe")
-    async def subscribe_push(
+    @app.post("/api/push/subscribe", dependencies=[Depends(require_api_key)])
+    def subscribe_push(
         subscription: PushSubscription,
         web_push=Depends(get_web_push),
-    ):
+    ) -> Dict[str, bool]:
         """Subscribe to web push notifications"""
         if not web_push or not web_push.is_enabled:
             raise HTTPException(
@@ -197,36 +271,38 @@ def create_app(
 
         try:
             success = web_push.save_subscription(
-                user_id=subscription.user_id or 0,
+                user_id=subscription.user_id,
                 subscription={
                     "endpoint": subscription.endpoint,
                     "keys": subscription.keys,
                 },
             )
             return {"success": success}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        except Exception:
+            logger.error("Failed to save push subscription", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error")
 
-    @app.post("/api/push/unsubscribe")
-    async def unsubscribe_push(
+    @app.post("/api/push/unsubscribe", dependencies=[Depends(require_api_key)])
+    def unsubscribe_push(
         subscription: PushSubscription,
         web_push=Depends(get_web_push),
-    ):
+    ) -> Dict[str, bool]:
         """Unsubscribe from web push notifications"""
         if not web_push:
             raise HTTPException(status_code=501, detail="Web push not configured")
 
         try:
             success = web_push.remove_subscription(
-                user_id=subscription.user_id or 0,
+                user_id=subscription.user_id,
                 endpoint=subscription.endpoint,
             )
             return {"success": success}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        except Exception:
+            logger.error("Failed to remove push subscription", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     @app.get("/api/push/vapid-key")
-    async def get_vapid_key(web_push=Depends(get_web_push)):
+    def get_vapid_key(web_push=Depends(get_web_push)) -> Dict[str, str]:
         """Get VAPID public key for client subscription"""
         if not web_push:
             raise HTTPException(status_code=501, detail="Web push not configured")
@@ -241,11 +317,15 @@ def create_app(
     # Notification Endpoints
     # ========================================================================
 
-    @app.post("/api/notify", response_model=NotifyResponse)
-    async def send_notification(
+    @app.post(
+        "/api/notify",
+        response_model=NotifyResponse,
+        dependencies=[Depends(require_api_key)],
+    )
+    def send_notification(
         request: NotifyRequest,
         notification=Depends(get_notification),
-    ):
+    ) -> NotifyResponse:
         """Send notification to specified channels"""
         if not notification:
             raise HTTPException(
@@ -259,15 +339,18 @@ def create_app(
                 channels=channels,
                 title=request.title,
             )
-            return NotifyResponse(success=True, results=results)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            return NotifyResponse(success=True, results=sanitize_api_data(results))
+        except Exception:
+            logger.error("Failed to broadcast notification", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error")
 
-    @app.post("/api/notify/telegram")
-    async def send_telegram_notification(
+    @app.post(
+        "/api/notify/telegram", dependencies=[Depends(require_api_key)]
+    )
+    def send_telegram_notification(
         request: NotifyRequest,
         notification=Depends(get_notification),
-    ):
+    ) -> Dict[str, bool]:
         """Send notification via Telegram only"""
         if not notification:
             raise HTTPException(
@@ -277,14 +360,17 @@ def create_app(
         try:
             result = notification.send_to_channel(request.message, "telegram")
             return {"success": result}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        except Exception:
+            logger.error("Failed to send Telegram notification", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error")
 
-    @app.post("/api/notify/web-push")
-    async def send_web_push_notification(
+    @app.post(
+        "/api/notify/web-push", dependencies=[Depends(require_api_key)]
+    )
+    def send_web_push_notification(
         request: NotifyRequest,
         notification=Depends(get_notification),
-    ):
+    ) -> Dict[str, bool]:
         """Send notification via Web Push only"""
         if not notification:
             raise HTTPException(
@@ -296,67 +382,75 @@ def create_app(
                 request.message, "web_push", title=request.title
             )
             return {"success": result}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+        except Exception:
+            logger.error("Failed to send web push notification", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     # ========================================================================
     # Stats Endpoints
     # ========================================================================
 
-    @app.get("/api/stats", response_model=StatsResponse)
-    async def get_stats(db=Depends(get_db)):
+    @app.get(
+        "/api/stats",
+        response_model=StatsResponse,
+        dependencies=[Depends(require_api_key)],
+    )
+    def get_stats(db=Depends(get_db)) -> StatsResponse:
         """Get all statistics"""
         if not db:
             raise HTTPException(status_code=501, detail="Database not configured")
 
         return StatsResponse(
-            placement_stats=db.get_placement_stats(),
-            notice_stats=db.get_notice_stats(),
-            user_stats=db.get_users_stats(),
+            placement_stats=sanitize_api_data(db.get_placement_stats()),
+            notice_stats=sanitize_api_data(db.get_notice_stats()),
+            user_stats=sanitize_api_data(db.get_users_stats()),
         )
 
-    @app.get("/api/stats/placements")
-    async def get_placement_stats(db=Depends(get_db)):
+    @app.get(
+        "/api/stats/placements", dependencies=[Depends(require_api_key)]
+    )
+    def get_placement_stats(db=Depends(get_db)) -> Dict[str, Any]:
         """Get placement statistics"""
         if not db:
             raise HTTPException(status_code=501, detail="Database not configured")
 
-        return db.get_placement_stats()
+        return sanitize_api_data(db.get_placement_stats())
 
-    @app.get("/api/stats/notices")
-    async def get_notice_stats(db=Depends(get_db)):
+    @app.get("/api/stats/notices", dependencies=[Depends(require_api_key)])
+    def get_notice_stats(db=Depends(get_db)) -> Dict[str, Any]:
         """Get notice statistics"""
         if not db:
             raise HTTPException(status_code=501, detail="Database not configured")
 
-        return db.get_notice_stats()
+        return sanitize_api_data(db.get_notice_stats())
 
-    @app.get("/api/stats/users")
-    async def get_user_stats(db=Depends(get_db)):
+    @app.get("/api/stats/users", dependencies=[Depends(require_api_key)])
+    def get_user_stats(db=Depends(get_db)) -> Dict[str, Any]:
         """Get user statistics"""
         if not db:
             raise HTTPException(status_code=501, detail="Database not configured")
 
-        return db.get_users_stats()
+        return sanitize_api_data(db.get_users_stats())
 
     # ========================================================================
     # Webhook Endpoints (for external integrations)
     # ========================================================================
 
-    @app.post("/webhook/update")
-    async def trigger_update(
+    @app.post("/webhook/update", dependencies=[Depends(require_api_key)])
+    def trigger_update(
         notification=Depends(get_notification),
         db=Depends(get_db),
-    ):
+    ) -> Dict[str, Any]:
         """Trigger update job via webhook"""
         if not notification or not db:
             raise HTTPException(status_code=501, detail="Services not configured")
 
         try:
             result = notification.send_unsent_notices(telegram=True, web=True)
-            return {"success": True, "result": result}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            return {"success": True, "result": sanitize_api_data(result)}
+        except Exception:
+            logger.error("Failed to trigger webhook update", exc_info=True)
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     return app
 
@@ -366,7 +460,7 @@ def create_app(
 # ============================================================================
 
 
-def run_server(host: str = "0.0.0.0", port: int = 8000):
+def run_server(host: str = "127.0.0.1", port: int = 8000) -> None:
     """Run the webhook server"""
     import uvicorn
 
@@ -379,7 +473,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Run Webhook Server")
-    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
+    parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
     args = parser.parse_args()
 

@@ -192,9 +192,9 @@ The application is controlled via a unified CLI entry point `main.py`.
 
 | Command            | Description                                                         | Options                                                                                                                                 |
 | :----------------- | :------------------------------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------------------------- |
-| `update`           | **Full Update**: SuperSet + Emails (Placements + Notices).          | `-v, --verbose`: Enable debug logging.                                                                                                  |
-| `update-emails`    | **Email Update**: Fetches Placements + General Notices from emails. | None                                                                                                                                    |
-| `update-supersets` | **Portal Update**: Fetches notices from SuperSet portal.            | None                                                                                                                                    |
+| `update`           | **Full Update**: SuperSet + Emails (Placements + Notices).          | `--year YEAR`: Only scrape one SuperSet year and use it as the fallback for emails. Without it, every year in `SUPERSET_CREDENTIALS_BY_YEAR` is scraped. |
+| `update-emails`    | **Email Update**: Fetches Placements + General Notices from emails. | `--year YEAR`: Fallback year for emails without a plus alias.                                                                           |
+| `update-supersets` | **Portal Update**: Fetches notices and jobs from SuperSet.          | `--year YEAR`: Only scrape one configured year.                                                                                          |
 | `send`             | Sending engine (dispatch pending messages).                         | `--telegram`: Send via Telegram.<br>`--web`: Send via Web Push.<br>`--both`: Send via both.<br>`--fetch`: Run an update before sending. |
 | `bot`              | Starts the Telegram Bot server (long-polling).                      | `--daemon`: Runs in background mode.                                                                                                    |
 | `webhook`          | Starts the FastAPI Webhook server.                                  | `--port [PORT]`: Specify port (default 8000).                                                                                           |
@@ -203,6 +203,40 @@ The application is controlled via a unified CLI entry point `main.py`.
 ## Configuration
 
 Configuration is managed via environment variables (file: `.env`).
+
+### Placement years
+
+`PLACEMENT_YEARS` and `SUPERSET_CREDENTIALS_BY_YEAR` are not interchangeable:
+
+- `PLACEMENT_YEARS=["202526","202627"]` exposes both years to the bot and
+  notification routing.
+- `SUPERSET_CREDENTIALS_BY_YEAR` determines which years are scraped. The plain
+  `update` command iterates over its keys, so every year that should be updated
+  must have an entry with credentials.
+- `ACTIVE_PLACEMENT_YEAR` is the fallback used by operations without an explicit
+  year.
+- `DEFAULT_PLACEMENT_YEAR` is used for users without a saved preference.
+
+Example:
+
+```env
+ACTIVE_PLACEMENT_YEAR=202526
+DEFAULT_PLACEMENT_YEAR=202526
+PLACEMENT_YEARS=["202526", "202627"]
+SUPERSET_CREDENTIALS_BY_YEAR={"202526":[{"email":"senior@example.com","password":"replace-me"}],"202627":[{"email":"junior@example.com","password":"replace-me"}]}
+```
+
+Run every credential-map year or select one:
+
+```bash
+uv run main.py update
+uv run main.py update --year 202627
+uv run main.py update-supersets --year 202627
+```
+
+Email recipients can select a year using a plus alias such as
+`placement+202627@example.com`. Emails without a valid plus-alias year use the
+active year, or the explicit `--year` fallback.
 
 **Required Variables:**
 

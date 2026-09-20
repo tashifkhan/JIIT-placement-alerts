@@ -5,13 +5,12 @@ Implements INotificationChannel protocol for Telegram notifications.
 Handles message sending, formatting, and user broadcasting.
 """
 
-import os
+import html
+import logging
 import re
 import time
-import logging
-from typing import Dict, List, Any, Optional
-from typing import Dict, List, Any, Optional
-import time
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit
 
 from core.config import safe_print
 from clients.telegram_client import TelegramClient
@@ -128,14 +127,29 @@ class TelegramService:
         **kwargs,
     ) -> bool:
         """Send a message to a specific user"""
-        if parse_mode == "HTML":
-            formatted_message = self.convert_markdown_to_html(message)
-        else:
-            formatted_message = message
+        chunks = self.split_long_message(message, max_length=4000)
+        for index, chunk in enumerate(chunks):
+            if parse_mode == "HTML":
+                formatted_message = self.convert_markdown_to_html(chunk)
+            elif parse_mode == "MarkdownV2":
+                formatted_message = self.convert_markdown_to_telegram(chunk)
+            else:
+                formatted_message = chunk
 
-        return self.client.send_message(
-            text=formatted_message, chat_id=user_id, parse_mode=parse_mode
-        )
+            if not self.client.send_message(
+                text=formatted_message,
+                chat_id=user_id,
+                parse_mode=parse_mode,
+            ):
+                if not parse_mode or not self.client.send_message(
+                    text=chunk,
+                    chat_id=user_id,
+                    parse_mode="",
+                ):
+                    return False
+            if index < len(chunks) - 1:
+                time.sleep(1)
+        return True
 
     def broadcast_to_all_users(
         self,
@@ -148,7 +162,7 @@ class TelegramService:
             safe_print("Database service not available for broadcasting")
             return {"success": 0, "failed": 0, "total": 0}
 
-        users = self.db_service.get_active_users()
+        users = self.db_service.get_active_users(kwargs.get("placement_year"))
         success_count = 0
         failed_count = 0
 
@@ -161,6 +175,8 @@ class TelegramService:
                 else:
                     failed_count += 1
                 time.sleep(0.05)  # Rate limiting
+            else:
+                failed_count += 1
 
         safe_print(
             f"Broadcast complete: {success_count} success, {failed_count} failed"
@@ -217,39 +233,30 @@ class TelegramService:
 
     def split_long_message(self, message: str, max_length: int = 4000) -> List[str]:
         """Split a long message into smaller chunks"""
+        if max_length <= 0:
+            raise ValueError("max_length must be positive")
         if len(message) <= max_length:
             return [message]
 
         chunks = []
-        lines = message.split("\n")
-        current_chunk = ""
-
-        for line in lines:
-            if len(current_chunk) + len(line) + 1 > max_length:
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                    current_chunk = line + "\n"
-                else:
-                    words = line.split(" ")
-                    current_line = ""
-                    for word in words:
-                        if len(current_line) + len(word) + 1 > max_length:
-                            if current_line:
-                                chunks.append(current_line.strip())
-                                current_line = word + " "
-                            else:
-                                chunks.append(word[:max_length])
-                                current_line = ""
-                        else:
-                            current_line += word + " "
-                    if current_line:
-                        current_chunk = current_line + "\n"
+        remaining = message
+        while len(remaining) > max_length:
+            split_at = remaining.rfind("\n", 0, max_length + 1)
+            if split_at >= 0:
+                split_at += 1
             else:
-                current_chunk += line + "\n"
+                split_at = remaining.rfind(" ", 0, max_length + 1)
+                if split_at >= 0:
+                    split_at += 1
 
-        if current_chunk.strip():
-            chunks.append(current_chunk.strip())
+            if split_at <= 0:
+                split_at = max_length
 
+            chunks.append(remaining[:split_at])
+            remaining = remaining[split_at:]
+
+        if remaining:
+            chunks.append(remaining)
         return chunks
 
     @staticmethod
@@ -302,23 +309,44 @@ class TelegramService:
 
     @staticmethod
     def convert_markdown_to_html(text: str) -> str:
-        """Convert markdown to HTML for Telegram"""
+        """Convert a small Markdown subset to safe Telegram HTML."""
         if not text:
             return ""
+
+        placeholders = []
+
+        def store(fragment: str) -> str:
+            token = f"\x00{len(placeholders)}\x00"
+            placeholders.append(fragment)
+            return token
+
+        def markdown_link(match: re.Match) -> str:
+            label, url = match.group(1), match.group(2).strip()
+            scheme = urlsplit(url).scheme.lower()
+            if scheme not in {"http", "https", "mailto"}:
+                return label
+            return store(
+                f'<a href="{html.escape(url, quote=True)}">{html.escape(label)}</a>'
+            )
+
+        def email_link(match: re.Match) -> str:
+            address = match.group(1)
+            escaped_address = html.escape(address)
+            return store(f'<a href="mailto:{escaped_address}">{escaped_address}</a>')
+
+        # Nulls cannot be sent to Telegram and are reserved for internal tokens.
+        text = text.replace("\x00", "")
 
         # Add extra line after Deadline
         text = re.sub(r"(?m)^(.*Deadline:.*)$", r"\1\n", text)
 
-        # Convert markdown links [text](url) to HTML <a> tags FIRST
-        # This must happen before other conversions to avoid conflicts
-        text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', text)
-
-        # Convert email addresses in angle brackets <email@example.com> to links
+        text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", markdown_link, text)
         text = re.sub(
             r"<([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})>",
-            r'<a href="mailto:\1">\1</a>',
+            email_link,
             text,
         )
+        text = html.escape(text)
 
         # Headers to bold
         text = re.sub(r"^##\s+(.*?)$", r"<b>\1</b>", text, flags=re.MULTILINE)
@@ -331,7 +359,7 @@ class TelegramService:
         text = re.sub(r"(?<!\w)_([^_\n]+)_(?!\w)", r"<i>\1</i>", text)
 
         # Blockquotes
-        text = re.sub(r"^>\s+(.*?)$", r"<i>\1</i>", text, flags=re.MULTILINE)
+        text = re.sub(r"^&gt;\s+(.*?)$", r"<i>\1</i>", text, flags=re.MULTILINE)
 
         # Inline code
         text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
@@ -342,9 +370,12 @@ class TelegramService:
         # Collapse excessive blank lines
         text = re.sub(r"\n{3,}", "\n\n", text).strip()
 
+        for index, fragment in enumerate(placeholders):
+            text = text.replace(f"\x00{index}\x00", fragment)
+
         return text
 
     @staticmethod
     def escape_html(text: str) -> str:
         """Escape HTML special characters"""
-        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        return html.escape(text)

@@ -5,12 +5,12 @@ Handles the raw MongoDB connection and provides access to collections.
 Decoupled from the business logic service.
 """
 
-import os
 import logging
 from typing import Optional
-from pymongo import MongoClient
+from pymongo import ASCENDING, MongoClient
 
-from core.config import safe_print
+from core.config import get_settings, safe_print
+from core.year_context import database_name_for_year, normalize_year
 
 
 class DBClient:
@@ -18,15 +18,37 @@ class DBClient:
     Database client for handling MongoDB connections.
     """
 
-    def __init__(self, connection_string: Optional[str] = None):
+    def __init__(
+        self,
+        connection_string: Optional[str] = None,
+        database_name: Optional[str] = None,
+        placement_year: Optional[str] = None,
+        use_global_database: bool = False,
+    ):
         """
         Initialize database client.
 
         Args:
             connection_string: MongoDB connection string. If None, reads from env.
+            database_name: MongoDB database name. If None, reads from env.
+            placement_year: Placement year used to derive database name.
+            use_global_database: Use global bot database instead of a year database.
         """
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.connection_string = connection_string or os.getenv("MONGO_CONNECTION_STR")
+        settings = get_settings()
+        self.connection_string = connection_string or settings.mongo_connection_str
+        if use_global_database:
+            self.database_name = database_name or settings.global_database_name
+        else:
+            resolved_year = normalize_year(placement_year or settings.active_placement_year)
+            if placement_year:
+                self.database_name = database_name or database_name_for_year(resolved_year)
+            else:
+                self.database_name = (
+                    database_name
+                    or settings.mongo_database_name
+                    or database_name_for_year(resolved_year)
+                )
 
         self.client: Optional[MongoClient] = None
         self.db = None
@@ -38,6 +60,7 @@ class DBClient:
         self._users_collection = None
         self._policies_collection = None
         self._official_placement_data_collection = None
+        self._placement_years_collection = None
 
     def connect(self) -> None:
         """Establish database connection"""
@@ -49,7 +72,7 @@ class DBClient:
                 raise ValueError(error_msg)
 
             self.client = MongoClient(self.connection_string)
-            self.db = self.client["SupersetPlacement"]
+            self.db = self.client[self.database_name]
 
             # Initialize collections
             self._notices_collection = self.db["Notices"]
@@ -58,9 +81,11 @@ class DBClient:
             self._users_collection = self.db["Users"]
             self._policies_collection = self.db["Policies"]
             self._official_placement_data_collection = self.db["OfficialPlacementData"]
+            self._placement_years_collection = self.db["PlacementYears"]
 
             # Test connection
             self.client.admin.command("ping")
+            self._ensure_indexes()
             success_msg = "Successfully connected to MongoDB"
             self.logger.info(success_msg)
             safe_print(success_msg)
@@ -70,6 +95,72 @@ class DBClient:
             self.logger.error(error_msg, exc_info=True)
             safe_print(error_msg)
             raise
+
+    def _ensure_indexes(self) -> None:
+        """Create integrity indexes without making legacy duplicates fatal at startup."""
+        index_specs = [
+            (
+                self._notices_collection,
+                [("id", ASCENDING)],
+                {
+                    "unique": True,
+                    "name": "notices_id_unique",
+                    "partialFilterExpression": {"id": {"$type": "string"}},
+                },
+            ),
+            (
+                self._jobs_collection,
+                [("id", ASCENDING)],
+                {
+                    "unique": True,
+                    "name": "jobs_id_unique",
+                    "partialFilterExpression": {"id": {"$type": "string"}},
+                },
+            ),
+            (
+                self._users_collection,
+                [("user_id", ASCENDING)],
+                {
+                    "unique": True,
+                    "name": "users_user_id_unique",
+                    "partialFilterExpression": {"user_id": {"$type": "number"}},
+                },
+            ),
+            (
+                self._placement_offers_collection,
+                [("company_key", ASCENDING)],
+                {
+                    "unique": True,
+                    "name": "placement_offers_company_key_unique",
+                    "partialFilterExpression": {
+                        "company_key": {"$type": "string"}
+                    },
+                },
+            ),
+            (
+                self._placement_years_collection,
+                [("year", ASCENDING)],
+                {
+                    "unique": True,
+                    "name": "placement_years_year_unique",
+                    "partialFilterExpression": {"year": {"$type": "string"}},
+                },
+            ),
+        ]
+
+        for collection, keys, options in index_specs:
+            try:
+                collection.create_index(keys, **options)
+            except Exception as e:
+                index_name = options["name"]
+                self.logger.error(
+                    "Could not create MongoDB index %s in %s: %s. "
+                    "Check this collection for historical duplicate values and retry.",
+                    index_name,
+                    self.database_name,
+                    e,
+                    exc_info=True,
+                )
 
     def close_connection(self) -> None:
         """Close MongoDB connection"""
@@ -101,3 +192,7 @@ class DBClient:
     @property
     def official_placement_data_collection(self):
         return self._official_placement_data_collection
+
+    @property
+    def placement_years_collection(self):
+        return self._placement_years_collection

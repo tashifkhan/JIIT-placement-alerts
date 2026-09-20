@@ -5,10 +5,11 @@ Implements INotificationChannel protocol for Web Push notifications.
 Uses VAPID for authentication.
 """
 
-import os
 import json
 import logging
-from typing import Dict, List, Any, Optional
+import os
+from typing import Any, Dict, Optional
+from urllib.parse import urlsplit
 
 from core.config import safe_print
 
@@ -57,13 +58,15 @@ class WebPushService:
         self.vapid_email = vapid_email or os.getenv("VAPID_EMAIL")
         self.db_service = db_service
 
-        self._enabled = WEBPUSH_AVAILABLE and bool(self.vapid_private_key)
+        self._enabled = WEBPUSH_AVAILABLE and all(
+            (self.vapid_private_key, self.vapid_public_key, self.vapid_email)
+        )
 
         if not WEBPUSH_AVAILABLE:
             self.logger.warning("pywebpush not installed. Web push disabled.")
 
-        elif not self.vapid_private_key:
-            self.logger.warning("VAPID keys not configured. Web push disabled.")
+        elif not self._enabled:
+            self.logger.warning("VAPID configuration incomplete. Web push disabled.")
 
         else:
             self.logger.info("WebPushService initialized")
@@ -108,10 +111,11 @@ class WebPushService:
 
             title = kwargs.get("title", "SuperSet Update")
 
+            successful = True
             for sub in subscriptions:
-                self._send_push(sub, title, message)
-
-            return True
+                if not self._send_push(sub, title, message, user_id=user_id):
+                    successful = False
+            return successful
 
         except Exception as e:
             self.logger.error(f"Error sending web push to user {user_id}: {e}")
@@ -127,7 +131,7 @@ class WebPushService:
             return {"success": 0, "failed": 0, "total": 0}
 
         try:
-            users = self.db_service.get_active_users()
+            users = self.db_service.get_active_users(kwargs.get("placement_year"))
             title = kwargs.get("title", "SuperSet Update")
 
             success_count = 0
@@ -138,24 +142,38 @@ class WebPushService:
                 subscriptions = user.get("push_subscriptions", [])
                 for sub in subscriptions:
                     total_subs += 1
-                    if self._send_push(sub, title, message):
+                    if self._send_push(
+                        sub, title, message, user_id=user.get("user_id")
+                    ):
                         success_count += 1
                     else:
                         failed_count += 1
 
             safe_print(f"Web push broadcast: {success_count}/{total_subs} success")
-            return {
+            result = {
                 "success": success_count,
                 "failed": failed_count,
                 "total": total_subs,
             }
+            if total_subs == 0:
+                result["noop"] = True
+            return result
 
-        except Exception as e:
-            self.logger.error(f"Error broadcasting web push: {e}")
-            return {"success": 0, "failed": 0, "total": 0, "error": str(e)}
+        except Exception:
+            self.logger.error("Error broadcasting web push", exc_info=True)
+            return {
+                "success": 0,
+                "failed": 0,
+                "total": 0,
+                "error": "Web push delivery failed",
+            }
 
     def _send_push(
-        self, subscription: Dict[str, Any], title: str, message: str
+        self,
+        subscription: Dict[str, Any],
+        title: str,
+        message: str,
+        user_id: Optional[int] = None,
     ) -> bool:
         """Send a push notification to a single subscription"""
         if not self._enabled or not webpush:
@@ -185,14 +203,17 @@ class WebPushService:
         except WebPushException as e:
             self.logger.warning(f"Web push failed: {e}")
             # Handle expired subscriptions
-            if hasattr(e, "response") and e.response and hasattr(e.response, "status_code") and e.response.status_code in (404, 410):  # type: ignore
-                self._remove_subscription(subscription)
+            response = getattr(e, "response", None)
+            if response is not None and getattr(response, "status_code", None) in (404, 410):
+                self._remove_subscription(subscription, user_id=user_id)
             return False
         except Exception as e:
             self.logger.error(f"Unexpected web push error: {e}")
             return False
 
-    def _remove_subscription(self, subscription: Dict[str, Any]) -> None:
+    def _remove_subscription(
+        self, subscription: Dict[str, Any], user_id: Optional[int] = None
+    ) -> None:
         """Remove an expired/invalid subscription"""
         if not self.db_service:
             return
@@ -201,8 +222,16 @@ class WebPushService:
             endpoint = subscription.get("endpoint")
             if endpoint:
                 self.logger.info(f"Removing expired subscription: {endpoint[:50]}...")
-                # This would need a specific method in database service
-                # For now, just log it
+                if user_id is not None:
+                    self.remove_subscription(user_id, endpoint)
+                    return
+
+                collection = getattr(self.db_service, "users_collection", None)
+                if collection is not None:
+                    collection.update_many(
+                        {"push_subscriptions.endpoint": endpoint},
+                        {"$pull": {"push_subscriptions": {"endpoint": endpoint}}},
+                    )
         except Exception as e:
             self.logger.error(f"Error removing subscription: {e}")
 
@@ -216,10 +245,53 @@ class WebPushService:
             return False
 
         try:
-            # This would add the subscription to user's push_subscriptions array
-            # Implementation depends on database service method
-            self.logger.info(f"Saved push subscription for user {user_id}")
-            return True
+            normalized = self._validate_subscription(subscription)
+            repository_method = getattr(
+                self.db_service, "save_push_subscription", None
+            )
+            if callable(repository_method):
+                return bool(repository_method(user_id, normalized))
+
+            collection = getattr(self.db_service, "users_collection", None)
+            if collection is None:
+                return False
+
+            endpoint = normalized["endpoint"]
+            result = collection.update_one(
+                {"user_id": user_id},
+                [
+                    {
+                        "$set": {
+                            "push_subscriptions": {
+                                "$concatArrays": [
+                                    {
+                                        "$filter": {
+                                            "input": {
+                                                "$ifNull": [
+                                                    "$push_subscriptions",
+                                                    [],
+                                                ]
+                                            },
+                                            "as": "subscription",
+                                            "cond": {
+                                                "$ne": [
+                                                    "$$subscription.endpoint",
+                                                    endpoint,
+                                                ]
+                                            },
+                                        }
+                                    },
+                                    [normalized],
+                                ]
+                            }
+                        }
+                    }
+                ],
+            )
+            saved = result.matched_count > 0
+            if saved:
+                self.logger.info("Saved push subscription for user %s", user_id)
+            return saved
         except Exception as e:
             self.logger.error(f"Error saving subscription: {e}")
             return False
@@ -230,8 +302,27 @@ class WebPushService:
             return False
 
         try:
-            self.logger.info(f"Removed push subscription for user {user_id}")
-            return True
+            if not self._is_valid_endpoint(endpoint):
+                return False
+
+            repository_method = getattr(
+                self.db_service, "remove_push_subscription", None
+            )
+            if callable(repository_method):
+                return bool(repository_method(user_id, endpoint))
+
+            collection = getattr(self.db_service, "users_collection", None)
+            if collection is None:
+                return False
+
+            result = collection.update_one(
+                {"user_id": user_id},
+                {"$pull": {"push_subscriptions": {"endpoint": endpoint}}},
+            )
+            removed = result.matched_count > 0
+            if removed:
+                self.logger.info("Removed push subscription for user %s", user_id)
+            return removed
         except Exception as e:
             self.logger.error(f"Error removing subscription: {e}")
             return False
@@ -239,3 +330,32 @@ class WebPushService:
     def get_public_key(self) -> Optional[str]:
         """Get VAPID public key for clients"""
         return self.vapid_public_key
+
+    @staticmethod
+    def _is_valid_endpoint(endpoint: Any) -> bool:
+        """Accept only bounded HTTPS push-service endpoints."""
+        if not isinstance(endpoint, str) or not endpoint or len(endpoint) > 4096:
+            return False
+        parsed = urlsplit(endpoint)
+        return parsed.scheme.lower() == "https" and bool(parsed.netloc)
+
+    @classmethod
+    def _validate_subscription(cls, subscription: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and normalize browser subscription data."""
+        if not isinstance(subscription, dict):
+            raise ValueError("Invalid push subscription")
+
+        endpoint = subscription.get("endpoint")
+        keys = subscription.get("keys")
+        if not cls._is_valid_endpoint(endpoint) or not isinstance(keys, dict):
+            raise ValueError("Invalid push subscription")
+
+        p256dh = keys.get("p256dh")
+        auth = keys.get("auth")
+        if not all(isinstance(value, str) and value.strip() for value in (p256dh, auth)):
+            raise ValueError("Invalid push subscription keys")
+
+        return {
+            "endpoint": endpoint,
+            "keys": {"p256dh": p256dh, "auth": auth},
+        }

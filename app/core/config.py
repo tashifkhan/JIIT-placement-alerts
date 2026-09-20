@@ -11,8 +11,8 @@ from typing import Optional
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AliasChoices, Field
 
 
 class Settings(BaseSettings):
@@ -28,6 +28,31 @@ class Settings(BaseSettings):
         default="",
         validation_alias="MONGO_CONNECTION_STR",
         description="MongoDB connection string",
+    )
+    mongo_database_name: str = Field(
+        default="",
+        validation_alias="MONGO_DATABASE_NAME",
+        description="MongoDB database name",
+    )
+    active_placement_year: str = Field(
+        default="202526",
+        validation_alias="ACTIVE_PLACEMENT_YEAR",
+        description="Active placement year in compact format, e.g. 202526",
+    )
+    default_placement_year: str = Field(
+        default="202526",
+        validation_alias="DEFAULT_PLACEMENT_YEAR",
+        description="Default placement year for users without a preference",
+    )
+    global_database_name: str = Field(
+        default="PlacementBotGlobal",
+        validation_alias="GLOBAL_DATABASE_NAME",
+        description="MongoDB database name for global users and preferences",
+    )
+    placement_years: str = Field(
+        default='["202526", "202627"]',
+        validation_alias="PLACEMENT_YEARS",
+        description="JSON list of configured placement years",
     )
 
     # Telegram Bot
@@ -48,6 +73,11 @@ class Settings(BaseSettings):
         validation_alias="SUPERSET_CREDENTIALS",
         description="JSON list of SuperSet credentials [{'email': '...', 'password': '...'}]",
     )
+    superset_credentials_by_year: str = Field(
+        default="",
+        validation_alias="SUPERSET_CREDENTIALS_BY_YEAR",
+        description="JSON map of placement year to SuperSet credentials",
+    )
 
     # Google AI (Gemini)
     google_api_key: str = Field(
@@ -55,16 +85,28 @@ class Settings(BaseSettings):
         validation_alias="GOOGLE_API_KEY",
         description="Google API key for Gemini LLM",
     )
+    llm_timeout_seconds: float = Field(
+        default=60.0,
+        validation_alias="LLM_TIMEOUT_SECONDS",
+        gt=0,
+        description="Maximum seconds to wait for one LLM request",
+    )
+    llm_max_retries: int = Field(
+        default=2,
+        validation_alias="LLM_MAX_RETRIES",
+        ge=0,
+        description="Maximum automatic retries for one LLM request",
+    )
 
     # Placement Email (for reading offer letters)
     placement_email: str = Field(
         default="",
-        validation_alias="PLCAMENT_EMAIL",
+        validation_alias=AliasChoices("PLACEMENT_EMAIL", "PLCAMENT_EMAIL"),
         description="Email address for placement offers",
     )
     placement_app_password: str = Field(
         default="",
-        validation_alias="PLCAMENT_APP_PASSWORD",
+        validation_alias=AliasChoices("PLACEMENT_APP_PASSWORD", "PLCAMENT_APP_PASSWORD"),
         description="App password for placement email",
     )
 
@@ -92,9 +134,24 @@ class Settings(BaseSettings):
         description="Port for webhook server",
     )
     webhook_host: str = Field(
-        default="0.0.0.0",
+        default="127.0.0.1",
         validation_alias="WEBHOOK_HOST",
         description="Host for webhook server",
+    )
+    webhook_api_key: str = Field(
+        default="",
+        validation_alias="WEBHOOK_API_KEY",
+        description="API key required by protected webhook endpoints",
+    )
+    cors_origins: str = Field(
+        default="[]",
+        validation_alias="CORS_ORIGINS",
+        description="JSON list of origins allowed to access the webhook API",
+    )
+    admin_telegram_user_ids: str = Field(
+        default="[]",
+        validation_alias="ADMIN_TELEGRAM_USER_IDS",
+        description="JSON list of Telegram user IDs allowed to use admin features",
     )
 
     # Daemon Mode
@@ -121,10 +178,11 @@ class Settings(BaseSettings):
         description="Log file path (Scheduler)",
     )
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        extra = "ignore"  # Ignore extra env vars
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 # Global daemon mode flag (for backward compatibility)

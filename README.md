@@ -43,7 +43,7 @@ While the live bot above is fully functional and ready to use, you can also run 
 
 ## Prerequisites
 
-- Python 3.11+
+- Python 3.12+
 - MongoDB database
 - Telegram Bot Token
 - SuperSet portal credentials
@@ -102,20 +102,57 @@ uv sync
 
 ### Step 5: Configure environment variables
 
-Create a `.env` file in the project root:
+Copy `.env.example` to `.env` and replace every placeholder. Protected webhook
+routes fail closed unless `WEBHOOK_API_KEY` is configured. Admin bot commands
+also fail closed unless your Telegram user ID is listed in
+`ADMIN_TELEGRAM_USER_IDS`.
 
 ```
-# SuperSet Credentials
-USER_ID=your_superset_email@example.com
-PASSWORD=your_superset_password
-
 # MongoDB
 MONGO_CONNECTION_STR=mongodb+srv://username:password@cluster.mongodb.net/database
+MONGO_DATABASE_NAME=2025-26
+GLOBAL_DATABASE_NAME=PlacementBotGlobal
+ACTIVE_PLACEMENT_YEAR=202526
+DEFAULT_PLACEMENT_YEAR=202526
+PLACEMENT_YEARS=["202526", "202627"]
 
 # Telegram Configuration
 TELEGRAM_BOT_TOKEN=1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZ
 TELEGRAM_CHAT_ID=your_chat_id
+ADMIN_TELEGRAM_USER_IDS=[123456789]
+
+# SuperSet credentials grouped by ingestion year
+SUPERSET_CREDENTIALS=[]
+SUPERSET_CREDENTIALS_BY_YEAR={"202526":[{"email":"senior@example.com","password":"replace-me"}],"202627":[{"email":"junior@example.com","password":"replace-me"}]}
+
+# Protected webhook API
+WEBHOOK_API_KEY=generate_a_long_random_secret
+CORS_ORIGINS=["https://your-dashboard.example.com"]
 ```
+
+#### Placement-year configuration
+
+These settings have different purposes:
+
+- `PLACEMENT_YEARS` controls which years are available in the bot UI and notification routing.
+- `SUPERSET_CREDENTIALS_BY_YEAR` controls which years `update` and
+  `update-supersets` actually scrape. Each year to be scraped must be a key in
+  this JSON object, with at least one login credential.
+- `ACTIVE_PLACEMENT_YEAR` is the operational fallback year.
+- `DEFAULT_PLACEMENT_YEAR` is the initial year assigned to users who have not
+  selected one.
+
+With no `--year` option, a SuperSet update processes every year present in
+`SUPERSET_CREDENTIALS_BY_YEAR`. To process only one configured year:
+
+```bash
+cd app
+uv run main.py update --year 202627
+```
+
+Email ingestion determines the year from a recipient plus alias such as
+`placement+202627@example.com`. An unread email without a valid year alias is
+stored under `ACTIVE_PLACEMENT_YEAR`, unless `--year` supplies another fallback.
 
 ### Step 6: Running the Bot
 

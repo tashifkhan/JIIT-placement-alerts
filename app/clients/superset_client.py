@@ -5,15 +5,16 @@ Implements IScraperClient protocol for interacting with SuperSet APIs.
 Wraps the existing SupersetClient functionality.
 """
 
-import os
+import base64
 import json
 import logging
-import base64
 import rsa
-from typing import List, Optional, Union, Any
+from typing import List, Optional, Union
 
 import requests
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 class User(BaseModel):
@@ -25,13 +26,13 @@ class User(BaseModel):
     emailHash: str
     sessionKey: str
     uuid: str
-    refreshToken: str
-    userProfilePhotoId: str
-    userModes: List[str]
-    permissions: List[str]
-    emailVerified: bool
-    message: Optional[str]
-    enableMfa: bool
+    refreshToken: Optional[str] = None
+    userProfilePhotoId: Optional[str] = None
+    userModes: List[str] = Field(default_factory=list)
+    permissions: List[str] = Field(default_factory=list)
+    emailVerified: bool = False
+    message: Optional[str] = None
+    enableMfa: bool = False
 
 
 class Notice(BaseModel):
@@ -41,8 +42,8 @@ class Notice(BaseModel):
     title: str
     content: str
     author: str
-    updatedAt: int
-    createdAt: int
+    updatedAt: Optional[int] = None
+    createdAt: Optional[int] = None
 
 
 class EligibilityMark(BaseModel):
@@ -69,8 +70,8 @@ class Job(BaseModel):
     placement_category_code: int
     placement_category: str
     content: str
-    createdAt: Optional[int]
-    deadline: Optional[int]
+    createdAt: Optional[int] = None
+    deadline: Optional[int] = None
     eligibility_marks: List[EligibilityMark]
     eligibility_courses: List[str]
     allowed_genders: List[str]
@@ -82,7 +83,7 @@ class Job(BaseModel):
     required_skills: List[str]
     hiring_flow: List[str]
     placement_type: Optional[str] = None
-    documents: List[Document] = []
+    documents: List[Document] = Field(default_factory=list)
 
 
 class SupersetClientService:
@@ -96,10 +97,9 @@ class SupersetClientService:
     """
 
     BASE_URL = "https://app.joinsuperset.com/tnpsuite-core"
-    PUBLIC_KEY = """'
-    -----BEGIN PUBLIC KEY-----
+    PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
 MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkPixe73rT2IW04glagN2vgoZoHuOPqa5and6kAmK2ujmCHu6D1auJhE2tXP+yLkpSiYMQucDKmCsWMnW9XlC5K7OSL77TXXcfvTvyZcjObEz6LIBRzs6+FqpFbUO9SJEfh6wIDAQAB
-    -----END PUBLIC KEY-----"""
+-----END PUBLIC KEY-----"""
 
     def __init__(
         self,
@@ -116,6 +116,19 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
         self.logger = logging.getLogger(self.__class__.__name__)
         self.tenant_id = tenant_id
         self.tenant_type = tenant_type
+        self.session = requests.Session()
+        self.request_timeout = (5, 30)
+        retry_policy = Retry(
+            total=3,
+            connect=3,
+            read=3,
+            status=3,
+            backoff_factor=0.5,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset({"GET"}),
+            respect_retry_after_header=True,
+        )
+        self.session.mount("https://", HTTPAdapter(max_retries=retry_policy))
         self.logger.info("SupersetClientService initialized")
 
     def _common_headers(self) -> dict:
@@ -165,10 +178,15 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
             "TE": "trailers",
         }
 
-        response = requests.post(url, headers=headers, data=payload)
+        response = self.session.post(
+            url,
+            headers=headers,
+            data=payload,
+            timeout=self.request_timeout,
+        )
         response.raise_for_status()
 
-        self.logger.info(f"Logged in successfully as {email}")
+        self.logger.info("SuperSet login succeeded")
         return User(**response.json())
 
     def login_multiple(self, credentials: List[dict]) -> List[User]:
@@ -182,7 +200,7 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
             List of successfully logged in User objects
         """
         users = []
-        for cred in credentials:
+        for index, cred in enumerate(credentials, start=1):
             email = cred.get("email")
             password = cred.get("password")
 
@@ -191,7 +209,11 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
                 users.append(user)
 
             except Exception as e:
-                self.logger.error(f"Failed to login {email}: {e}")
+                self.logger.error(
+                    "SuperSet login failed for configured account %s (%s)",
+                    index,
+                    type(e).__name__,
+                )
 
         self.logger.info(
             f"Successfully logged in {len(users)}/{len(credentials)} users"
@@ -220,6 +242,7 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
             raise ValueError("User must be logged in to fetch notices")
 
         final_notices: List[dict] = []
+        seen_notice_ids = set()
 
         for user in users:
             url = f"{self.BASE_URL}/students/{user.uuid}/notices"
@@ -234,23 +257,26 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
                 "TE": "trailers",
             }
 
-            response = requests.get(url, headers=headers, params=params)
+            response = self.session.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=self.request_timeout,
+            )
             response.raise_for_status()
             notices = response.json()
 
-            if not final_notices:
-                final_notices.extend(notices)
-            else:
-                for notice in notices:
-                    if notice["identifier"] not in [
-                        n["identifier"] for n in final_notices
-                    ]:
-                        final_notices.append(notice)
+            for notice in notices:
+                notice_id = notice.get("identifier")
+                if not notice_id or notice_id in seen_notice_ids:
+                    continue
+                seen_notice_ids.add(notice_id)
+                final_notices.append(notice)
 
         # Sort by last modified
         notices_sorted = sorted(
             final_notices,
-            key=lambda x: x.get("lastModifiedOn", 0),
+            key=lambda x: x.get("lastModifiedOn") or x.get("publishedAt") or 0,
             reverse=True,
         )
 
@@ -289,7 +315,12 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
             "Sec-Fetch-Site": "same-origin",
         }
 
-        response = requests.get(url, params=params, headers=headers)
+        response = self.session.get(
+            url,
+            params=params,
+            headers=headers,
+            timeout=self.request_timeout,
+        )
         response.raise_for_status()
         return response.json()
 
@@ -316,7 +347,11 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
         }
 
         try:
-            response = requests.get(url, headers=headers)
+            response = self.session.get(
+                url,
+                headers=headers,
+                timeout=self.request_timeout,
+            )
             response.raise_for_status()
             result = response.json()
             return result.get("url")
@@ -491,7 +526,12 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
                 "TE": "trailers",
             }
 
-            response = requests.get(url, headers=headers, params=params)
+            response = self.session.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=self.request_timeout,
+            )
             response.raise_for_status()
             job_listings = response.json()
 
@@ -505,7 +545,7 @@ MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCgFGVfrY4jQSoZQWWygZ83roKXWD4YeT2x2p41dGkP
         # Sort by created date
         job_listings_sorted = sorted(
             all_job_listings,
-            key=lambda x: x.get("createdAt", 0),
+            key=lambda x: x.get("createdAt") or 0,
             reverse=True,
         )
 

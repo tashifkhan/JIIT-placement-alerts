@@ -6,16 +6,34 @@ Uses dependency injection for testability.
 """
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
-from core.config import safe_print
-from services.database_service import DatabaseService
-from services.telegram_service import TelegramService
-from services.web_push_service import WebPushService
-from services.notification_service import NotificationService
+from core.config import get_settings, safe_print
+from core.year_context import database_name_for_year, get_configured_placement_years
+from services.database import DatabaseService
+from services.notification import NotificationService
+from services.telegram import TelegramService
+from services.web_push import WebPushService
 
 
 logger = logging.getLogger(__name__)
+
+
+class _PlacementYearUserService:
+    """Delegate global user operations with a fixed broadcast year filter."""
+
+    def __init__(self, global_db_service: DatabaseService, placement_year: str):
+        self._global_db_service = global_db_service
+        self._placement_year = placement_year
+
+    def get_active_users(self, placement_year: Optional[str] = None):
+        """Return users subscribed to this scoped placement year."""
+        return self._global_db_service.get_active_users(
+            placement_year or self._placement_year
+        )
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._global_db_service, name)
 
 
 class NotificationRunner:
@@ -31,6 +49,7 @@ class NotificationRunner:
         telegram_service: Optional[TelegramService] = None,
         web_push_service: Optional[WebPushService] = None,
         notification_service: Optional[NotificationService] = None,
+        placement_year: Optional[str] = None,
     ):
         """
         Initialize NotificationRunner with dependencies.
@@ -56,6 +75,7 @@ class NotificationRunner:
         self._telegram_service = telegram_service
         self._web_push_service = web_push_service
         self._notification_service = notification_service
+        self.placement_year = placement_year
 
     def send_updates(
         self,
@@ -87,11 +107,11 @@ class NotificationRunner:
             web_push_service = self._web_push_service or WebPushService(
                 db_service=self.db
             )
+            channels.append(web_push_service)
             if web_push_service.is_enabled:
-                channels.append(web_push_service)
                 safe_print("Web Push channel enabled")
             else:
-                safe_print("Web Push not configured, skipping")
+                safe_print("Web Push not configured; recording disabled no-op")
 
         if not channels:
             safe_print("No channels enabled. Use --telegram or --web flags.")
@@ -101,6 +121,7 @@ class NotificationRunner:
         notification = self._notification_service or NotificationService(
             channels=channels,
             db_service=self.db,
+            placement_year=self.placement_year,
         )
 
         # Send unsent notices
@@ -135,6 +156,7 @@ def send_updates(
     db_service: Optional[DatabaseService] = None,
     telegram_service: Optional[TelegramService] = None,
     web_push_service: Optional[WebPushService] = None,
+    notification_service: Optional[NotificationService] = None,
 ) -> dict:
     """
     Convenience function to send unsent notices.
@@ -147,13 +169,68 @@ def send_updates(
         db_service: Optional database service (created if not provided)
         telegram_service: Optional Telegram service (created if not provided)
         web_push_service: Optional Web push service (created if not provided)
+        notification_service: Optional notification orchestrator for a scoped run
 
     Returns:
         Dict with send results
     """
-    with NotificationRunner(
-        db_service=db_service,
-        telegram_service=telegram_service,
-        web_push_service=web_push_service,
-    ) as runner:
-        return runner.send_updates(telegram=telegram, web=web)
+    if db_service or telegram_service or web_push_service or notification_service:
+        with NotificationRunner(
+            db_service=db_service,
+            telegram_service=telegram_service,
+            web_push_service=web_push_service,
+            notification_service=notification_service,
+        ) as runner:
+            return runner.send_updates(telegram=telegram, web=web)
+
+    from clients.db_client import DBClient
+
+    settings = get_settings()
+    placement_years = get_configured_placement_years(settings)
+    global_client = DBClient(use_global_database=True)
+    global_client.connect()
+    global_db = DatabaseService(global_client)
+    results: dict = {
+        "years": {},
+        "total": 0,
+        "sent": 0,
+        "failed": 0,
+    }
+
+    try:
+        for placement_year in placement_years:
+            year_client = DBClient(
+                database_name=database_name_for_year(placement_year)
+            )
+            year_client.connect()
+            year_db = DatabaseService(year_client)
+            if hasattr(global_db, "import_legacy_users"):
+                global_db.import_legacy_users(
+                    year_db.get_all_users(),
+                    placement_year,
+                )
+            user_db = _PlacementYearUserService(global_db, placement_year)
+
+            try:
+                scoped_telegram = (
+                    TelegramService(db_service=user_db) if telegram else None
+                )
+                scoped_web_push = (
+                    WebPushService(db_service=user_db) if web else None
+                )
+                runner = NotificationRunner(
+                    db_service=year_db,
+                    telegram_service=scoped_telegram,
+                    web_push_service=scoped_web_push,
+                    placement_year=placement_year,
+                )
+                year_result = runner.send_updates(telegram=telegram, web=web)
+                results["years"][placement_year] = year_result
+                for key in ("total", "sent", "failed"):
+                    results[key] += int(year_result.get(key, 0))
+            finally:
+                year_db.close_connection()
+    finally:
+        global_db.close_connection()
+
+    return results

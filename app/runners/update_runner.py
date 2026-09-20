@@ -5,14 +5,19 @@ Handles fetching and processing updates from SuperSet portal.
 Uses dependency injection for testability.
 """
 
-import json
 import logging
 from typing import Optional
 
 from core.config import get_settings, safe_print
-from services.database_service import DatabaseService
+from core.year_context import (
+    database_name_for_year,
+    get_active_year,
+    get_superset_credentials_by_year,
+    get_superset_credentials_for_year,
+)
+from services.database import DatabaseService
 from clients.superset_client import SupersetClientService
-from services.notice_formatter_service import NoticeFormatterService
+from services.notice_formatter import NoticeFormatterService
 
 
 logger = logging.getLogger(__name__)
@@ -30,6 +35,7 @@ class UpdateRunner:
         db_service: Optional[DatabaseService] = None,
         scraper_service: Optional[SupersetClientService] = None,
         formatter_service: Optional[NoticeFormatterService] = None,
+        placement_year: Optional[str] = None,
     ):
         """
         Initialize UpdateRunner with dependencies.
@@ -38,20 +44,27 @@ class UpdateRunner:
             db_service: Database service instance (created if not provided)
             scraper_service: SuperSet client instance (created if not provided)
             formatter_service: Formatter service instance (created if not provided)
+            placement_year: Placement year for ingestion scoping.
         """
+        settings = get_settings()
+        self.placement_year = get_active_year(settings, placement_year)
+
         if db_service:
             self.db = db_service
             self._owns_db = False
         else:
             from clients.db_client import DBClient
 
-            self.db_client = DBClient()
+            database_name = database_name_for_year(self.placement_year)
+            self.db_client = DBClient(database_name=database_name)
             self.db_client.connect()
             self.db = DatabaseService(self.db_client)
             self._owns_db = True
 
         self.scraper = scraper_service or SupersetClientService()
-        self.formatter = formatter_service or NoticeFormatterService()
+        self.formatter = formatter_service or NoticeFormatterService(
+            placement_year=self.placement_year
+        )
 
     def fetch_and_process_updates(self) -> dict:
         """
@@ -66,13 +79,14 @@ class UpdateRunner:
         settings = get_settings()
 
         safe_print("Initializing services...")
+        safe_print(f"Using placement year {self.placement_year}")
 
         # Login to SuperSet
         safe_print("Logging in to SuperSet...")
         users = []
 
         try:
-            credentials = json.loads(settings.superset_credentials)
+            credentials = get_superset_credentials_for_year(settings, self.placement_year)
             if credentials:
                 users = self.scraper.login_multiple(credentials)
                 for user in users:
@@ -198,20 +212,20 @@ class UpdateRunner:
 
         for notice in notices:
             try:
-                # Format notice with enricher callback
+                # Extract structured notice fields with an enricher callback.
                 # The LLM will identify the matching job, and if found,
-                # the enricher is called mid-pipeline before formatting
-                formatted = self.formatter.format_notice(
+                # the enricher is called mid-pipeline before output mapping.
+                structured_notice = self.formatter.format_notice(
                     notice,
                     list(jobs_by_id.values()),
                     job_enricher=job_enricher,
                 )
-                matched_job_id = formatted.get("matched_job_id")
+                matched_job_id = structured_notice.get("matched_job_id")
 
                 if matched_job_id:
                     matched_job_ids.add(matched_job_id)
 
-                success, _ = self.db.save_notice(formatted)
+                success, _ = self.db.save_notice(structured_notice)
                 if success:
                     new_notices += 1
 
@@ -255,6 +269,7 @@ def fetch_and_process_updates(
     db_service: Optional[DatabaseService] = None,
     scraper_service: Optional[SupersetClientService] = None,
     formatter_service: Optional[NoticeFormatterService] = None,
+    placement_year: Optional[str] = None,
 ) -> dict:
     """
     Convenience function to fetch and process updates.
@@ -265,13 +280,40 @@ def fetch_and_process_updates(
         db_service: Optional database service (created if not provided)
         scraper_service: Optional SuperSet client (created if not provided)
         formatter_service: Optional formatter service (created if not provided)
+        placement_year: Placement year for ingestion scoping.
 
     Returns:
         Dict with counts of new notices and jobs
     """
-    with UpdateRunner(
-        db_service=db_service,
-        scraper_service=scraper_service,
-        formatter_service=formatter_service,
-    ) as runner:
-        return runner.fetch_and_process_updates()
+    if db_service or scraper_service or formatter_service:
+        with UpdateRunner(
+            db_service=db_service,
+            scraper_service=scraper_service,
+            formatter_service=formatter_service,
+            placement_year=placement_year,
+        ) as runner:
+            return runner.fetch_and_process_updates()
+
+    settings = get_settings()
+    credentials_by_year = get_superset_credentials_by_year(settings, placement_year)
+    results_by_year = {}
+    total_notices = 0
+    total_jobs = 0
+
+    for year, credentials in credentials_by_year.items():
+        if not credentials:
+            safe_print(f"No SuperSet credentials configured for {year}, skipping")
+            results_by_year[year] = {"notices": 0, "jobs": 0, "skipped": True}
+            continue
+
+        with UpdateRunner(placement_year=year) as runner:
+            result = runner.fetch_and_process_updates()
+            results_by_year[year] = result
+            total_notices += result.get("notices", 0)
+            total_jobs += result.get("jobs", 0)
+
+    return {
+        "notices": total_notices,
+        "jobs": total_jobs,
+        "per_year": results_by_year,
+    }

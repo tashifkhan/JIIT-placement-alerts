@@ -8,6 +8,7 @@ from langgraph.graph import END, StateGraph
 from pydantic import ValidationError
 
 from core.config import safe_print
+from core.llm import message_text
 from services.placement.extraction.constants import (
     COMPANY_INDICATORS,
     NEGATIVE_KEYWORDS,
@@ -153,7 +154,7 @@ class PlacementGraphMixin:
                 }
             )
 
-            json_content = extract_json_from_response(str(response.content))
+            json_content = extract_json_from_response(message_text(response))
             data = json.loads(json_content)
 
             if not data or len(data) == 0:

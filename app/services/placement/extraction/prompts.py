@@ -1,6 +1,6 @@
 """LLM prompts for placement offer extraction."""
 
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 
 
 EXTRACTION_PROMPT = ChatPromptTemplate.from_template(

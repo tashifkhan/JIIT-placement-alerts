@@ -4,7 +4,7 @@ import json
 import logging
 
 from bs4 import BeautifulSoup
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from rapidfuzz import fuzz, process
 
 from services.notice_formatter.state import PostState
@@ -58,7 +58,7 @@ class NoticeFormatterGraphNodeMixin:
 
         chain = classification_prompt | self.llm
         result = chain.invoke({"raw_text": state.get("raw_text", "")})
-        category = self._ensure_str_content(result.content).strip().lower()
+        category = self._ensure_str_content(result).strip().lower()
         state["category"] = category
         logger.debug("Notice classified as %s", category)
         return state
@@ -83,7 +83,7 @@ class NoticeFormatterGraphNodeMixin:
 
         extraction_chain = company_extraction_prompt | self.llm
         result = extraction_chain.invoke({"raw_text": notice_text})
-        extracted_names_str = self._ensure_str_content(result.content).strip()
+        extracted_names_str = self._ensure_str_content(result).strip()
 
         if not extracted_names_str:
             logger.debug("No company names extracted; skipping job match")
@@ -182,7 +182,7 @@ class NoticeFormatterGraphNodeMixin:
                 "raw_text": state.get("raw_text", ""),
             }
         )
-        raw_content = self._ensure_str_content(result.content)
+        raw_content = self._ensure_str_content(result)
         cleaned_json_str = (
             raw_content.strip().replace("```json", "").replace("```", "").strip()
         )

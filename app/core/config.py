@@ -85,6 +85,16 @@ class Settings(BaseSettings):
         validation_alias="GOOGLE_API_KEY",
         description="Google API key for Gemini LLM",
     )
+    llm_model: str = Field(
+        default="gemini-3.8-flash",
+        validation_alias="LLM_MODEL",
+        description="Gemini model id used by every LangGraph pipeline",
+    )
+    llm_thinking_level: str = Field(
+        default="low",
+        validation_alias="LLM_THINKING_LEVEL",
+        description="Gemini 3 thinking level: low, medium, or high",
+    )
     llm_timeout_seconds: float = Field(
         default=60.0,
         validation_alias="LLM_TIMEOUT_SECONDS",

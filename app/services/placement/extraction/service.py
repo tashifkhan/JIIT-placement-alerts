@@ -4,10 +4,9 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-
 from clients.google_groups_client import GoogleGroupsClient
 from core.config import get_settings, safe_print
+from core.llm import DEFAULT_GEMINI_MODEL, build_chat_model
 from services.placement.extraction.email_fetcher import PlacementEmailFetcherMixin
 from services.placement.extraction.graph import PlacementGraphMixin
 from services.placement.extraction.models import GraphState, PlacementOffer
@@ -34,7 +33,7 @@ class PlacementService(
         db_service: Optional[Any] = None,
         notification_formatter: Optional[Any] = None,
         email_client: Optional[Any] = None,
-        model: str = "gemini-2.5-pro",
+        model: str = DEFAULT_GEMINI_MODEL,
         output_file: Optional[str] = None,
     ):
         """
@@ -67,13 +66,7 @@ class PlacementService(
             os.getcwd(), "data", "placement_offers.json"
         )
 
-        self.llm = ChatGoogleGenerativeAI(
-            model=model,
-            temperature=0,
-            google_api_key=api_key,
-            timeout=settings.llm_timeout_seconds,
-            max_retries=settings.llm_max_retries,
-        )
+        self.llm = build_chat_model(model=model, api_key=api_key)
 
         self.app = self._build_graph()
 

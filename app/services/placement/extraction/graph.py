@@ -21,7 +21,11 @@ from services.placement.extraction.email_utils import (
     strip_headers_and_forwarded_markers,
 )
 from services.placement.extraction.models import GraphState, PlacementOffer
-from services.placement.extraction.prompts import EXTRACTION_PROMPT
+from services.campus_match import find_job_candidates, parse_campus_decision
+from services.placement.extraction.prompts import (
+    EXTRACTION_PROMPT,
+    OFFER_ON_CAMPUS_PROMPT,
+)
 
 
 class PlacementGraphMixin:
@@ -35,6 +39,7 @@ class PlacementGraphMixin:
         workflow.add_node("extract_info", self._extract_info)
         workflow.add_node("validate_and_enhance", self._validate_and_enhance)
         workflow.add_node("sanitize_privacy", self._sanitize_privacy)
+        workflow.add_node("classify_on_campus", self._classify_on_campus)
         workflow.add_node("display_results", self._display_results)
 
         workflow.set_entry_point("classify")
@@ -42,7 +47,8 @@ class PlacementGraphMixin:
         workflow.add_conditional_edges("classify", self._decide_to_extract)
         workflow.add_conditional_edges("extract_info", self._should_retry_extraction)
         workflow.add_edge("validate_and_enhance", "sanitize_privacy")
-        workflow.add_edge("sanitize_privacy", "display_results")
+        workflow.add_edge("sanitize_privacy", "classify_on_campus")
+        workflow.add_edge("classify_on_campus", "display_results")
         workflow.add_edge("display_results", END)
 
         return workflow.compile()
@@ -335,6 +341,56 @@ class PlacementGraphMixin:
 
         if changed:
             safe_print("Privacy sanitization applied to extracted offer.")
+        return {**state, "extracted_offer": offer}
+
+    def _classify_on_campus(self, state: GraphState) -> GraphState:
+        """Tag the offer as likely on campus when it matches a year-scoped drive.
+
+        Runs after privacy sanitization and sends the judge only company, roles,
+        location and the subject line. Student rows never reach this call.
+        Any failure leaves the tag off rather than blocking the offer.
+        """
+        offer = state.get("extracted_offer")
+        if not offer:
+            return state
+
+        offer.likely_on_campus = False
+        offer.on_campus_confidence = None
+        role = " / ".join(r.role for r in offer.roles if r.role)
+        try:
+            candidates = find_job_candidates(self._get_jobs(), offer.company, role)
+        except Exception:
+            self.logger.exception("Failed to build on-campus candidates for offer")
+            return {**state, "extracted_offer": offer}
+        if not candidates:
+            return {**state, "extracted_offer": offer}
+
+        offer_summary = {
+            "company": offer.company,
+            "roles": [r.model_dump() for r in offer.roles],
+            "job_location": offer.job_location,
+            "number_of_offers": offer.number_of_offers,
+        }
+        chain = OFFER_ON_CAMPUS_PROMPT | self.llm
+        try:
+            response = chain.invoke(
+                {
+                    "subject": state["email"].get("subject", ""),
+                    "offer": json.dumps(offer_summary, default=str),
+                    "candidates": json.dumps(candidates, default=str),
+                }
+            )
+            likely, confidence, _ = parse_campus_decision(
+                message_text(response),
+                candidates,
+                self.likely_on_campus_min_confidence,
+            )
+            offer.likely_on_campus = likely
+            offer.on_campus_confidence = confidence
+        except (TypeError, ValueError, json.JSONDecodeError):
+            self.logger.warning("Offer on-campus judge returned invalid output", exc_info=True)
+        except Exception:
+            self.logger.exception("Offer on-campus judge failed")
         return {**state, "extracted_offer": offer}
 
     def _display_results(self, state: GraphState) -> GraphState:

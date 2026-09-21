@@ -265,6 +265,24 @@ class PlacementOfferRepository(RepositoryMixin):
                         if self._has_value(value):
                             set_doc[field] = value
 
+                    # A company's document collects several emails. Keep the most
+                    # confident campus assessment instead of letting a later email
+                    # that failed or scored lower clear a tag an earlier one earned.
+                    if "likely_on_campus" in offer:
+                        new_conf = offer.get("on_campus_confidence")
+                        old_conf = existing_company.get("on_campus_confidence")
+                        if (
+                            "likely_on_campus" not in existing_company
+                            or (offer.get("likely_on_campus") and not existing_company.get("likely_on_campus"))
+                            or (
+                                offer.get("likely_on_campus") == existing_company.get("likely_on_campus")
+                                and new_conf is not None
+                                and (old_conf is None or new_conf > old_conf)
+                            )
+                        ):
+                            set_doc["likely_on_campus"] = bool(offer.get("likely_on_campus"))
+                            set_doc["on_campus_confidence"] = new_conf
+
                     if source_dt:
                         set_doc["created_at"] = source_dt
                         set_doc["saved_at"] = source_dt

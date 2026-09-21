@@ -56,5 +56,7 @@ class PlacementOfferDocument(MongoModel):
     matched_job_id: str | None = None
     related_job_id: str | None = None
     matched_job: MatchedJobSummary | None = None
+    likely_on_campus: bool = False
+    on_campus_confidence: float | None = Field(default=None, ge=0, le=1)
 
     details: dict[str, Any] = Field(default_factory=dict)

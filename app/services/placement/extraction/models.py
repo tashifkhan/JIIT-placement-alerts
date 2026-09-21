@@ -42,6 +42,8 @@ class PlacementOffer(BaseModel):
     time_sent: str | None = None
     created_at: str | None = None
     createdAt: int | None = None
+    likely_on_campus: bool = False
+    on_campus_confidence: float | None = None
 
 
 class GraphState(TypedDict):

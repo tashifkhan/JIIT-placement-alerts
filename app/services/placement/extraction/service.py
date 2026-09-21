@@ -61,6 +61,10 @@ class PlacementService(
         api_key = google_api_key or settings.google_api_key
 
         self.db_service = db_service
+        self._jobs_cache: list[dict[str, Any]] | None = None
+        self.likely_on_campus_min_confidence = (
+            settings.likely_on_campus_min_confidence
+        )
         self.notification_formatter = notification_formatter
         self.output_file = output_file or os.path.join(
             os.getcwd(), "data", "placement_offers.json"
@@ -71,6 +75,19 @@ class PlacementService(
         self.app = self._build_graph()
 
         self.logger.info("PlacementService initialized")
+
+    def _get_jobs(self) -> list[dict[str, Any]]:
+        """Return this year's jobs for on-campus matching, loaded once per run."""
+        if self._jobs_cache is not None:
+            return self._jobs_cache
+        jobs: list[dict[str, Any]] = []
+        if self.db_service and hasattr(self.db_service, "get_all_jobs"):
+            try:
+                jobs = self.db_service.get_all_jobs(limit=0) or []
+            except Exception:
+                self.logger.warning("Could not load jobs for on-campus matching", exc_info=True)
+        self._jobs_cache = jobs
+        return jobs
 
     def process_email(self, email_data: dict[str, str]) -> PlacementOffer | None:
         """Process a single email through the LangGraph pipeline."""

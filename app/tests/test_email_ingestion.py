@@ -185,7 +185,7 @@ def test_candidate_matching_reads_all_jobs_and_expands_company_acronym():
     assert candidates[0]["acronym_match"] is True
 
 
-def test_notice_document_persists_likely_tag_confidence_and_selected_job():
+def test_notice_document_links_selected_job_without_campus_tag():
     builder = NoticeBuilder()
     matched_job = {
         "id": "job-1",
@@ -195,19 +195,14 @@ def test_notice_document_persists_likely_tag_confidence_and_selected_job():
     }
 
     result = builder._create_notice_document(
-        _notice(),
-        _email_data(),
-        matched_job=matched_job,
-        likely_on_campus=True,
-        on_campus_confidence=0.87,
+        _notice(), _email_data(), matched_job=matched_job
     )
 
-    assert result.likely_on_campus is True
-    assert result.on_campus_confidence == 0.87
     assert result.matched_job_id == "job-1"
+    assert "likely_on_campus" not in result.model_dump()
 
 
-def test_notification_includes_likely_tag_with_confidence():
+def test_notification_has_no_campus_line():
     message = NoticeMessageBuilder().build(
         {
             "title": "Interview update",
@@ -218,11 +213,11 @@ def test_notification_includes_likely_tag_with_confidence():
         }
     )
 
-    assert "**Likely on campus · 87%**" in message
+    assert "on campus" not in message.lower()
 
 
 @pytest.mark.parametrize(
-    ("payload", "expected_likely"),
+    ("payload", "expect_link"),
     [
         (
             '{"likely_on_campus": true, "confidence": 0.87, '
@@ -241,8 +236,8 @@ def test_notification_includes_likely_tag_with_confidence():
         ),
     ],
 )
-def test_likely_classifier_validates_job_id_and_threshold(
-    monkeypatch, payload, expected_likely
+def test_notice_job_matcher_validates_job_id_and_threshold(
+    monkeypatch, payload, expect_link
 ):
     class FakePrompt:
         def __or__(self, llm):
@@ -269,10 +264,9 @@ def test_likely_classifier_validates_job_id_and_threshold(
         ],
     }
 
-    result = graph._classify_likely_on_campus(state)
+    result = graph._match_job(state)
 
-    assert result["likely_on_campus"] is expected_likely
-    assert (result["selected_job"] is not None) is expected_likely
+    assert (result["selected_job"] is not None) is expect_link
 
 
 def test_distinct_message_ids_produce_distinct_notice_ids():

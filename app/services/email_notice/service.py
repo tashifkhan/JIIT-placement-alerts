@@ -132,8 +132,6 @@ class EmailNoticeService(EmailNoticeGraphMixin, EmailNoticeDocumentMixin):
             "extracted_policy": None,
             "is_policy_update": False,
             "job_candidates": [],
-            "likely_on_campus": None,
-            "on_campus_confidence": None,
             "selected_job": None,
         }
 
@@ -153,6 +151,4 @@ class EmailNoticeService(EmailNoticeGraphMixin, EmailNoticeDocumentMixin):
             notice,
             email_data,
             matched_job=result.get("selected_job"),
-            likely_on_campus=bool(result.get("likely_on_campus")),
-            on_campus_confidence=result.get("on_campus_confidence"),
         )

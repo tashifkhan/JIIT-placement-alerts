@@ -2,7 +2,7 @@
 
 from typing import TypedDict
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Student(BaseModel):
@@ -44,6 +44,12 @@ class PlacementOffer(BaseModel):
     createdAt: int | None = None
     likely_on_campus: bool = False
     on_campus_confidence: float | None = None
+    # Why the judge decided, kept so a wrong tag can be traced and corrected.
+    on_campus_reason: str | None = None
+    on_campus_signals: list[str] = Field(default_factory=list)
+    on_campus_job_id: str | None = None
+    on_campus_ppo: bool | None = None
+    on_campus_model: str | None = None
 
 
 class GraphState(TypedDict):

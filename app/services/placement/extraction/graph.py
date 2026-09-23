@@ -21,7 +21,7 @@ from services.placement.extraction.email_utils import (
     strip_headers_and_forwarded_markers,
 )
 from services.placement.extraction.models import GraphState, PlacementOffer
-from services.campus_match import find_job_candidates, parse_campus_decision
+from services.campus_match import find_job_candidates, parse_campus_verdict
 from services.placement.extraction.prompts import (
     EXTRACTION_PROMPT,
     OFFER_ON_CAMPUS_PROMPT,
@@ -380,13 +380,20 @@ class PlacementGraphMixin:
                     "candidates": json.dumps(candidates, default=str),
                 }
             )
-            likely, confidence, _ = parse_campus_decision(
+            verdict = parse_campus_verdict(
                 message_text(response),
                 candidates,
                 self.likely_on_campus_min_confidence,
             )
-            offer.likely_on_campus = likely
-            offer.on_campus_confidence = confidence
+            offer.likely_on_campus = verdict["likely"]
+            offer.on_campus_confidence = verdict["confidence"]
+            offer.on_campus_reason = verdict["reason"]
+            offer.on_campus_signals = verdict["signals"]
+            offer.on_campus_job_id = verdict["job_id"]
+            offer.on_campus_ppo = verdict["pre_placement_offer"]
+            offer.on_campus_model = getattr(self.llm, "model", None) or getattr(
+                self.llm, "model_name", None
+            )
         except (TypeError, ValueError, json.JSONDecodeError):
             self.logger.warning("Offer on-campus judge returned invalid output", exc_info=True)
         except Exception:

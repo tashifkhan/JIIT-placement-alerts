@@ -15,6 +15,13 @@ class PlacementOfferRepository(RepositoryMixin):
     """Persistence and stats operations for placement offer records."""
 
     STUDENT_OFFER_TIMESTAMP_FIELDS = frozenset({"offer_received_at", "offerReceivedAt"})
+    ON_CAMPUS_DETAIL_FIELDS = (
+        "on_campus_reason",
+        "on_campus_signals",
+        "on_campus_job_id",
+        "on_campus_ppo",
+        "on_campus_model",
+    )
 
     @staticmethod
     def _student_identity(student: dict[str, Any]) -> str | None:
@@ -282,6 +289,10 @@ class PlacementOfferRepository(RepositoryMixin):
                         ):
                             set_doc["likely_on_campus"] = bool(offer.get("likely_on_campus"))
                             set_doc["on_campus_confidence"] = new_conf
+                            # The reason travels with the verdict it explains.
+                            for field in self.ON_CAMPUS_DETAIL_FIELDS:
+                                if field in offer:
+                                    set_doc[field] = offer[field]
 
                     if source_dt:
                         set_doc["created_at"] = source_dt

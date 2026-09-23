@@ -124,15 +124,26 @@ Decision rules:
   candidates.
 - A company appearing in CANDIDATES is strong evidence. A generic role by itself is weak
   evidence. An acronym must agree with other details when it can name more than one company.
+- A drive that hires interns "to be converted to full time" is still a campus drive. When the
+  candidate is that company's posted drive and the role or package agrees, treat it as a match.
+- A pre-placement offer (PPO) converts an earlier internship. Set pre_placement_offer to true
+  when the subject or offer says so. It can still be on campus if the internship drive is in
+  CANDIDATES.
 - When evidence is missing or candidates conflict, return false with a lower confidence.
 - confidence is the estimated probability that the offer came through the selected drive.
   It must be a number from 0 to 1.
+- reason is one plain sentence a person can check, naming the evidence for or against.
+- signals lists the short facts you relied on, such as "same company", "package matches",
+  "role differs", "PPO subject".
 
 Return only this JSON shape:
 {{
   "likely_on_campus": true,
   "confidence": 0.87,
-  "best_job_id": "candidate-id"
+  "best_job_id": "candidate-id",
+  "pre_placement_offer": false,
+  "reason": "Same company and role as the posted drive, and the package matches.",
+  "signals": ["same company", "same role", "package matches"]
 }}
 
 --- BEGIN UNTRUSTED OFFER ---

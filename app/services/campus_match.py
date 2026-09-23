@@ -190,6 +190,21 @@ def parse_campus_decision(
     the match passes. Raises ValueError, TypeError or JSONDecodeError on output
     that cannot be trusted, so callers can treat any of those as "no tag".
     """
+    verdict = parse_campus_verdict(response_content, candidates, min_confidence)
+    return verdict["likely"], verdict["confidence"], verdict["job"]
+
+
+def parse_campus_verdict(
+    response_content: str,
+    candidates: list[dict[str, Any]],
+    min_confidence: float,
+) -> dict[str, Any]:
+    """Like parse_campus_decision, plus the judge's stated reason.
+
+    Keys: likely, confidence, job, job_id (the judge's pick even when it fell
+    under the threshold), reason, signals, pre_placement_offer. Reason and
+    signals are trimmed so a rambling model cannot bloat the document.
+    """
     candidate_by_id = {str(candidate["id"]): candidate for candidate in candidates}
     # Models sometimes follow the object with a sentence or a second copy.
     # Decode the first object and ignore whatever trails it.
@@ -212,4 +227,16 @@ def parse_campus_decision(
         raise ValueError("likely result must select a supplied job id")
 
     likely = model_likely and selected_job is not None and confidence >= min_confidence
-    return likely, confidence, selected_job if likely else None
+    reason = data.get("reason")
+    signals = data.get("signals")
+    return {
+        "likely": likely,
+        "confidence": confidence,
+        "job": selected_job if likely else None,
+        "job_id": str(selected_job["id"]) if selected_job else None,
+        "reason": " ".join(str(reason).split())[:500] if reason else None,
+        "signals": [str(item)[:80] for item in signals[:8]]
+        if isinstance(signals, list)
+        else [],
+        "pre_placement_offer": data.get("pre_placement_offer") is True,
+    }

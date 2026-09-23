@@ -58,5 +58,13 @@ class PlacementOfferDocument(MongoModel):
     matched_job: MatchedJobSummary | None = None
     likely_on_campus: bool = False
     on_campus_confidence: float | None = Field(default=None, ge=0, le=1)
+    # Why the judge decided, kept so a wrong tag can be traced and corrected.
+    on_campus_reason: str | None = None
+    on_campus_signals: list[str] = Field(default_factory=list)
+    on_campus_job_id: str | None = None
+    on_campus_ppo: bool | None = None
+    on_campus_model: str | None = None
+    # Raw model reasoning from the backfill gateway, trimmed. Absent otherwise.
+    on_campus_reasoning: str | None = None
 
     details: dict[str, Any] = Field(default_factory=dict)

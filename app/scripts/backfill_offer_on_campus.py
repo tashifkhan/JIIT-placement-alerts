@@ -25,6 +25,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,11 +41,13 @@ from core.year_context import (
     get_configured_placement_years,
     normalize_year,
 )
-from services.campus_match import find_job_candidates, parse_campus_decision
+from services.campus_match import find_job_candidates, parse_campus_verdict
 from services.placement.extraction.prompts import OFFER_ON_CAMPUS_PROMPT
 
 DEFAULT_BASE_URL = "http://100.111.180.97:8317"
-DEFAULT_MODEL = "go/omen-alpha"
+DEFAULT_MODEL = "go/muse-spark-1.3-contributor"
+DEFAULT_REASONING_EFFORT = "medium"
+REASONING_LIMIT = 4000
 DEFAULT_STATE_DIR = Path(__file__).resolve().parents[2] / "logs"
 
 logger = logging.getLogger("backfill_offer_on_campus")
@@ -66,6 +69,7 @@ class GatewayClient:
         timeout: int = 180,
         max_retries: int = 3,
         max_tokens: int = 1500,
+        reasoning_effort: str | None = None,
     ):
         self.url = base_url.rstrip("/") + "/v1/chat/completions"
         self.api_key = api_key
@@ -73,13 +77,17 @@ class GatewayClient:
         self.timeout = timeout
         self.max_retries = max_retries
         self.max_tokens = max_tokens
+        self.reasoning_effort = reasoning_effort
+        self.session_id = f"placement-backfill-{uuid.uuid4()}"
         self._lock = threading.Lock()
         self.prompt_tokens = 0
         self.completion_tokens = 0
         self.calls = 0
 
-    def classify(self, prompt: str) -> str:
-        """Return the model's text answer, widening the budget if it truncates.
+    def classify(self, prompt: str) -> tuple[str, str | None]:
+        """Return the model's answer and its reasoning text, if the model sent any.
+
+        Widens the budget if the answer truncates.
 
         Reasoning models spend the completion budget on reasoning_content first
         and emit an empty content when it runs out, so a truncated answer is
@@ -89,19 +97,22 @@ class GatewayClient:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
             "User-Agent": "placement-backfill/1.0",
+            # OpenCode Go refuses contributor models without a session id.
+            "x-opencode-session": self.session_id,
         }
         budget = self.max_tokens
         last_error: Exception | None = None
 
         for attempt in range(self.max_retries):
-            payload = json.dumps(
-                {
-                    "model": self.model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0,
-                    "max_tokens": budget,
-                }
-            ).encode()
+            body_fields: dict[str, Any] = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0,
+                "max_tokens": budget,
+            }
+            if self.reasoning_effort:
+                body_fields["reasoning_effort"] = self.reasoning_effort
+            payload = json.dumps(body_fields).encode()
             request = urllib.request.Request(
                 self.url, data=payload, method="POST", headers=headers
             )
@@ -125,9 +136,11 @@ class GatewayClient:
                 choices = body.get("choices") or []
                 if not choices:
                     raise GatewayError("gateway returned no choices")
-                content = (choices[0].get("message") or {}).get("content") or ""
+                message = choices[0].get("message") or {}
+                content = message.get("content") or ""
+                reasoning = message.get("reasoning_content") or message.get("reasoning")
                 if content.strip():
-                    return content
+                    return content, reasoning if isinstance(reasoning, str) else None
 
                 last_error = GatewayError(
                     f"empty content (finish_reason={choices[0].get('finish_reason')}, "
@@ -240,7 +253,16 @@ def backfill_year(
                 if not dry_run:
                     offers.update_one(
                         {"_id": doc["_id"]},
-                        {"$set": {"likely_on_campus": False, "on_campus_confidence": None}},
+                        {
+                            "$set": {
+                                "likely_on_campus": False,
+                                "on_campus_confidence": None,
+                                "on_campus_reason": "No posted drive resembles this company.",
+                                "on_campus_signals": [],
+                                "on_campus_job_id": None,
+                                "on_campus_model": None,
+                            }
+                        },
                     )
                 state.record(offer_id, {"outcome": "no_candidates", "company": doc.get("company")})
                 with lock:
@@ -248,8 +270,9 @@ def backfill_year(
                 return
 
             try:
-                raw = client.classify(build_prompt(doc, candidates))
-                likely, confidence, job = parse_campus_decision(raw, candidates, min_confidence)
+                raw, reasoning = client.classify(build_prompt(doc, candidates))
+                verdict = parse_campus_verdict(raw, candidates, min_confidence)
+                likely, confidence, job = verdict["likely"], verdict["confidence"], verdict["job"]
             except (GatewayError, ValueError, TypeError, json.JSONDecodeError) as error:
                 logger.warning("Offer %s could not be classified: %s", offer_id, error)
                 state.record(offer_id, {"outcome": "failed", "error": str(error)[:200]})
@@ -260,7 +283,18 @@ def backfill_year(
             if not dry_run:
                 offers.update_one(
                     {"_id": doc["_id"]},
-                    {"$set": {"likely_on_campus": likely, "on_campus_confidence": confidence}},
+                    {
+                        "$set": {
+                            "likely_on_campus": likely,
+                            "on_campus_confidence": confidence,
+                            "on_campus_reason": verdict["reason"],
+                            "on_campus_signals": verdict["signals"],
+                            "on_campus_job_id": verdict["job_id"],
+                            "on_campus_ppo": verdict["pre_placement_offer"],
+                            "on_campus_model": client.model,
+                            "on_campus_reasoning": (reasoning or "")[:REASONING_LIMIT] or None,
+                        }
+                    },
                 )
             state.record(
                 offer_id,
@@ -269,6 +303,13 @@ def backfill_year(
                     "company": doc.get("company"),
                     "confidence": confidence,
                     "job_id": (job or {}).get("id"),
+                    "picked_job_id": verdict["job_id"],
+                    "ppo": verdict["pre_placement_offer"],
+                    "reason": verdict["reason"],
+                    "previous": {
+                        "likely_on_campus": doc.get("likely_on_campus"),
+                        "on_campus_confidence": doc.get("on_campus_confidence"),
+                    },
                     "candidates": len(candidates),
                 },
             )
@@ -295,6 +336,11 @@ def main() -> None:
     parser.add_argument("--api-key", default=os.getenv("BACKFILL_GATEWAY_KEY", ""))
     parser.add_argument("--min-confidence", type=float, default=None)
     parser.add_argument("--concurrency", type=int, default=4)
+    parser.add_argument(
+        "--reasoning-effort",
+        default=DEFAULT_REASONING_EFFORT,
+        help="low | medium | high, or empty to omit",
+    )
     parser.add_argument("--force", action="store_true", help="Reclassify offers already carrying the flag")
     parser.add_argument("--state-file", help="Resume log path (defaults to logs/)")
     args = parser.parse_args()
@@ -322,7 +368,12 @@ def main() -> None:
             )
         ]
 
-    client = GatewayClient(args.base_url, args.api_key, args.model)
+    client = GatewayClient(
+        args.base_url,
+        args.api_key,
+        args.model,
+        reasoning_effort=args.reasoning_effort or None,
+    )
     totals: dict[str, dict[str, int]] = {}
 
     for year in years:

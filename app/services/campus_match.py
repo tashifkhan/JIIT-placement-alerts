@@ -11,7 +11,7 @@ import math
 import re
 from typing import Any
 
-from rapidfuzz import fuzz
+from rapidfuzz import fuzz, utils
 
 _ACRONYM_IGNORED = {
     "and",
@@ -40,6 +40,72 @@ def company_acronym(value: str) -> str:
     return "".join(word[0] for word in words).upper() if len(words) > 1 else ""
 
 
+# Words that say what kind of entity a company is, not which one. Scoring on
+# them makes every "X India Pvt Ltd" look like every other one.
+_GENERIC_COMPANY_WORDS = _ACRONYM_IGNORED | {
+    "co",
+    "corp",
+    "inc",
+    "incorporated",
+    "ltd",
+    "plc",
+    "solutions",
+    "services",
+    "software",
+    "systems",
+    "technologies",
+    "technology",
+    "tech",
+    "labs",
+    "holdings",
+    "consulting",
+}
+
+_SHORT_NAME = 4
+
+
+def company_names(value: str) -> list[str]:
+    """Distinctive name forms for scoring.
+
+    "JTG (Josh Technology Group)" gives both "jtg" and "josh" since either side
+    of the bracket can be the brand. Generic words are dropped, falling back to
+    the full name when nothing else is left ("Global Services" stays whole).
+    """
+    names = [re.sub(r"\(.*?\)", " ", value)]
+    for inner in re.findall(r"\(([^)]+)\)", value):
+        names.append(re.sub(r"^(formerly|previously)\s+", "", inner, flags=re.I))
+    out = []
+    for name in names:
+        words = re.findall(r"[a-z0-9]+", name.casefold())
+        core = [word for word in words if word not in _GENERIC_COMPANY_WORDS]
+        text = " ".join(core or words)
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+def company_similarity(left: str, right: str) -> float:
+    """Best 0..1 score between any name forms of two companies.
+
+    Short names such as "EY" or "GS" only count on an exact word match, since
+    a partial match would find them inside "Keyence" or "Signals".
+    """
+    best = 0.0
+    for a in company_names(left):
+        for b in company_names(right):
+            if min(len(a), len(b)) < _SHORT_NAME:
+                shorter, longer = sorted((a, b), key=len)
+                score = 1.0 if shorter in longer.split() else fuzz.ratio(a, b) / 100
+            else:
+                score = fuzz.WRatio(a, b) / 100
+            best = max(best, score)
+    # "TotheNew" and "To The New" differ only in spacing.
+    squash = lambda text: re.sub(r"[^a-z0-9]", "", text.casefold())  # noqa: E731
+    if squash(left) and squash(left) == squash(right):
+        return 1.0
+    return best
+
+
 def find_job_candidates(
     jobs: list[dict[str, Any]],
     company: str | None,
@@ -63,7 +129,7 @@ def find_job_candidates(
         company_score = 0.0
         acronym_match = False
         if company:
-            company_score = fuzz.WRatio(company, job_company) / 100
+            company_score = company_similarity(company, job_company)
             company_token = re.sub(r"[^A-Za-z0-9]", "", company).upper()
             acronym_match = (
                 len(company_token) >= 2
@@ -72,7 +138,7 @@ def find_job_candidates(
             if acronym_match:
                 company_score = 1.0
 
-        role_score = fuzz.WRatio(role, job_role) / 100 if role and job_role else 0.0
+        role_score = fuzz.WRatio(role, job_role, processor=utils.default_process) / 100 if role and job_role else 0.0
         if company and role:
             rank_score = 0.6 * company_score + 0.4 * role_score
             eligible = company_score >= 0.55 or acronym_match

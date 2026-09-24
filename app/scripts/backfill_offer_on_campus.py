@@ -84,6 +84,22 @@ class GatewayClient:
         self.completion_tokens = 0
         self.calls = 0
 
+    def _post(self, request: urllib.request.Request) -> dict[str, Any]:
+        """Send one request and parse the JSON reply within self.timeout seconds.
+
+        urlopen's timeout bounds each socket read, not the whole call, so an
+        upstream that trickles bytes can hold a worker forever. Reading in
+        chunks against a deadline caps the full request.
+        """
+        deadline = time.monotonic() + self.timeout
+        chunks: list[bytes] = []
+        with urllib.request.urlopen(request, timeout=min(60, self.timeout)) as response:
+            while chunk := response.read(65536):
+                chunks.append(chunk)
+                if time.monotonic() > deadline:
+                    raise TimeoutError(f"no complete reply within {self.timeout}s")
+        return json.loads(b"".join(chunks))
+
     def classify(self, prompt: str) -> tuple[str, str | None]:
         """Return the model's answer and its reasoning text, if the model sent any.
 
@@ -117,8 +133,7 @@ class GatewayClient:
                 self.url, data=payload, method="POST", headers=headers
             )
             try:
-                with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                    body = json.load(response)
+                body = self._post(request)
             except urllib.error.HTTPError as error:
                 detail = error.read().decode("utf-8", "replace")[:200]
                 last_error = GatewayError(f"HTTP {error.code}: {detail}")
@@ -243,7 +258,9 @@ def backfill_year(
 
         def handle(doc: dict[str, Any]) -> None:
             offer_id = str(doc["_id"])
-            if offer_id in state.done and not force:
+            # --force only widens the query; the resume log is per run, so an
+            # offer it already holds was finished by this run and is skipped.
+            if offer_id in state.done:
                 with lock:
                     counts["skipped"] += 1
                 return
